@@ -45,8 +45,19 @@ func setup(shared_pack: Pack) -> void:
 var _debug_drive: bool = OS.get_environment("RF_DEBUG_DRIVE") == "1"
 
 
+## Debug-only: RF_DEBUG_HEADING pins heading_deg to a fixed value every frame (speed
+## stays 0) so specific angles can be screenshotted directly, without depending on
+## drive-simulation timing. Never affects a normal run (env var unset).
+var _debug_heading: String = OS.get_environment("RF_DEBUG_HEADING")
+
+
 func _process(delta: float) -> void:
 	if pack == null or _frames.is_empty():
+		return
+
+	if _debug_heading != "":
+		heading_deg = float(_debug_heading)
+		queue_redraw()
 		return
 
 	var turn := -1.0 if _debug_drive else Input.get_axis("ui_left", "ui_right")
@@ -68,22 +79,32 @@ func _process(delta: float) -> void:
 ## Folds any heading into the one real quarter-turn (0-90 deg) this vehicle has actual
 ## art for, plus the horizontal/vertical mirror needed to reconstruct the other three
 ## quadrants. Returns [sprite_id, flip_h, flip_v].
+##
+## The four quadrants must mirror consistently around the two axes -- quadrant 2 is
+## quadrant 1 flipped left-right, quadrant 4 is quadrant 1 flipped top-bottom, and
+## quadrant 3 (both flips = a 180-degree point reflection) is quadrant 1 turned around.
+## An earlier version of this function got that pairing wrong (flipped the *base*
+## quadrant unnecessarily and left the last quadrant unflipped), which produced a
+## visibly wrong/discontinuous sprite as soon as the vehicle turned far enough to
+## cross a quadrant boundary -- exactly the "sprite looks very wrong after moving" bug.
 func _frame_for_heading(h: float) -> Array:
 	var a := fposmod(h, 360.0)
 	var flip_h := false
 	var flip_v := false
-	if a >= 270.0:
-		a = 360.0 - a
-	elif a >= 180.0:
-		a = a - 180.0
+	var quadrant_angle := a
+	if a <= 90.0:
+		quadrant_angle = a
+	elif a <= 180.0:
+		quadrant_angle = 180.0 - a
+		flip_h = true
+	elif a <= 270.0:
+		quadrant_angle = a - 180.0
 		flip_h = true
 		flip_v = true
-	elif a >= 90.0:
-		a = 180.0 - a
-		flip_h = true
 	else:
+		quadrant_angle = 360.0 - a
 		flip_v = true
-	var t := a / 90.0
+	var t := quadrant_angle / 90.0
 	var idx := int(round(t * (_frames.size() - 1)))
 	return [_frames[idx], flip_h, flip_v]
 
