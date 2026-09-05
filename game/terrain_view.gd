@@ -21,6 +21,8 @@ const POOL_COLOURS := {
 
 var pack: Pack
 var level: LevelData
+var vehicle: Vehicle
+var camera: Camera2D
 
 
 func _ready() -> void:
@@ -35,29 +37,54 @@ func _ready() -> void:
 		return
 
 	get_window().title = "Return Fire -- %s (%s)" % [level.level_name, level_id]
-	_fit_debug_camera()
+	_spawn_vehicle()
 	queue_redraw()
 
 	var screenshot_path := OS.get_environment("RF_DEBUG_SCREENSHOT")
 	if screenshot_path != "":
-		await get_tree().process_frame
-		await get_tree().process_frame
+		var wait_frames := 2
+		var wait_env := OS.get_environment("RF_DEBUG_SCREENSHOT_DELAY_FRAMES")
+		if wait_env != "":
+			wait_frames = int(wait_env)
+		for i in wait_frames:
+			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png(screenshot_path)
 		get_tree().quit()
 
 
-## Debug-only overview camera so the whole level is visible at once -- not the real
-## scrolling/split-screen camera (that's Phase 4 step 3), just enough to eyeball this
-## step's output.
-func _fit_debug_camera() -> void:
-	var map_px := Vector2(level.width, level.height) * pack.tile_size_px
-	var viewport_size := get_viewport_rect().size
-	var zoom_factor := minf(viewport_size.x / map_px.x, viewport_size.y / map_px.y)
-	var cam := Camera2D.new()
-	cam.zoom = Vector2.ONE * zoom_factor
-	cam.position = map_px * 0.5
-	add_child(cam)
-	cam.make_current()
+## Phase 4 step 2: spawn the player vehicle at the level's team-0 spawn point (falls
+## back to a whole-map overview if the level has none), with a camera that follows it.
+## Not the real scrolling/split-screen camera (Phase 4 step 3) -- just enough to make
+## movement visible and testable.
+func _spawn_vehicle() -> void:
+	var tile := pack.tile_size_px
+	camera = Camera2D.new()
+	add_child(camera)
+
+	if level.spawn_points.is_empty():
+		var map_px := Vector2(level.width, level.height) * tile
+		var viewport_size := get_viewport_rect().size
+		camera.zoom = Vector2.ONE * minf(viewport_size.x / map_px.x, viewport_size.y / map_px.y)
+		camera.position = map_px * 0.5
+		camera.make_current()
+		return
+
+	var sp: Dictionary = level.spawn_points[0]
+	vehicle = Vehicle.new()
+	vehicle.pack_path = pack_path
+	vehicle.team = "tan" if int(sp.get("team", 0)) == 0 else "green"
+	add_child(vehicle)
+	vehicle.setup(pack)
+	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
+
+	camera.zoom = Vector2.ONE * 2.0
+	camera.position = vehicle.position
+	camera.make_current()
+
+
+func _process(_delta: float) -> void:
+	if vehicle != null and camera != null:
+		camera.position = vehicle.position
 
 
 func _draw() -> void:
