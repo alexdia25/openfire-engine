@@ -60,7 +60,12 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		return
 
-	var turn := -1.0 if _debug_drive else Input.get_axis("ui_left", "ui_right")
+	var turn := 0.0
+	if _debug_drive:
+		var turn_env := OS.get_environment("RF_DEBUG_DRIVE_TURN")
+		turn = float(turn_env) if turn_env != "" else -1.0
+	else:
+		turn = Input.get_axis("ui_left", "ui_right")
 	heading_deg = fposmod(heading_deg + turn * TURN_RATE_DEG * delta, 360.0)
 
 	var thrust := 1.0 if _debug_drive else Input.get_axis("ui_down", "ui_up")

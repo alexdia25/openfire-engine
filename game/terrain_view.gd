@@ -52,10 +52,11 @@ func _ready() -> void:
 		get_tree().quit()
 
 
-## Phase 4 step 2: spawn the player vehicle at the level's team-0 spawn point (falls
-## back to a whole-map overview if the level has none), with a camera that follows it.
-## Not the real scrolling/split-screen camera (Phase 4 step 3) -- just enough to make
-## movement visible and testable.
+## Phase 4 step 3 (single-viewport half): spawn the player vehicle at the level's
+## team-0 spawn point (falls back to a whole-map overview if the level has none), with
+## a smoothed camera that follows it and never scrolls past the map edges. Split-screen
+## (multiple viewports, needed once the 4-player goal or a second local player exists,
+## section 4 item 7) is NOT done -- this is a single Camera2D/Viewport setup only.
 func _spawn_vehicle() -> void:
 	var tile := pack.tile_size_px
 	camera = Camera2D.new()
@@ -79,12 +80,27 @@ func _spawn_vehicle() -> void:
 
 	camera.zoom = Vector2.ONE * 2.0
 	camera.position = vehicle.position
+	# Never show past the map edge, and smooth the follow instead of snapping each frame --
+	# the two concrete, cheap parts of "camera, scrolling" (Phase 4 step 3) a single vehicle
+	# actually needs. limit_smoothed keeps the smoothing itself from overshooting past the
+	# same edges the hard limit enforces.
+	camera.limit_left = 0
+	camera.limit_top = 0
+	camera.limit_right = int(level.width * tile)
+	camera.limit_bottom = int(level.height * tile)
+	camera.limit_smoothed = true
+	camera.position_smoothing_enabled = true
+	camera.position_smoothing_speed = 6.0
 	camera.make_current()
 
 
 func _process(_delta: float) -> void:
 	if vehicle != null and camera != null:
 		camera.position = vehicle.position
+		if OS.get_environment("RF_DEBUG_CAMERA_LOG") == "1" and Engine.get_process_frames() % 30 == 0:
+			print("frame=%d vehicle_pos=%s camera_global=%s limits=[%d,%d,%d,%d]" % [
+				Engine.get_process_frames(), vehicle.position, camera.get_screen_center_position(),
+				camera.limit_left, camera.limit_top, camera.limit_right, camera.limit_bottom])
 
 
 func _draw() -> void:
