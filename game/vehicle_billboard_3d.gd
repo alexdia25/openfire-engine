@@ -36,7 +36,15 @@ const HEIGHT_PX := 10.0
 ## quadrant; adding a full heading_deg yaw on top of that would rotate it twice). This is
 ## exactly the trade this mode is testing -- real continuous 3D rotation of fewer source
 ## images, versus discrete image-swapping with no true rotation at all.
-enum QuadMode { BILLBOARD, GROUND_DECAL }
+##
+## "ground_decal_multi" (2026-09-06, follow-up) combines both ideas instead of choosing
+## between them: still a real continuous yaw (never Vehicle._frame_for_heading()'s flip
+## flags -- flip and yaw would still double-count exactly as above), but the *texture*
+## cycles through all 9 real per-heading frames using that same function's quadrant-folded
+## index, so whatever shading/perspective detail the original artist actually drew into each
+## of the 9 frames still shows up somewhere in the rotation, instead of one frame doing all
+## 360 degrees alone.
+enum QuadMode { BILLBOARD, GROUND_DECAL, GROUND_DECAL_MULTI }
 var quad_mode: QuadMode = QuadMode.BILLBOARD
 
 var vehicle: Vehicle
@@ -52,12 +60,14 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	var mode_env := OS.get_environment("RF_DEBUG_VEHICLE_QUAD_MODE")
 	if mode_env == "ground_decal":
 		quad_mode = QuadMode.GROUND_DECAL
+	elif mode_env == "ground_decal_multi":
+		quad_mode = QuadMode.GROUND_DECAL_MULTI
 
 	sprite = Sprite3D.new()
 	sprite.shaded = false  # pre-rendered flat art, not something to relight
 	sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST  # hard-edged pixel art
 	sprite.pixel_size = 1.0  # 1 texture pixel = 1 world unit, matching the flat scene's scale
-	if quad_mode == QuadMode.GROUND_DECAL:
+	if quad_mode != QuadMode.BILLBOARD:
 		sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 		# Sprite3D's un-billboarded plane stands vertical, facing -Z, by default -- tip it back
 		# 90 degrees around X so it lies flat in the XZ plane instead, matching the ground
@@ -73,7 +83,7 @@ func _process(_delta: float) -> void:
 	if vehicle == null:
 		return
 	global_position = Vector3(vehicle.position.x, HEIGHT_PX, vehicle.position.y)
-	if quad_mode == QuadMode.GROUND_DECAL:
+	if quad_mode != QuadMode.BILLBOARD:
 		# The real, continuous heading -- not vehicle.gd's discrete quadrant-flip selection
 		# (see the file header's "would double-count" note). Sign empirically matched against
 		# tracked.rotation_degrees.y in terrain_view_3d.gd's Phase 1 placeholder.
@@ -83,9 +93,11 @@ func _process(_delta: float) -> void:
 
 ## Re-reads Vehicle's current heading every call. In BILLBOARD mode this is the exact same
 ## [sprite_id, flip_h, flip_v] result the flat 2D scene's Vehicle._draw() already computes --
-## the only place this file touches vehicle art in that mode. In GROUND_DECAL mode it instead
-## always shows one canonical texture (the fullest, most head-on real frame available) and
-## lets the real 3D yaw set in _process() supply the rotation -- see the file header.
+## the only place this file touches vehicle art in that mode. GROUND_DECAL always shows one
+## canonical texture and lets the real 3D yaw set in _process() supply the rotation.
+## GROUND_DECAL_MULTI still gets its texture from _frame_for_heading(), but discards the flip
+## flags -- the real yaw already set in _process() is what makes it face the right way, so a
+## 2D flip on top would double-count the same rotation twice (see the file header).
 func _refresh() -> void:
 	if vehicle == null or vehicle.pack == null or vehicle._frames.is_empty():
 		return
@@ -95,6 +107,9 @@ func _refresh() -> void:
 	var flip_v := false
 	if quad_mode == QuadMode.GROUND_DECAL:
 		sprite_id = vehicle._frames[0]  # the fullest real frame, e.g. rotation.tan.01
+	elif quad_mode == QuadMode.GROUND_DECAL_MULTI:
+		var result := vehicle._frame_for_heading(vehicle.heading_deg)
+		sprite_id = result[0]  # flip_h/flip_v deliberately discarded -- see this function's header
 	else:
 		var result := vehicle._frame_for_heading(vehicle.heading_deg)
 		sprite_id = result[0]
