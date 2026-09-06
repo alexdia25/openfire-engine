@@ -1,19 +1,25 @@
 extends Node3D
-## Phases 1-3 of the rendering-migration plan (PORTING_PLAN.md section 2.2, section 4 item
-## 13): the new 3D scene, built *alongside* the existing flat game/terrain_view.gd (which
-## keeps working unchanged -- this file does not replace it yet, per the plan's own "keep
-## every step playable" rule). A Camera3D at the real, RE-confirmed fixed tilt (section 1.10
-## point 6 -- exactly 45 degrees, hardcoded once in RFIRE.BIN and never rewritten) translates
-## in X/Z to follow a real Vehicle (Phase 3 -- game/vehicle_billboard_3d.gd renders it as a
-## billboard Sprite3D, reusing Vehicle._frame_for_heading() unchanged), edge-clamped to the
-## level's real bounds and smoothed instead of snapping, over real baked terrain art
-## (Phase 2 -- game/terrain_tile_renderer.gd).
+## Phases 1-4 of the rendering-migration plan (PORTING_PLAN.md section 2.2, section 4 item
+## 13): the new 3D scene. As of Phase 4 (2026-09-06) it is a complete rendering front-end for
+## a match -- terrain (Phase 2), vehicles (Phase 3), and now projectiles/target-pool markers/
+## the flag marker (Phase 4) -- all driven by the same game/match_controller.gd the flat 2D
+## scene (game/terrain_view.gd) uses, so gameplay rules can't drift between the two front-ends.
+## A Camera3D at the real, RE-confirmed fixed tilt (section 1.10 point 6 -- exactly 45 degrees,
+## hardcoded once in RFIRE.BIN and never rewritten) translates in X/Z to follow the player
+## Vehicle, edge-clamped to the level's real bounds and smoothed instead of snapping, over real
+## baked terrain art.
 ##
-## Deliberately NOT here yet (later phases, not gaps in this one):
-## - Projectiles, target/pool markers, the flag marker. Phase 4.
+## Per the "Superseded rule (2026-09-06, user direction)" in PORTING_PLAN.md section 2.2, the
+## flat 2D scene no longer has to be kept working step-for-step while this one catches up --
+## this file's Phase 4 completion is what finally makes game/terrain_view.gd/.tscn retirable.
+##
+## Deliberately NOT here yet:
 ## - The exact effective height/FOV. Section 1.10 point 6 explicitly left this for
 ##   screenshot-matching once Phase 2 has real terrain art to match against -- camera_height_px
 ##   below is a reasonable placeholder for this phase's own verification, not a traced value.
+## - Split-screen / 4-player (section 4 item 7); win/lose declaration and flag pickup/carry
+##   (section 4 item 1) -- MatchController only implements the flag-spawn *trigger*, same as
+##   the flat 2D scene always has.
 ##
 ## Degrees of freedom (user direction, 2026-09-06): tilt and zoom (height) are exposed as
 ## adjustable properties, not baked-in constants, so a future debug control or gameplay need
@@ -49,8 +55,9 @@ const CAMERA_SMOOTHING_SPEED := 6.0
 var pack: Pack
 var level: LevelData
 var camera: Camera3D
-var vehicle: Vehicle
-var billboard: VehicleBillboard3D
+var controller: MatchController
+var billboard: VehicleBillboard3D             ## player vehicle's 3D presentation
+var _enemy_billboards: Array = []             ## one VehicleBillboard3D per controller.enemy_vehicles
 var _map_size_px: Vector2 = Vector2.ZERO
 
 
@@ -79,7 +86,7 @@ func _ready() -> void:
 		camera_height_px = float(height_env)
 
 	_build_terrain_ground()
-	_spawn_vehicle()
+	_spawn_match()
 	_build_light()
 	_build_camera()
 
@@ -142,31 +149,48 @@ func _build_terrain_ground() -> void:
 	add_child(ground)
 
 
-## Phase 3 of the rendering-migration plan (section 2.2, section 4 item 13): a real,
-## unmodified Vehicle (game/vehicle.gd -- movement, input, firing, and above all
-## _frame_for_heading()'s quadrant-mirror frame selection, document 25) driving a real
-## billboard Sprite3D (game/vehicle_billboard_3d.gd) instead of Phase 1's placeholder box.
-## Vehicle keeps running exactly as it does in the flat 2D scene -- same RF_DEBUG_DRIVE,
-## RF_DEBUG_HEADING, RF_DEBUG_FIRE hooks, same physics -- just with its own _draw() output
-## suppressed (VehicleBillboard3D.setup() sets Vehicle.visible = false) since the billboard
-## is what actually appears on screen. Spawns at the level's team-0 point, falling back to
-## map centre if the level has none, matching terrain_view.gd's real Vehicle spawn exactly.
-func _spawn_vehicle() -> void:
-	vehicle = Vehicle.new()
-	vehicle.pack_path = pack_path
-	vehicle.team = "tan"
-	add_child(vehicle)
-	vehicle.setup(pack)
+## Phases 3-4 of the rendering-migration plan (section 2.2, section 4 item 13): a real,
+## unmodified MatchController (game/match_controller.gd -- the same gameplay logic
+## game/terrain_view.gd's flat 2D scene uses, extracted so the two front-ends can't drift)
+## drives vehicle/enemy spawn, firing, target pools, and the flag-spawn trigger. This function
+## pairs each real gameplay node MatchController spawns (or signals) with its 3D presentation:
+## Vehicle/EnemyVehicle -> VehicleBillboard3D (Phase 3, document 30/32), Projectile ->
+## ProjectileBillboard3D, FlagMarker -> FlagMarker3D (both Phase 4). If a level has no spawn
+## points at all, controller.vehicle stays null and nothing here spawns a billboard for it --
+## matching terrain_view.gd's own "no spawn points" fallback.
+func _spawn_match() -> void:
+	controller = MatchController.new()
+	add_child(controller)
+	controller.setup(pack, level, pack_path, self)
+	controller.projectile_spawned.connect(_on_projectile_spawned)
+	controller.flag_spawned.connect(_on_flag_spawned)
 
-	var spawn_px := _map_size_px * 0.5
-	if not level.spawn_points.is_empty():
-		var sp: Dictionary = level.spawn_points[0]
-		spawn_px = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * pack.tile_size_px
-	vehicle.position = spawn_px
+	if controller.vehicle != null:
+		billboard = VehicleBillboard3D.new()
+		add_child(billboard)
+		billboard.setup(controller.vehicle, pack)
 
-	billboard = VehicleBillboard3D.new()
-	add_child(billboard)
-	billboard.setup(vehicle, pack)
+	for enemy in controller.enemy_vehicles:
+		var enemy_billboard := VehicleBillboard3D.new()
+		add_child(enemy_billboard)
+		enemy_billboard.setup(enemy, pack)
+		_enemy_billboards.append(enemy_billboard)
+
+	var overlay := DebugMarkerOverlay3D.new()
+	add_child(overlay)
+	overlay.setup(pack, level, controller)
+
+
+func _on_projectile_spawned(projectile: Projectile) -> void:
+	var pb := ProjectileBillboard3D.new()
+	add_child(pb)
+	pb.setup(projectile)
+
+
+func _on_flag_spawned(flag: FlagMarker, _pool_id: String) -> void:
+	var fb := FlagMarker3D.new()
+	add_child(fb)
+	fb.setup(flag, pack)
 
 
 ## Placeholder-only stand-in for real level lighting (not an RE finding -- RFIRE.BIN's own
@@ -206,7 +230,17 @@ func _apply_tilt() -> void:
 
 
 func _place_camera_immediately() -> void:
-	camera.position = _camera_target_position(vehicle.position)
+	camera.position = _camera_target_position(_camera_track_position())
+
+
+## The point the camera follows: the player vehicle's real position, or -- matching
+## terrain_view.gd's own "no spawn points" fallback -- the map centre if MatchController never
+## spawned one (RFMAP001, the default level, always has spawn points; this only matters for a
+## level file that doesn't).
+func _camera_track_position() -> Vector2:
+	if controller != null and controller.vehicle != null:
+		return controller.vehicle.position
+	return _map_size_px * 0.5
 
 
 ## Same X/Z position a fully-smoothed camera converges to for a given tracked-point position:
@@ -229,16 +263,17 @@ func _camera_target_position(look_at_px: Vector2) -> Vector3:
 
 
 func _process(delta: float) -> void:
-	if vehicle == null or camera == null:
+	if camera == null:
 		return
 
 	# Vehicle drives its own movement/input/firing entirely (its _process() runs
 	# independently, same as in the flat 2D scene) -- this scene only needs to read the
 	# result, exactly like terrain_view.gd's own Camera2D follow already does.
-	var target_cam_pos := _camera_target_position(vehicle.position)
+	var track_pos := _camera_track_position()
+	var target_cam_pos := _camera_target_position(track_pos)
 	camera.position = camera.position.lerp(target_cam_pos, 1.0 - exp(-CAMERA_SMOOTHING_SPEED * delta))
 	_apply_tilt()
 
 	if OS.get_environment("RF_DEBUG_CAMERA_LOG") == "1" and Engine.get_process_frames() % 30 == 0:
 		print("frame=%d vehicle_pos=%s camera_pos=%s map_size=%s" % [
-			Engine.get_process_frames(), vehicle.position, camera.position, _map_size_px])
+			Engine.get_process_frames(), track_pos, camera.position, _map_size_px])

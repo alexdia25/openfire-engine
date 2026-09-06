@@ -3,44 +3,24 @@ extends Node2D
 ## markers. Everything is read through Pack/LevelData -- never build/ or *.RFM/*.CAR
 ## directly (PORTING_PLAN.md section 2.4). Replaces the placeholder boot scene until
 ## a real menu (section 2.6) picks a pack + level instead of these two exports.
-
-## Team colours per PORTING_PLAN.md section 4 item 5 (user-confirmed 2026-09-06,
-## cross-checked against art): team 0 is tan, team 1 is green. The actual colouring
-## *mechanism* is still open -- these are just marker colours for this debug view.
-const TEAM_COLOURS := {
-	0: Color(0.82, 0.71, 0.55),
-	1: Color(0.30, 0.55, 0.30),
-}
-const POOL_COLOURS := {
-	"a": Color.CYAN,
-	"b": Color.MAGENTA,
-}
-
-## Phase 4 step 7 (first pass): which marker.capture_flag.<colour> family a pool spawns from
-## when it goes silent (PORTING_PLAN.md section 4 item 1) -- UNCONFIRMED which, if either,
-## physical pool a real team's flag actually belongs to (game/flag_marker.gd's docstring),
-## an arbitrary but fixed choice so the two pools are visually distinguishable.
-const POOL_FLAG_COLOURS := {
-	"a": "red",
-	"b": "green",
-}
-
-## Phase 4 step 5 (first pass): how close a projectile must get to an active target's tile
-## centre to destroy it. RFIRE.BIN's real hit-detection geometry (and target hitpoints --
-## these targets die in one hit here) haven't been traced (Phase 3 backlog: "Building and
-## target hitpoints, destruction rules") -- a placeholder, not a reverse-engineered value.
-const TARGET_HIT_RADIUS_PX := 24.0
+##
+## Superseded rule (2026-09-06, user direction; see PORTING_PLAN.md section 2.2 and
+## docs/process/NEXT_STEPS.md): this scene is no longer required to track every future
+## 3D-side change -- it's left as-is, functional, until the rendering-migration plan's Phase 4
+## (this file) finishes, then gets retired as a whole. All of the actual gameplay logic below
+## now lives in game/match_controller.gd (extracted so game/terrain_view_3d.gd can reuse it
+## unchanged, the same "extract, don't duplicate" pattern as the tile renderer and vehicle
+## billboard) -- this file is now just that controller's original 2D presentation.
 
 @export var pack_path: String = "res://packs/original_pc"
 @export var level_id: String = "RFMAP001"
 
 var pack: Pack
 var level: LevelData
-var vehicle: Vehicle
 var camera: Camera2D
 var _terrain_tiles: TerrainTileRenderer
-var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
-var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
+var _markers: DebugMarkerRenderer2D
+var controller: MatchController
 
 
 func _ready() -> void:
@@ -64,9 +44,16 @@ func _ready() -> void:
 	_terrain_tiles.z_index = -1
 	add_child(_terrain_tiles)
 	_terrain_tiles.setup(pack, level)
-	_spawn_vehicle()
-	_setup_target_pools()
-	queue_redraw()
+
+	controller = MatchController.new()
+	add_child(controller)
+	controller.setup(pack, level, pack_path, self)
+
+	_markers = DebugMarkerRenderer2D.new()
+	add_child(_markers)
+	_markers.setup(pack, level, controller)
+
+	_setup_camera()
 
 	var screenshot_path := OS.get_environment("RF_DEBUG_SCREENSHOT")
 	if screenshot_path != "":
@@ -80,17 +67,17 @@ func _ready() -> void:
 		get_tree().quit()
 
 
-## Phase 4 step 3 (single-viewport half): spawn the player vehicle at the level's
-## team-0 spawn point (falls back to a whole-map overview if the level has none), with
-## a smoothed camera that follows it and never scrolls past the map edges. Split-screen
-## (multiple viewports, needed once the 4-player goal or a second local player exists,
-## section 4 item 7) is NOT done -- this is a single Camera2D/Viewport setup only.
-func _spawn_vehicle() -> void:
+## Phase 4 step 3 (single-viewport half): a smoothed camera that follows the player vehicle
+## (spawned by MatchController) and never scrolls past the map edges, or -- if the level has
+## no spawn points at all -- a fixed whole-map overview instead. Split-screen (multiple
+## viewports, needed once the 4-player goal or a second local player exists, section 4 item 7)
+## is NOT done -- this is a single Camera2D/Viewport setup only.
+func _setup_camera() -> void:
 	var tile := pack.tile_size_px
 	camera = Camera2D.new()
 	add_child(camera)
 
-	if level.spawn_points.is_empty():
+	if controller.vehicle == null:
 		var map_px := Vector2(level.width, level.height) * tile
 		var viewport_size := get_viewport_rect().size
 		camera.zoom = Vector2.ONE * minf(viewport_size.x / map_px.x, viewport_size.y / map_px.y)
@@ -98,18 +85,8 @@ func _spawn_vehicle() -> void:
 		camera.make_current()
 		return
 
-	var sp: Dictionary = level.spawn_points[0]
-	vehicle = Vehicle.new()
-	vehicle.pack_path = pack_path
-	vehicle.team = "tan" if int(sp.get("team", 0)) == 0 else "green"
-	add_child(vehicle)
-	vehicle.setup(pack)
-	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
-	vehicle.fired.connect(_on_vehicle_fired)
-	_spawn_enemy_vehicles(int(sp.get("team", 0)))
-
 	camera.zoom = Vector2.ONE * 2.0
-	camera.position = vehicle.position
+	camera.position = controller.vehicle.position
 	# Never show past the map edge, and smooth the follow instead of snapping each frame --
 	# the two concrete, cheap parts of "camera, scrolling" (Phase 4 step 3) a single vehicle
 	# actually needs. limit_smoothed keeps the smoothing itself from overshooting past the
@@ -124,148 +101,10 @@ func _spawn_vehicle() -> void:
 	camera.make_current()
 
 
-## Phase 4 step 6 (first pass): spawn an EnemyVehicle at every spawn point whose team
-## differs from the player's -- only 2-player levels have one (the "0x4D" spawn tile only
-## appears in 2PLAYER files, section 1.5), so 1-player levels correctly spawn nothing extra.
-## The enemy targets the player vehicle directly; no other targeting logic exists yet.
-var enemy_vehicles: Array = []
-
-
-func _spawn_enemy_vehicles(player_team: int) -> void:
-	var tile := pack.tile_size_px
-	for sp in level.spawn_points:
-		if int(sp.get("team", 0)) == player_team:
-			continue
-		var enemy := EnemyVehicle.new()
-		enemy.pack_path = pack_path
-		enemy.team = "tan" if int(sp.get("team", 0)) == 0 else "green"
-		add_child(enemy)
-		enemy.setup(pack)
-		enemy.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
-		enemy.target = vehicle
-		enemy.fired.connect(_on_vehicle_fired)
-		enemy_vehicles.append(enemy)
-
-
-## Phase 4 step 4 (first pass): spawn a projectile as a sibling of the vehicle -- not a
-## child of it -- so its transform is independent of the vehicle's own position/rotation
-## once launched.
-func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: String) -> void:
-	var p := Projectile.new()
-	add_child(p)
-	p.team = team
-	p.heading_deg = heading_deg
-	p.global_position = muzzle_position
-	_projectiles.append(p)
-
-
-## Phase 4 step 5 (first pass): one TargetPool per pool id in the level file (section 1.5's
-## pool A / pool B), each picking its own initial active target at construction -- matching
-## RFIRE.BIN doing this once, at level load, for every non-empty pool.
-func _setup_target_pools() -> void:
-	for pool_id in level.candidate_pools:
-		var positions: Array = []
-		for c in level.candidate_pools[pool_id]:
-			positions.append(Vector2i(int(c.get("x", 0)), int(c.get("y", 0))))
-		pools[pool_id] = TargetPool.new(positions)
-		if OS.get_environment("RF_DEBUG_TARGET_LOG") == "1":
-			var pool: TargetPool = pools[pool_id]
-			print("pool=%s candidates=%d budget=%d active=%s" % [
-				pool_id, pool.candidates.size(), pool.budget, pool.get_active_position()])
-
-
-## Phase 4 step 5 (first pass): a projectile within TARGET_HIT_RADIUS_PX of a pool's active
-## target destroys it, triggering TargetPool's replacement-or-go-silent logic. No collision
-## with terrain or the vehicle itself yet -- just the one interaction step 5 needs to prove:
-## the candidate-pool mechanism actually drives what a projectile can destroy.
-func _check_target_hits() -> void:
-	var tile := pack.tile_size_px
-	var consumed := []  # queue_free() is deferred -- don't let one projectile hit two pools this frame
-	for pool_id in pools:
-		var pool: TargetPool = pools[pool_id]
-		var active_tile = pool.get_active_position()
-		if active_tile == null:
-			continue
-		var active_px: Vector2 = (Vector2(active_tile) + Vector2(0.5, 0.5)) * tile
-		for p in _projectiles:
-			if not is_instance_valid(p) or consumed.has(p):
-				continue
-			if p.global_position.distance_to(active_px) <= TARGET_HIT_RADIUS_PX:
-				consumed.append(p)
-				p.queue_free()
-				var reactivated := pool.destroy_active()
-				if OS.get_environment("RF_DEBUG_TARGET_LOG") == "1":
-					print("frame=%d pool=%s destroyed tile=%s budget=%d new_active=%s" % [
-						Engine.get_process_frames(), pool_id, active_tile, pool.budget,
-						pool.get_active_position() if reactivated else "none (silent)"])
-				if not reactivated:
-					# Phase 4 step 7 (first pass): the pool just went silent for good --
-					# RFIRE.BIN's FUN_00432710 falls through to spawn its dedicated flag
-					# object in exactly this case (section 4 item 1). destroy_active() only
-					# ever returns false once per pool (it stays silent afterward), matching
-					# the real function's own guard against spawning a second flag while
-					# one's already tracked.
-					_spawn_flag(pool_id, active_px)
-				queue_redraw()
-				break  # this target is gone; don't test the same projectile against it again
-
-
-## Phase 4 step 7 (first pass): spawns the flag-marker fallthrough (see the call site's
-## comment and game/flag_marker.gd's docstring) at the position of the pool's last-destroyed
-## target. Purely visual -- see flag_marker.gd for exactly what this isn't yet.
-func _spawn_flag(pool_id: String, at_position: Vector2) -> void:
-	var flag := FlagMarker.new()
-	flag.setup(pack, POOL_FLAG_COLOURS.get(pool_id, "red"))
-	flag.position = at_position
-	add_child(flag)
-	if OS.get_environment("RF_DEBUG_TARGET_LOG") == "1":
-		print("frame=%d pool=%s FLAG SPAWNED at=%s" % [
-			Engine.get_process_frames(), pool_id, at_position])
-
-
 func _process(_delta: float) -> void:
-	_projectiles = _projectiles.filter(func(p): return is_instance_valid(p))
-	_check_target_hits()
-
-	if vehicle != null and camera != null:
-		camera.position = vehicle.position
+	if controller != null and controller.vehicle != null and camera != null:
+		camera.position = controller.vehicle.position
 		if OS.get_environment("RF_DEBUG_CAMERA_LOG") == "1" and Engine.get_process_frames() % 30 == 0:
 			print("frame=%d vehicle_pos=%s camera_global=%s limits=[%d,%d,%d,%d]" % [
-				Engine.get_process_frames(), vehicle.position, camera.get_screen_center_position(),
+				Engine.get_process_frames(), controller.vehicle.position, camera.get_screen_center_position(),
 				camera.limit_left, camera.limit_top, camera.limit_right, camera.limit_bottom])
-
-
-func _draw() -> void:
-	if pack == null or level == null:
-		return
-
-	var tile := pack.tile_size_px
-
-	# Terrain tiles themselves are drawn by _terrain_tiles (game/terrain_tile_renderer.gd,
-	# Phase 2 of the rendering-migration plan, section 2.2) -- everything below this point is
-	# a gameplay/debug overlay, not terrain.
-	for sp in level.spawn_points:
-		var team := int(sp.get("team", 0))
-		var colour: Color = TEAM_COLOURS.get(team, Color.WHITE)
-		var centre := Vector2(float(sp.get("x", 0)) + 0.5, float(sp.get("y", 0)) + 0.5) * tile
-		draw_circle(centre, tile * 0.6, colour)
-
-	# Phase 4 step 5 (first pass): intact-but-not-active candidates as a thin hollow outline
-	# (unchanged from step 1), a destroyed-and-not-replaced candidate as a dim X (the pool
-	# spent that slot and, once its budget/candidates run out, will never revisit it), and
-	# the pool's one currently-live target as a bright filled square -- the thing a
-	# projectile can actually destroy right now.
-	for pool_id in pools:
-		var colour: Color = POOL_COLOURS.get(pool_id, Color.WHITE)
-		var pool: TargetPool = pools[pool_id]
-		for i in pool.candidates.size():
-			var top_left := Vector2(pool.candidates[i]) * tile
-			var rect := Rect2(top_left, Vector2(tile, tile))
-			if i == pool.active_index:
-				draw_rect(rect, colour, true)
-			elif pool.intact[i]:
-				draw_rect(rect, colour, false, 2.0)
-			else:
-				var dim := Color(colour, 0.35)
-				draw_line(rect.position, rect.position + rect.size, dim, 2.0)
-				draw_line(rect.position + Vector2(rect.size.x, 0), rect.position + Vector2(0, rect.size.y), dim, 2.0)
