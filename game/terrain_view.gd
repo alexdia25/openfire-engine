@@ -16,6 +16,12 @@ const POOL_COLOURS := {
 	"b": Color.MAGENTA,
 }
 
+## Phase 4 step 5 (first pass): how close a projectile must get to an active target's tile
+## centre to destroy it. RFIRE.BIN's real hit-detection geometry (and target hitpoints --
+## these targets die in one hit here) haven't been traced (Phase 3 backlog: "Building and
+## target hitpoints, destruction rules") -- a placeholder, not a reverse-engineered value.
+const TARGET_HIT_RADIUS_PX := 24.0
+
 @export var pack_path: String = "res://packs/original_pc"
 @export var level_id: String = "RFMAP001"
 
@@ -23,6 +29,8 @@ var pack: Pack
 var level: LevelData
 var vehicle: Vehicle
 var camera: Camera2D
+var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
+var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
 
 
 func _ready() -> void:
@@ -38,6 +46,7 @@ func _ready() -> void:
 
 	get_window().title = "Return Fire -- %s (%s)" % [level.level_name, level_id]
 	_spawn_vehicle()
+	_setup_target_pools()
 	queue_redraw()
 
 	var screenshot_path := OS.get_environment("RF_DEBUG_SCREENSHOT")
@@ -104,9 +113,56 @@ func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: Strin
 	p.team = team
 	p.heading_deg = heading_deg
 	p.global_position = muzzle_position
+	_projectiles.append(p)
+
+
+## Phase 4 step 5 (first pass): one TargetPool per pool id in the level file (section 1.5's
+## pool A / pool B), each picking its own initial active target at construction -- matching
+## RFIRE.BIN doing this once, at level load, for every non-empty pool.
+func _setup_target_pools() -> void:
+	for pool_id in level.candidate_pools:
+		var positions: Array = []
+		for c in level.candidate_pools[pool_id]:
+			positions.append(Vector2i(int(c.get("x", 0)), int(c.get("y", 0))))
+		pools[pool_id] = TargetPool.new(positions)
+		if OS.get_environment("RF_DEBUG_TARGET_LOG") == "1":
+			var pool: TargetPool = pools[pool_id]
+			print("pool=%s candidates=%d budget=%d active=%s" % [
+				pool_id, pool.candidates.size(), pool.budget, pool.get_active_position()])
+
+
+## Phase 4 step 5 (first pass): a projectile within TARGET_HIT_RADIUS_PX of a pool's active
+## target destroys it, triggering TargetPool's replacement-or-go-silent logic. No collision
+## with terrain or the vehicle itself yet -- just the one interaction step 5 needs to prove:
+## the candidate-pool mechanism actually drives what a projectile can destroy.
+func _check_target_hits() -> void:
+	var tile := pack.tile_size_px
+	var consumed := []  # queue_free() is deferred -- don't let one projectile hit two pools this frame
+	for pool_id in pools:
+		var pool: TargetPool = pools[pool_id]
+		var active_tile = pool.get_active_position()
+		if active_tile == null:
+			continue
+		var active_px: Vector2 = (Vector2(active_tile) + Vector2(0.5, 0.5)) * tile
+		for p in _projectiles:
+			if not is_instance_valid(p) or consumed.has(p):
+				continue
+			if p.global_position.distance_to(active_px) <= TARGET_HIT_RADIUS_PX:
+				consumed.append(p)
+				p.queue_free()
+				var reactivated := pool.destroy_active()
+				if OS.get_environment("RF_DEBUG_TARGET_LOG") == "1":
+					print("frame=%d pool=%s destroyed tile=%s budget=%d new_active=%s" % [
+						Engine.get_process_frames(), pool_id, active_tile, pool.budget,
+						pool.get_active_position() if reactivated else "none (silent)"])
+				queue_redraw()
+				break  # this target is gone; don't test the same projectile against it again
 
 
 func _process(_delta: float) -> void:
+	_projectiles = _projectiles.filter(func(p): return is_instance_valid(p))
+	_check_target_hits()
+
 	if vehicle != null and camera != null:
 		camera.position = vehicle.position
 		if OS.get_environment("RF_DEBUG_CAMERA_LOG") == "1" and Engine.get_process_frames() % 30 == 0:
@@ -142,8 +198,22 @@ func _draw() -> void:
 		var centre := Vector2(float(sp.get("x", 0)) + 0.5, float(sp.get("y", 0)) + 0.5) * tile
 		draw_circle(centre, tile * 0.6, colour)
 
-	for pool_id in level.candidate_pools:
+	# Phase 4 step 5 (first pass): intact-but-not-active candidates as a thin hollow outline
+	# (unchanged from step 1), a destroyed-and-not-replaced candidate as a dim X (the pool
+	# spent that slot and, once its budget/candidates run out, will never revisit it), and
+	# the pool's one currently-live target as a bright filled square -- the thing a
+	# projectile can actually destroy right now.
+	for pool_id in pools:
 		var colour: Color = POOL_COLOURS.get(pool_id, Color.WHITE)
-		for c in level.candidate_pools[pool_id]:
-			var top_left := Vector2(float(c.get("x", 0)), float(c.get("y", 0))) * tile
-			draw_rect(Rect2(top_left, Vector2(tile, tile)), colour, false, 2.0)
+		var pool: TargetPool = pools[pool_id]
+		for i in pool.candidates.size():
+			var top_left := Vector2(pool.candidates[i]) * tile
+			var rect := Rect2(top_left, Vector2(tile, tile))
+			if i == pool.active_index:
+				draw_rect(rect, colour, true)
+			elif pool.intact[i]:
+				draw_rect(rect, colour, false, 2.0)
+			else:
+				var dim := Color(colour, 0.35)
+				draw_line(rect.position, rect.position + rect.size, dim, 2.0)
+				draw_line(rect.position + Vector2(rect.size.x, 0), rect.position + Vector2(0, rect.size.y), dim, 2.0)
