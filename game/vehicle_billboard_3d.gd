@@ -20,6 +20,25 @@ extends Node3D
 ## billboard quad doesn't clip into the ground plane.
 const HEIGHT_PX := 10.0
 
+## Prototype (2026-09-06, user-directed): tests whether the "90/270 degree frames look like
+## disconnected little triangles" complaint is a rendering-technique gap rather than missing
+## art. RFIRE.BIN's own vehicle rendering (section 1.10 points 3-4) projects real 3D corner
+## points and warps a texture onto the resulting quad -- our billboard mode instead always
+## faces the camera dead-on, which never lets the camera's own 45-degree tilt foreshorten the
+## art the way it foreshortens everything else in this scene (terrain, the ground plane).
+## "ground_decal" mode tests the cheap, Godot-native version of that idea: lay the textured
+## quad flat (like a decal on the ground, the same orientation the terrain plane already uses)
+## and give it a *real* Node3D yaw matching the vehicle's heading, instead of billboarding --
+## Godot's own camera then foreshortens it exactly like everything else, with no hand-ported
+## projection math. Deliberately uses ONE canonical texture rotated continuously, not
+## Vehicle._frame_for_heading()'s discrete quadrant-flip selection: the two rotation
+## mechanisms would double-count (the flip logic already reorients content for its own
+## quadrant; adding a full heading_deg yaw on top of that would rotate it twice). This is
+## exactly the trade this mode is testing -- real continuous 3D rotation of fewer source
+## images, versus discrete image-swapping with no true rotation at all.
+enum QuadMode { BILLBOARD, GROUND_DECAL }
+var quad_mode: QuadMode = QuadMode.BILLBOARD
+
 var vehicle: Vehicle
 var pack: Pack
 var sprite: Sprite3D
@@ -30,11 +49,22 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	pack = shared_pack
 	vehicle.visible = false  # logic only -- see file header
 
+	var mode_env := OS.get_environment("RF_DEBUG_VEHICLE_QUAD_MODE")
+	if mode_env == "ground_decal":
+		quad_mode = QuadMode.GROUND_DECAL
+
 	sprite = Sprite3D.new()
-	sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	sprite.shaded = false  # pre-rendered flat art, not something to relight
 	sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST  # hard-edged pixel art
 	sprite.pixel_size = 1.0  # 1 texture pixel = 1 world unit, matching the flat scene's scale
+	if quad_mode == QuadMode.GROUND_DECAL:
+		sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+		# Sprite3D's un-billboarded plane stands vertical, facing -Z, by default -- tip it back
+		# 90 degrees around X so it lies flat in the XZ plane instead, matching the ground
+		# plane's own orientation.
+		sprite.rotation_degrees.x = -90.0
+	else:
+		sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	add_child(sprite)
 	_refresh()
 
@@ -43,19 +73,33 @@ func _process(_delta: float) -> void:
 	if vehicle == null:
 		return
 	global_position = Vector3(vehicle.position.x, HEIGHT_PX, vehicle.position.y)
+	if quad_mode == QuadMode.GROUND_DECAL:
+		# The real, continuous heading -- not vehicle.gd's discrete quadrant-flip selection
+		# (see the file header's "would double-count" note). Sign empirically matched against
+		# tracked.rotation_degrees.y in terrain_view_3d.gd's Phase 1 placeholder.
+		rotation_degrees.y = -vehicle.heading_deg
 	_refresh()
 
 
-## Re-reads Vehicle's current heading through its own, unmodified frame-selection method every
-## call -- this is the one and only place this file touches vehicle art, and it's the exact
-## same [sprite_id, flip_h, flip_v] result the flat 2D scene's Vehicle._draw() already computes.
+## Re-reads Vehicle's current heading every call. In BILLBOARD mode this is the exact same
+## [sprite_id, flip_h, flip_v] result the flat 2D scene's Vehicle._draw() already computes --
+## the only place this file touches vehicle art in that mode. In GROUND_DECAL mode it instead
+## always shows one canonical texture (the fullest, most head-on real frame available) and
+## lets the real 3D yaw set in _process() supply the rotation -- see the file header.
 func _refresh() -> void:
 	if vehicle == null or vehicle.pack == null or vehicle._frames.is_empty():
 		return
-	var result := vehicle._frame_for_heading(vehicle.heading_deg)
-	var sprite_id: String = result[0]
-	var flip_h: bool = result[1]
-	var flip_v: bool = result[2]
+
+	var sprite_id: String
+	var flip_h := false
+	var flip_v := false
+	if quad_mode == QuadMode.GROUND_DECAL:
+		sprite_id = vehicle._frames[0]  # the fullest real frame, e.g. rotation.tan.01
+	else:
+		var result := vehicle._frame_for_heading(vehicle.heading_deg)
+		sprite_id = result[0]
+		flip_h = result[1]
+		flip_v = result[2]
 
 	var s := pack.get_sprite(sprite_id)
 	if s.is_empty():
