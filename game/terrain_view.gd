@@ -1,16 +1,27 @@
 extends Node2D
-## Phase 4 step 1 proof: load a pack, render one level's terrain + spawn/candidate
-## markers. Everything is read through Pack/LevelData -- never build/ or *.RFM/*.CAR
-## directly (PORTING_PLAN.md section 2.4). Replaces the placeholder boot scene until
-## a real menu (section 2.6) picks a pack + level instead of these two exports.
+## SUPERSEDED (2026-09-06), kept only as a historical/debug reference -- see
+## game/terrain_view_3d.gd, the project's real rendering front-end (`project.godot`'s
+## run/main_scene points at it, not this file). Same "mark superseded rather than delete"
+## precedent this project already set with tools/rfcel.py: the code below is left intact and
+## still runs (load it directly by path, res://game/terrain_view.tscn, to use it), it just
+## won't be maintained or re-verified against future gameplay/rendering changes.
 ##
-## Superseded rule (2026-09-06, user direction; see PORTING_PLAN.md section 2.2 and
-## docs/process/NEXT_STEPS.md): this scene is no longer required to track every future
-## 3D-side change -- it's left as-is, functional, until the rendering-migration plan's Phase 4
-## (this file) finishes, then gets retired as a whole. All of the actual gameplay logic below
-## now lives in game/match_controller.gd (extracted so game/terrain_view_3d.gd can reuse it
-## unchanged, the same "extract, don't duplicate" pattern as the tile renderer and vehicle
-## billboard) -- this file is now just that controller's original 2D presentation.
+## Why this file existed: Phase 4 step 1 proof that a real level's terrain + spawn/candidate
+## markers could render at all, reading everything through Pack/LevelData -- never build/ or
+## *.RFM/*.CAR directly (PORTING_PLAN.md section 2.4). It grew into the project's only playable
+## scene through Phase 4 steps 2-7 (vehicle, camera, weapons, targets, AI, the flag trigger)
+## before the rendering-migration plan (section 2.2) replaced flat top-down 2D drawing with a
+## real perspective Camera3D -- terrain, vehicles, projectiles, and markers all rendered the
+## same way RFIRE.BIN itself does it (section 1.10), not a simplification this project chose.
+## That migration's Phase 4 (game/terrain_view_3d.gd, docs/process/33) finished the last piece
+## (projectiles/target-pool markers/the flag), at which point this file had nothing left to
+## offer that the 3D scene didn't -- the exact condition the "Superseded rule (2026-09-06, user
+## direction)" in PORTING_PLAN.md section 2.2 set for retiring it.
+##
+## None of the actual gameplay logic lived here even before this file was superseded -- it was
+## extracted into game/match_controller.gd specifically so game/terrain_view_3d.gd could reuse
+## it unchanged (the same "extract, don't duplicate" pattern as the tile renderer and vehicle
+## billboard); this file was always just that controller's original 2D presentation layer.
 
 @export var pack_path: String = "res://packs/original_pc"
 @export var level_id: String = "RFMAP001"
