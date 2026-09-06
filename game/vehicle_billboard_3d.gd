@@ -1,12 +1,12 @@
 class_name VehicleBillboard3D
 extends Node3D
 ## Phase 3 of the rendering-migration plan (PORTING_PLAN.md section 2.2, section 4 item 13):
-## a real billboard Sprite3D standing in for game/vehicle.gd's flat draw_texture_rect_region
-## call. Deliberately a *separate* node rather than teaching Vehicle to draw itself in 3D --
-## the real Vehicle instance still runs completely unmodified (movement integration, input,
+## a real 3D presence standing in for game/vehicle.gd's flat draw_texture_rect_region call.
+## Deliberately a *separate* node rather than teaching Vehicle to draw itself in 3D -- the
+## real Vehicle instance still runs completely unmodified (movement integration, input,
 ## firing, and above all Vehicle._frame_for_heading()'s quadrant-mirror frame selection, fixed
 ## and tested in document 25) as an invisible logic-only Node2D; this node just mirrors its
-## position/heading into a real 3D billboard every frame. Same "extract, don't duplicate"
+## position/heading into a real 3D presentation every frame. Same "extract, don't duplicate"
 ## choice as game/terrain_tile_renderer.gd (Phase 2, document 29) for the same reason: two
 ## copies of frame-selection logic could silently drift out of sync the way this project's own
 ## classify_bulk.py auto-numbering bug once did.
@@ -14,38 +14,47 @@ extends Node3D
 ## Vehicle keeps running its own _process() untouched (Node process callbacks fire regardless
 ## of CanvasItem.visible) -- only its own _draw() output is suppressed, by setting
 ## Vehicle.visible = false in setup() below, so nothing 2D composites onto the 3D scene.
+##
+## DEFAULT MODE, as of 2026-09-06: GROUND_DECAL, not BILLBOARD. A user-reported "the tank
+## looks like it's always facing the same way" complaint led to a precise diagnosis (document
+## 31: heading 0 and 180 render pixel-identical, since Vehicle._frame_for_heading()'s
+## quadrant-flip mirroring can't fix a symmetric base frame) and a prototype (document 32)
+## that settled it empirically across three rendering techniques tried on the *same* real art:
+## billboard-always-faces-camera (the original Phase 3 choice) produced disconnected slivers
+## at 90/270 degrees; combining real per-heading textures with real 3D rotation
+## (GROUND_DECAL_MULTI) made that specific failure *worse*, not better (the discrete frames'
+## own built-in thinning compounds with added geometric foreshortening); a single canonical
+## texture laid flat like a ground decal and rotated by the vehicle's real, continuous heading
+## (GROUND_DECAL) won decisively -- coherent at every heading, using fewer source images than
+## either alternative. See documents 31-32 for the full comparisons.
 
 ## Small fixed height off the ground, matching terrain_view_3d.gd's Phase 1 placeholder box --
 ## not a traced value (no vehicle-height RE finding exists), just enough that the sprite's
-## billboard quad doesn't clip into the ground plane.
+## quad doesn't clip into the ground plane.
 const HEIGHT_PX := 10.0
 
-## Prototype (2026-09-06, user-directed): tests whether the "90/270 degree frames look like
-## disconnected little triangles" complaint is a rendering-technique gap rather than missing
-## art. RFIRE.BIN's own vehicle rendering (section 1.10 points 3-4) projects real 3D corner
-## points and warps a texture onto the resulting quad -- our billboard mode instead always
-## faces the camera dead-on, which never lets the camera's own 45-degree tilt foreshorten the
-## art the way it foreshortens everything else in this scene (terrain, the ground plane).
-## "ground_decal" mode tests the cheap, Godot-native version of that idea: lay the textured
-## quad flat (like a decal on the ground, the same orientation the terrain plane already uses)
-## and give it a *real* Node3D yaw matching the vehicle's heading, instead of billboarding --
-## Godot's own camera then foreshortens it exactly like everything else, with no hand-ported
-## projection math. Deliberately uses ONE canonical texture rotated continuously, not
-## Vehicle._frame_for_heading()'s discrete quadrant-flip selection: the two rotation
-## mechanisms would double-count (the flip logic already reorients content for its own
-## quadrant; adding a full heading_deg yaw on top of that would rotate it twice). This is
-## exactly the trade this mode is testing -- real continuous 3D rotation of fewer source
-## images, versus discrete image-swapping with no true rotation at all.
+## GROUND_DECAL (the default): lays the textured quad flat, like a decal on the ground (the
+## same orientation the terrain plane already uses), and gives it a *real* Node3D yaw matching
+## the vehicle's continuous heading, instead of billboarding to face the camera -- Godot's own
+## tilted camera then foreshortens it exactly like everything else in the scene, with no
+## hand-ported projection math. Uses ONE canonical texture rather than Vehicle._frame_for_
+## heading()'s discrete quadrant-flip selection: the two rotation mechanisms would
+## double-count (the flip logic already reorients content for its own quadrant; adding a full
+## heading_deg yaw on top of that would rotate it twice).
 ##
-## "ground_decal_multi" (2026-09-06, follow-up) combines both ideas instead of choosing
-## between them: still a real continuous yaw (never Vehicle._frame_for_heading()'s flip
-## flags -- flip and yaw would still double-count exactly as above), but the *texture*
-## cycles through all 9 real per-heading frames using that same function's quadrant-folded
-## index, so whatever shading/perspective detail the original artist actually drew into each
-## of the 9 frames still shows up somewhere in the rotation, instead of one frame doing all
-## 360 degrees alone.
+## BILLBOARD: the original Phase 3 choice, a Sprite3D that always faces the camera, using
+## Vehicle._frame_for_heading()'s real quadrant-mirror frame selection unchanged. Kept as a
+## debug-only alternative (`RF_DEBUG_VEHICLE_QUAD_MODE=billboard`) for comparison, not the
+## default -- see document 32 for why GROUND_DECAL won.
+##
+## GROUND_DECAL_MULTI: the same real continuous yaw as GROUND_DECAL, but the *texture* cycles
+## through all 9 real per-heading frames via _frame_for_heading()'s quadrant-folded index
+## (never its flip flags -- same double-counting risk as above). Tested and rejected (document
+## 32): worse than either alternative, since the discrete frames' own built-in thinning
+## compounds with the added geometric foreshortening right at 90/270 degrees. Debug-only,
+## `RF_DEBUG_VEHICLE_QUAD_MODE=ground_decal_multi`.
 enum QuadMode { BILLBOARD, GROUND_DECAL, GROUND_DECAL_MULTI }
-var quad_mode: QuadMode = QuadMode.BILLBOARD
+var quad_mode: QuadMode = QuadMode.GROUND_DECAL
 
 var vehicle: Vehicle
 var pack: Pack
@@ -57,8 +66,13 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	pack = shared_pack
 	vehicle.visible = false  # logic only -- see file header
 
+	# Debug-only override for comparison against the GROUND_DECAL default -- never affects a
+	# normal run (env var unset). "ground_decal" is accepted too, even though it's already the
+	# default, so an explicit override always does what it says regardless of future defaults.
 	var mode_env := OS.get_environment("RF_DEBUG_VEHICLE_QUAD_MODE")
-	if mode_env == "ground_decal":
+	if mode_env == "billboard":
+		quad_mode = QuadMode.BILLBOARD
+	elif mode_env == "ground_decal":
 		quad_mode = QuadMode.GROUND_DECAL
 	elif mode_env == "ground_decal_multi":
 		quad_mode = QuadMode.GROUND_DECAL_MULTI
