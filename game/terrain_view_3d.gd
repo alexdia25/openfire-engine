@@ -9,8 +9,6 @@ extends Node3D
 ## real bounds and smoothed instead of snapping.
 ##
 ## Deliberately NOT here yet (later phases, not gaps in this one):
-## - Real terrain art. The ground plane below is a flat placeholder colour -- baking
-##   terrain_view.gd's existing tile-drawing code into a SubViewport texture is Phase 2.
 ## - Real vehicle art. The tracked object is a plain box -- billboard Sprite3D vehicles
 ##   (reusing Vehicle._frame_for_heading() unchanged) are Phase 3.
 ## - The exact effective height/FOV. Section 1.10 point 6 explicitly left this for
@@ -96,7 +94,7 @@ func _ready() -> void:
 	if height_env != "":
 		camera_height_px = float(height_env)
 
-	_build_placeholder_ground()
+	_build_terrain_ground()
 	_spawn_tracked_box()
 	_build_light()
 	_build_camera()
@@ -113,29 +111,49 @@ func _ready() -> void:
 		get_tree().quit()
 
 
-## Flat, single-colour stand-in for terrain_view.gd's real tile art -- Phase 2 replaces this
-## mesh's material with a SubViewport texture baked from that existing (unchanged) code.
-## Sized to the level's real world dimensions so Phase 2 can drop the real texture on without
-## re-deriving this geometry.
-func _build_placeholder_ground() -> void:
+## Phase 2 of the rendering-migration plan (section 2.2, section 4 item 13): the real terrain
+## art, not a placeholder colour -- game/terrain_tile_renderer.gd (Phase 2's extraction of
+## terrain_view.gd's own tile-drawing loop, byte-for-byte unchanged) draws into a SubViewport
+## at the level's native pixel resolution, and that viewport's texture becomes the ground
+## plane's albedo. Godot's own camera then does the perspective projection on this baked
+## texture -- no hand-ported scanline math, exactly the rationale section 2.2 recorded for
+## choosing this architecture in the first place.
+func _build_terrain_ground() -> void:
+	var sub_vp := SubViewport.new()
+	sub_vp.size = Vector2i(int(_map_size_px.x), int(_map_size_px.y))
+	# The terrain art never changes after a level loads (no animated tiles anywhere in this
+	# project's tile pipeline) -- render once and stop, instead of re-drawing an identical
+	# image every frame.
+	sub_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(sub_vp)
+
+	var tile_renderer := TerrainTileRenderer.new()
+	sub_vp.add_child(tile_renderer)
+	tile_renderer.setup(pack, level)
+
 	var ground := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	# Deliberately much bigger than the level's real bounds (_map_size_px), which stay the
-	# authority for spawn positions/camera clamping below -- this mesh only needs to look
-	# like solid ground under a fairly shallow 45-degree view. Sized exactly to _map_size_px
-	# it would visibly "run out" and show void near the horizon for a camera this close to the
-	# ground relative to the map's size (260px high over a 4096px map) -- a real artifact of
-	# this placeholder's finite size, not a camera-orientation bug, and not worth chasing
-	# further before Phase 2 replaces this mesh with the real baked terrain texture anyway.
-	plane.size = _map_size_px * 4.0
+	# Sized to the level's real world dimensions (plan section 2.2's own phrasing for this
+	# step), matching the SubViewport's resolution exactly -- one texel per source pixel, no
+	# stretching. NOTE (honest, not yet fixed): at this camera's height/tilt relative to a
+	# 4096px map, near-horizontal rays can reach past this mesh's edge before hitting the
+	# horizon, showing background void in a corner of the frame -- the same real, finite-mesh
+	# artifact Phase 1 hit and deliberately routed around with an oversized placeholder plane.
+	# Doing that here would mean texturing the overhang with something other than real terrain
+	# (there is no real art beyond the level's actual bounds), so this phase accepts the
+	# artifact rather than paper over it -- worth a skybox/fallback-colour backdrop in a later
+	# pass, not a blocker for verifying the terrain projection itself.
+	plane.size = _map_size_px
 	ground.mesh = plane
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.24, 0.32, 0.22)  # a plausible dim island-green, not real art
+	mat.albedo_texture = sub_vp.get_texture()
+	# The source art is hard-edged pixel art (tools/convert_car.py's atlas, section 2.4.2) --
+	# nearest filtering keeps tile edges crisp instead of linear-blurring them.
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	ground.material_override = mat
 	# PlaneMesh is centred on its own origin; the 2D scenes place (0,0) at the level's
 	# top-left corner with +X right/+Y down, so shift this node to match: world X -> node X,
-	# world Y (2D "down") -> node Z ("forward"). Centred on the *real* map centre, not this
-	# oversized mesh's own centre, so it still lines up with spawn points/camera clamping.
+	# world Y (2D "down") -> node Z ("forward").
 	ground.position = Vector3(_map_size_px.x * 0.5, 0.0, _map_size_px.y * 0.5)
 	add_child(ground)
 

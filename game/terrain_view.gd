@@ -38,6 +38,7 @@ var pack: Pack
 var level: LevelData
 var vehicle: Vehicle
 var camera: Camera2D
+var _terrain_tiles: TerrainTileRenderer
 var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
 
@@ -54,6 +55,15 @@ func _ready() -> void:
 		return
 
 	get_window().title = "Return Fire -- %s (%s)" % [level.level_name, level_id]
+	# Phase 2 of the rendering-migration plan (section 2.2): the tile-grid draw loop now lives
+	# in its own reusable node (game/terrain_tile_renderer.gd), shared unchanged with the new
+	# 3D scaffold's baked-texture ground plane. z_index keeps it under the markers/vehicle/
+	# projectiles this scene still draws directly (see this file's own _draw(), below) --
+	# same stacking order as when the loop was inline here.
+	_terrain_tiles = TerrainTileRenderer.new()
+	_terrain_tiles.z_index = -1
+	add_child(_terrain_tiles)
+	_terrain_tiles.setup(pack, level)
 	_spawn_vehicle()
 	_setup_target_pools()
 	queue_redraw()
@@ -230,22 +240,10 @@ func _draw() -> void:
 		return
 
 	var tile := pack.tile_size_px
-	for y in level.height:
-		for x in level.width:
-			var art_id := level.get_art_id(x, y)
-			var sprite_id := pack.get_tile_sprite_id(art_id)
-			if sprite_id == "":
-				continue
-			var sprite := pack.get_sprite(sprite_id)
-			if sprite.is_empty():
-				continue
-			var tex := pack.get_texture(int(sprite.get("page", 0)))
-			if tex == null:
-				continue
-			var src := Rect2(sprite.get("x", 0), sprite.get("y", 0), sprite.get("w", 0), sprite.get("h", 0))
-			var dst := Rect2(x * tile, y * tile, tile, tile)
-			draw_texture_rect_region(tex, dst, src)
 
+	# Terrain tiles themselves are drawn by _terrain_tiles (game/terrain_tile_renderer.gd,
+	# Phase 2 of the rendering-migration plan, section 2.2) -- everything below this point is
+	# a gameplay/debug overlay, not terrain.
 	for sp in level.spawn_points:
 		var team := int(sp.get("team", 0))
 		var colour: Color = TEAM_COLOURS.get(team, Color.WHITE)
