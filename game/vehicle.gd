@@ -7,6 +7,10 @@ extends Node2D
 ## uses reasonable placeholder physics, not reverse-engineered ones. Flagged honestly
 ## rather than presented as authentic; tightening this is a real, separate follow-up.
 ##
+## Phase 4 step 6: also the base class for game/enemy_vehicle.gd's EnemyVehicle --
+## _get_controls()/_wants_to_fire() are the seam a non-player controller overrides,
+## everything else (movement integration, rendering, firing) is shared.
+##
 ## Rendering is also a deliberate simplification of section 1.10/2.2's finding that the
 ## original does real perspective-projected-quad rendering across 64 discrete headings.
 ## This uses the 8-9 real rotation frames per team (cels 218-240) covering one quarter
@@ -67,6 +71,27 @@ var _debug_heading: String = OS.get_environment("RF_DEBUG_HEADING")
 var _debug_fire: bool = OS.get_environment("RF_DEBUG_FIRE") == "1"
 
 
+## Overridable so a non-player controller (EnemyVehicle) can drive this same movement/
+## rendering/firing code with its own decision logic instead of real input -- the default
+## here is exactly what step 2 always did: RF_DEBUG_DRIVE, else real player input.
+## Returns (turn, thrust), both in [-1, 1], same meaning as Input.get_axis.
+func _get_controls() -> Vector2:
+	var turn := 0.0
+	if _debug_drive:
+		var turn_env := OS.get_environment("RF_DEBUG_DRIVE_TURN")
+		turn = float(turn_env) if turn_env != "" else -1.0
+	else:
+		turn = Input.get_axis("ui_left", "ui_right")
+	var thrust := 1.0 if _debug_drive else Input.get_axis("ui_down", "ui_up")
+	return Vector2(turn, thrust)
+
+
+## Overridable the same way _get_controls() is -- default is step 4's real-input-or-debug
+## behaviour.
+func _wants_to_fire() -> bool:
+	return _debug_fire or Input.is_action_pressed("ui_accept")
+
+
 func _process(delta: float) -> void:
 	if pack == null or _frames.is_empty():
 		return
@@ -76,15 +101,11 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		return
 
-	var turn := 0.0
-	if _debug_drive:
-		var turn_env := OS.get_environment("RF_DEBUG_DRIVE_TURN")
-		turn = float(turn_env) if turn_env != "" else -1.0
-	else:
-		turn = Input.get_axis("ui_left", "ui_right")
+	var controls := _get_controls()
+	var turn := controls.x
 	heading_deg = fposmod(heading_deg + turn * TURN_RATE_DEG * delta, 360.0)
 
-	var thrust := 1.0 if _debug_drive else Input.get_axis("ui_down", "ui_up")
+	var thrust := controls.y
 	if thrust > 0.0:
 		speed = minf(speed + ACCEL * delta, MAX_SPEED)
 	elif thrust < 0.0:
@@ -96,8 +117,7 @@ func _process(delta: float) -> void:
 	position += Vector2(cos(rad), sin(rad)) * speed * delta
 
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
-	var wants_to_fire := _debug_fire or Input.is_action_pressed("ui_accept")
-	if wants_to_fire and _fire_cooldown_remaining <= 0.0:
+	if _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
 		var dir := Vector2(cos(rad), sin(rad))
 		var muzzle_pos := position + dir * MUZZLE_OFFSET_PX

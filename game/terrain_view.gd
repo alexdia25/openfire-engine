@@ -87,6 +87,7 @@ func _spawn_vehicle() -> void:
 	vehicle.setup(pack)
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 	vehicle.fired.connect(_on_vehicle_fired)
+	_spawn_enemy_vehicles(int(sp.get("team", 0)))
 
 	camera.zoom = Vector2.ONE * 2.0
 	camera.position = vehicle.position
@@ -102,6 +103,29 @@ func _spawn_vehicle() -> void:
 	camera.position_smoothing_enabled = true
 	camera.position_smoothing_speed = 6.0
 	camera.make_current()
+
+
+## Phase 4 step 6 (first pass): spawn an EnemyVehicle at every spawn point whose team
+## differs from the player's -- only 2-player levels have one (the "0x4D" spawn tile only
+## appears in 2PLAYER files, section 1.5), so 1-player levels correctly spawn nothing extra.
+## The enemy targets the player vehicle directly; no other targeting logic exists yet.
+var enemy_vehicles: Array = []
+
+
+func _spawn_enemy_vehicles(player_team: int) -> void:
+	var tile := pack.tile_size_px
+	for sp in level.spawn_points:
+		if int(sp.get("team", 0)) == player_team:
+			continue
+		var enemy := EnemyVehicle.new()
+		enemy.pack_path = pack_path
+		enemy.team = "tan" if int(sp.get("team", 0)) == 0 else "green"
+		add_child(enemy)
+		enemy.setup(pack)
+		enemy.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
+		enemy.target = vehicle
+		enemy.fired.connect(_on_vehicle_fired)
+		enemy_vehicles.append(enemy)
 
 
 ## Phase 4 step 4 (first pass): spawn a projectile as a sibling of the vehicle -- not a
