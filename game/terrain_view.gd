@@ -77,6 +77,7 @@ func _spawn_vehicle() -> void:
 	add_child(vehicle)
 	vehicle.setup(pack)
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
+	vehicle.fired.connect(_on_vehicle_fired)
 
 	camera.zoom = Vector2.ONE * 2.0
 	camera.position = vehicle.position
@@ -92,6 +93,17 @@ func _spawn_vehicle() -> void:
 	camera.position_smoothing_enabled = true
 	camera.position_smoothing_speed = 6.0
 	camera.make_current()
+
+
+## Phase 4 step 4 (first pass): spawn a projectile as a sibling of the vehicle -- not a
+## child of it -- so its transform is independent of the vehicle's own position/rotation
+## once launched.
+func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: String) -> void:
+	var p := Projectile.new()
+	add_child(p)
+	p.team = team
+	p.heading_deg = heading_deg
+	p.global_position = muzzle_position
 
 
 func _process(_delta: float) -> void:

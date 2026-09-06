@@ -21,6 +21,15 @@ const REVERSE_MAX_SPEED := 90.0
 const FRICTION := 140.0
 const TURN_RATE_DEG := 160.0
 
+## Phase 4 step 4 (first pass): firing, not yet authentic either. RFIRE.BIN's real
+## weapon damage/rate-of-fire/projectile-speed constants haven't been traced (Phase 3
+## backlog: "Extract gameplay constants" -> weapons) -- FIRE_COOLDOWN and MUZZLE_OFFSET
+## are reasonable placeholders, flagged the same way the movement constants above are.
+const FIRE_COOLDOWN_SEC := 0.25
+const MUZZLE_OFFSET_PX := 20.0
+
+signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
+
 @export var pack_path: String = "res://packs/original_pc"
 @export var team: String = "tan"  ## "tan" or "green" -- section 4 item 5
 
@@ -28,6 +37,7 @@ var pack: Pack
 var _frames: Array[String] = []
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
+var _fire_cooldown_remaining: float = 0.0
 
 
 func setup(shared_pack: Pack) -> void:
@@ -49,6 +59,12 @@ var _debug_drive: bool = OS.get_environment("RF_DEBUG_DRIVE") == "1"
 ## stays 0) so specific angles can be screenshotted directly, without depending on
 ## drive-simulation timing. Never affects a normal run (env var unset).
 var _debug_heading: String = OS.get_environment("RF_DEBUG_HEADING")
+
+
+## Debug-only: RF_DEBUG_FIRE=1 fires every cooldown tick regardless of real input, so
+## headless/automated runs can verify projectile spawning without a keyboard. Never
+## affects a normal run (env var unset).
+var _debug_fire: bool = OS.get_environment("RF_DEBUG_FIRE") == "1"
 
 
 func _process(delta: float) -> void:
@@ -78,6 +94,17 @@ func _process(delta: float) -> void:
 
 	var rad := deg_to_rad(heading_deg)
 	position += Vector2(cos(rad), sin(rad)) * speed * delta
+
+	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
+	var wants_to_fire := _debug_fire or Input.is_action_pressed("ui_accept")
+	if wants_to_fire and _fire_cooldown_remaining <= 0.0:
+		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
+		var dir := Vector2(cos(rad), sin(rad))
+		var muzzle_pos := position + dir * MUZZLE_OFFSET_PX
+		fired.emit(muzzle_pos, heading_deg, team)
+		if _debug_fire:
+			print("frame=%d fired heading=%.1f muzzle_pos=%s" % [Engine.get_process_frames(), heading_deg, muzzle_pos])
+
 	queue_redraw()
 
 
