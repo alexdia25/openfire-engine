@@ -1,16 +1,16 @@
 extends Node3D
-## Phase 1 of the rendering-migration plan (PORTING_PLAN.md section 2.2, section 4 item 13):
-## scaffolding for the new 3D scene, built *alongside* the existing flat game/terrain_view.gd
-## (which keeps working unchanged -- this file does not replace it yet, per the plan's own
-## "keep every step playable" rule). Proves the one thing Phase 1 is scoped to prove: a
-## Camera3D at the real, RE-confirmed fixed tilt (section 1.10 point 6 -- exactly 45 degrees,
-## hardcoded once in RFIRE.BIN and never rewritten) can translate in X/Z to follow a moving
-## target the same way terrain_view.gd's Camera2D already does, edge-clamped to the level's
-## real bounds and smoothed instead of snapping.
+## Phases 1-3 of the rendering-migration plan (PORTING_PLAN.md section 2.2, section 4 item
+## 13): the new 3D scene, built *alongside* the existing flat game/terrain_view.gd (which
+## keeps working unchanged -- this file does not replace it yet, per the plan's own "keep
+## every step playable" rule). A Camera3D at the real, RE-confirmed fixed tilt (section 1.10
+## point 6 -- exactly 45 degrees, hardcoded once in RFIRE.BIN and never rewritten) translates
+## in X/Z to follow a real Vehicle (Phase 3 -- game/vehicle_billboard_3d.gd renders it as a
+## billboard Sprite3D, reusing Vehicle._frame_for_heading() unchanged), edge-clamped to the
+## level's real bounds and smoothed instead of snapping, over real baked terrain art
+## (Phase 2 -- game/terrain_tile_renderer.gd).
 ##
 ## Deliberately NOT here yet (later phases, not gaps in this one):
-## - Real vehicle art. The tracked object is a plain box -- billboard Sprite3D vehicles
-##   (reusing Vehicle._frame_for_heading() unchanged) are Phase 3.
+## - Projectiles, target/pool markers, the flag marker. Phase 4.
 ## - The exact effective height/FOV. Section 1.10 point 6 explicitly left this for
 ##   screenshot-matching once Phase 2 has real terrain art to match against -- camera_height_px
 ##   below is a reasonable placeholder for this phase's own verification, not a traced value.
@@ -43,31 +43,15 @@ extends Node3D
 ## approach-to-target every frame.
 const CAMERA_SMOOTHING_SPEED := 6.0
 
-## Phase 1 placeholder movement for the tracked box -- NOT Vehicle.gd's real movement code.
-## Vehicle extends Node2D and draws itself via _draw(), which has no meaningful place in a
-## pure-3D scene (Phase 3 is what actually reuses Vehicle._frame_for_heading() unchanged,
-## feeding a Sprite3D instead of draw_texture_rect_region). This exists only so Phase 1 has
-## something moving to prove the camera-follow/edge-clamp math against, the same way Phase 4
-## step 3's original verification drove the real vehicle in a straight line to the map edge.
-const PLACEHOLDER_MAX_SPEED := 220.0
-const PLACEHOLDER_ACCEL := 260.0
-const PLACEHOLDER_TURN_RATE_DEG := 160.0
-
 @export var pack_path: String = "res://packs/original_pc"
 @export var level_id: String = "RFMAP001"
 
 var pack: Pack
 var level: LevelData
 var camera: Camera3D
-var tracked: Node3D
+var vehicle: Vehicle
+var billboard: VehicleBillboard3D
 var _map_size_px: Vector2 = Vector2.ZERO
-
-var _heading_deg: float = 0.0
-var _speed: float = 0.0
-
-## Debug-only, same convention/env-var names as vehicle.gd and terrain_view.gd -- never
-## affects a normal run (env vars unset).
-var _debug_drive: bool = OS.get_environment("RF_DEBUG_DRIVE") == "1"
 
 
 func _ready() -> void:
@@ -95,7 +79,7 @@ func _ready() -> void:
 		camera_height_px = float(height_env)
 
 	_build_terrain_ground()
-	_spawn_tracked_box()
+	_spawn_vehicle()
 	_build_light()
 	_build_camera()
 
@@ -158,25 +142,31 @@ func _build_terrain_ground() -> void:
 	add_child(ground)
 
 
-## Plain box standing in for a real billboard Sprite3D vehicle (Phase 3). Spawns at the
-## level's team-0 point the same way terrain_view.gd's real Vehicle does, falling back to
-## map centre if the level has none.
-func _spawn_tracked_box() -> void:
-	tracked = Node3D.new()
-	add_child(tracked)
-	var visual := CSGBox3D.new()
-	visual.size = Vector3(24, 20, 24)
-	visual.position.y = 10.0
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.82, 0.71, 0.55)  # tan, section 4 item 5's team-0 colour
-	visual.material = mat
-	tracked.add_child(visual)
+## Phase 3 of the rendering-migration plan (section 2.2, section 4 item 13): a real,
+## unmodified Vehicle (game/vehicle.gd -- movement, input, firing, and above all
+## _frame_for_heading()'s quadrant-mirror frame selection, document 25) driving a real
+## billboard Sprite3D (game/vehicle_billboard_3d.gd) instead of Phase 1's placeholder box.
+## Vehicle keeps running exactly as it does in the flat 2D scene -- same RF_DEBUG_DRIVE,
+## RF_DEBUG_HEADING, RF_DEBUG_FIRE hooks, same physics -- just with its own _draw() output
+## suppressed (VehicleBillboard3D.setup() sets Vehicle.visible = false) since the billboard
+## is what actually appears on screen. Spawns at the level's team-0 point, falling back to
+## map centre if the level has none, matching terrain_view.gd's real Vehicle spawn exactly.
+func _spawn_vehicle() -> void:
+	vehicle = Vehicle.new()
+	vehicle.pack_path = pack_path
+	vehicle.team = "tan"
+	add_child(vehicle)
+	vehicle.setup(pack)
 
 	var spawn_px := _map_size_px * 0.5
 	if not level.spawn_points.is_empty():
 		var sp: Dictionary = level.spawn_points[0]
 		spawn_px = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * pack.tile_size_px
-	tracked.position = Vector3(spawn_px.x, 0.0, spawn_px.y)
+	vehicle.position = spawn_px
+
+	billboard = VehicleBillboard3D.new()
+	add_child(billboard)
+	billboard.setup(vehicle, pack)
 
 
 ## Placeholder-only stand-in for real level lighting (not an RE finding -- RFIRE.BIN's own
@@ -216,7 +206,7 @@ func _apply_tilt() -> void:
 
 
 func _place_camera_immediately() -> void:
-	camera.position = _camera_target_position(Vector2(tracked.position.x, tracked.position.z))
+	camera.position = _camera_target_position(vehicle.position)
 
 
 ## Same X/Z position a fully-smoothed camera converges to for a given tracked-point position:
@@ -239,31 +229,16 @@ func _camera_target_position(look_at_px: Vector2) -> Vector3:
 
 
 func _process(delta: float) -> void:
-	if tracked == null or camera == null:
+	if vehicle == null or camera == null:
 		return
 
-	var turn := 0.0
-	var thrust := 0.0
-	if _debug_drive:
-		var turn_env := OS.get_environment("RF_DEBUG_DRIVE_TURN")
-		turn = float(turn_env) if turn_env != "" else -1.0
-		thrust = 1.0
-
-	_heading_deg = fposmod(_heading_deg + turn * PLACEHOLDER_TURN_RATE_DEG * delta, 360.0)
-	if thrust > 0.0:
-		_speed = minf(_speed + PLACEHOLDER_ACCEL * delta, PLACEHOLDER_MAX_SPEED)
-	else:
-		_speed = move_toward(_speed, 0.0, PLACEHOLDER_ACCEL * delta)
-
-	var rad := deg_to_rad(_heading_deg)
-	tracked.position += Vector3(cos(rad), 0.0, sin(rad)) * _speed * delta
-	tracked.rotation_degrees.y = -_heading_deg
-
-	var tracked_px := Vector2(tracked.position.x, tracked.position.z)
-	var target_cam_pos := _camera_target_position(tracked_px)
+	# Vehicle drives its own movement/input/firing entirely (its _process() runs
+	# independently, same as in the flat 2D scene) -- this scene only needs to read the
+	# result, exactly like terrain_view.gd's own Camera2D follow already does.
+	var target_cam_pos := _camera_target_position(vehicle.position)
 	camera.position = camera.position.lerp(target_cam_pos, 1.0 - exp(-CAMERA_SMOOTHING_SPEED * delta))
 	_apply_tilt()
 
 	if OS.get_environment("RF_DEBUG_CAMERA_LOG") == "1" and Engine.get_process_frames() % 30 == 0:
-		print("frame=%d tracked_pos=%s camera_pos=%s map_size=%s" % [
-			Engine.get_process_frames(), tracked.position, camera.position, _map_size_px])
+		print("frame=%d vehicle_pos=%s camera_pos=%s map_size=%s" % [
+			Engine.get_process_frames(), vehicle.position, camera.position, _map_size_px])
