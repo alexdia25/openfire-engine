@@ -16,6 +16,15 @@ const POOL_COLOURS := {
 	"b": Color.MAGENTA,
 }
 
+## Phase 4 step 7 (first pass): which marker.capture_flag.<colour> family a pool spawns from
+## when it goes silent (PORTING_PLAN.md section 4 item 1) -- UNCONFIRMED which, if either,
+## physical pool a real team's flag actually belongs to (game/flag_marker.gd's docstring),
+## an arbitrary but fixed choice so the two pools are visually distinguishable.
+const POOL_FLAG_COLOURS := {
+	"a": "red",
+	"b": "green",
+}
+
 ## Phase 4 step 5 (first pass): how close a projectile must get to an active target's tile
 ## centre to destroy it. RFIRE.BIN's real hit-detection geometry (and target hitpoints --
 ## these targets die in one hit here) haven't been traced (Phase 3 backlog: "Building and
@@ -179,8 +188,29 @@ func _check_target_hits() -> void:
 					print("frame=%d pool=%s destroyed tile=%s budget=%d new_active=%s" % [
 						Engine.get_process_frames(), pool_id, active_tile, pool.budget,
 						pool.get_active_position() if reactivated else "none (silent)"])
+				if not reactivated:
+					# Phase 4 step 7 (first pass): the pool just went silent for good --
+					# RFIRE.BIN's FUN_00432710 falls through to spawn its dedicated flag
+					# object in exactly this case (section 4 item 1). destroy_active() only
+					# ever returns false once per pool (it stays silent afterward), matching
+					# the real function's own guard against spawning a second flag while
+					# one's already tracked.
+					_spawn_flag(pool_id, active_px)
 				queue_redraw()
 				break  # this target is gone; don't test the same projectile against it again
+
+
+## Phase 4 step 7 (first pass): spawns the flag-marker fallthrough (see the call site's
+## comment and game/flag_marker.gd's docstring) at the position of the pool's last-destroyed
+## target. Purely visual -- see flag_marker.gd for exactly what this isn't yet.
+func _spawn_flag(pool_id: String, at_position: Vector2) -> void:
+	var flag := FlagMarker.new()
+	flag.setup(pack, POOL_FLAG_COLOURS.get(pool_id, "red"))
+	flag.position = at_position
+	add_child(flag)
+	if OS.get_environment("RF_DEBUG_TARGET_LOG") == "1":
+		print("frame=%d pool=%s FLAG SPAWNED at=%s" % [
+			Engine.get_process_frames(), pool_id, at_position])
 
 
 func _process(_delta: float) -> void:
