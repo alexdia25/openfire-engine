@@ -56,8 +56,8 @@ var pack: Pack
 var level: LevelData
 var camera: Camera3D
 var controller: MatchController
-var billboard: VehicleBillboard3D             ## player vehicle's 3D presentation
-var _enemy_billboards: Array = []             ## one VehicleBillboard3D per controller.enemy_vehicles
+var billboard: Node3D                         ## player vehicle's 3D presentation -- VehicleBoxRender3D by default, VehicleBillboard3D if RF_DEBUG_VEHICLE_RENDER=billboard
+var _enemy_billboards: Array = []             ## one per controller.enemy_vehicles, same type as billboard
 var _map_size_px: Vector2 = Vector2.ZERO
 
 
@@ -154,10 +154,12 @@ func _build_terrain_ground() -> void:
 ## game/terrain_view.gd's flat 2D scene uses, extracted so the two front-ends can't drift)
 ## drives vehicle/enemy spawn, firing, target pools, and the flag-spawn trigger. This function
 ## pairs each real gameplay node MatchController spawns (or signals) with its 3D presentation:
-## Vehicle/EnemyVehicle -> VehicleBillboard3D (Phase 3, document 30/32), Projectile ->
-## ProjectileBillboard3D, FlagMarker -> FlagMarker3D (both Phase 4). If a level has no spawn
-## points at all, controller.vehicle stays null and nothing here spawns a billboard for it --
-## matching terrain_view.gd's own "no spawn points" fallback.
+## Vehicle/EnemyVehicle -> VehicleBoxRender3D (document 37's real 6-face box, the default) or
+## VehicleBillboard3D (the flat-card approximation, kept as a fallback --
+## `RF_DEBUG_VEHICLE_RENDER=billboard`), Projectile -> ProjectileBillboard3D, FlagMarker ->
+## FlagMarker3D (both Phase 4). If a level has no spawn points at all, controller.vehicle
+## stays null and nothing here spawns a presentation for it -- matching terrain_view.gd's own
+## "no spawn points" fallback.
 func _spawn_match() -> void:
 	controller = MatchController.new()
 	add_child(controller)
@@ -166,19 +168,31 @@ func _spawn_match() -> void:
 	controller.flag_spawned.connect(_on_flag_spawned)
 
 	if controller.vehicle != null:
-		billboard = VehicleBillboard3D.new()
-		add_child(billboard)
-		billboard.setup(controller.vehicle, pack)
+		billboard = _spawn_vehicle_render(controller.vehicle)
 
 	for enemy in controller.enemy_vehicles:
-		var enemy_billboard := VehicleBillboard3D.new()
-		add_child(enemy_billboard)
-		enemy_billboard.setup(enemy, pack)
-		_enemy_billboards.append(enemy_billboard)
+		_enemy_billboards.append(_spawn_vehicle_render(enemy))
 
 	var overlay := DebugMarkerOverlay3D.new()
 	add_child(overlay)
 	overlay.setup(pack, level, controller)
+
+
+## Debug-only fallback to the flat-card GROUND_DECAL approximation
+## (`RF_DEBUG_VEHICLE_RENDER=billboard`), kept for comparison now that document 37's real
+## 6-face box (VehicleBoxRender3D) is the default -- never affects a normal run (env var
+## unset). Returns the spawned node (typed Node3D, since the two classes don't share a
+## common base beyond that).
+func _spawn_vehicle_render(v: Vehicle) -> Node3D:
+	if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
+		var b := VehicleBillboard3D.new()
+		add_child(b)
+		b.setup(v, pack)
+		return b
+	var box := VehicleBoxRender3D.new()
+	add_child(box)
+	box.setup(v, pack)
+	return box
 
 
 func _on_projectile_spawned(projectile: Projectile) -> void:
