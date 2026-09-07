@@ -11,6 +11,7 @@ var height: int = 0
 var art_grid: PackedByteArray = PackedByteArray()
 var spawn_points: Array = []
 var candidate_pools: Dictionary = {}
+var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_parts()
 
 
 func load_from(level_dir: String) -> bool:
@@ -31,6 +32,7 @@ func load_from(level_dir: String) -> bool:
 	level_name = str(doc.get("name", ""))
 	spawn_points = doc.get("spawn_points", [])
 	candidate_pools = doc.get("candidate_pools", {})
+	decorations = doc.get("decorations", [])
 
 	var af := FileAccess.open(art_path, FileAccess.READ)
 	if af == null:

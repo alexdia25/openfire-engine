@@ -9,6 +9,7 @@ var manifest: Dictionary = {}
 var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x, pivot_y}
 var atlas_textures: Array[Texture2D] = []
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
+var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var tile_size_px: int = 32
 
 
@@ -51,6 +52,16 @@ func load_from(dir: String) -> bool:
 			tileset = tdoc.get("tiles", {})
 			tile_size_px = int(tdoc.get("tile_size_px", 32))
 
+	# Document 35 (docs/process/): a level's tile coastal id can also be a real decoration --
+	# optional (an older or hand-authored pack need not have this file at all), and, per
+	# tools/build_pack.py's own note, may simply not list every coastal id a level references
+	# -- get_decoration_parts() below treats an unknown id as "no decoration", not an error.
+	var decorations_path := dir.path_join("terrain/decorations.json")
+	if FileAccess.file_exists(decorations_path):
+		var ddoc: Variant = _read_json(decorations_path)
+		if ddoc is Dictionary:
+			decoration_types = ddoc.get("decoration_types", {})
+
 	return true
 
 
@@ -67,6 +78,15 @@ func get_texture(page: int) -> Texture2D:
 func get_tile_sprite_id(art_id: int) -> String:
 	var entry: Dictionary = tileset.get(str(art_id), {})
 	return entry.get("sprite_id", "")
+
+
+## Array[{sprite_id: String, flags: int}], one entry per real part this coastal id spawns
+## (document 35, docs/process/) -- empty if this id has no known decoration (most don't have
+## one *yet*, per tools/data/coastal_decorations.json's own gaps, and 6 real ids genuinely
+## never had one to begin with; both cases are indistinguishable here on purpose, since
+## "draw nothing" is the correct behaviour either way).
+func get_decoration_parts(coastal_id: int) -> Array:
+	return decoration_types.get(str(coastal_id), [])
 
 
 func list_levels() -> Array[String]:
