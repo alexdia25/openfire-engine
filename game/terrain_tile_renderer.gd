@@ -19,6 +19,26 @@ extends Node2D
 ## decoration are an honest placeholder -- the real per-part corner offsets document 35 found
 ## in RFIRE.BIN weren't decoded, so parts are spread in a small fixed ring around the tile
 ## centre instead, rather than stacked exactly on top of each other.
+##
+## Palm-frond cels have no trunk pixels of their own (confirmed by direct atlas inspection,
+## document 36 addendum) -- the coastal ids that use them (3, 4, 5, at least) draw only the
+## fanned canopy shape, floating with nothing visibly holding it up. A real, unused, matching
+## trunk cel exists (`decoration.tree.palm`, cel 138 -- two crossed palm trunks, never
+## referenced by any of the 82 coastal ids document 35 extracted) -- CANOPY_SPRITE_IDS below is
+## a compositional choice, not an RE finding: draw that trunk once, centred under any
+## decoration whose parts are drawn entirely from this specific, visually-confirmed set of
+## frond/canopy cels, rather than leave them looking unsupported. Not applied to the round
+## bush-blob cels from the same 112-152 family (e.g. cels 112/113) -- those already read as
+## low ground shrubs, not tree canopies, and shouldn't sprout a trunk.
+const CANOPY_SPRITE_IDS := {
+	"decoration.foliage.frond_blue": true,
+	"decoration.foliage.bush_green.07": true,
+	"decoration.foliage.bush_green.08": true,
+	"decoration.foliage.bush_green.09": true,
+	"decoration.foliage.bush_green.10": true,
+	"decoration.foliage.bush_green.11": true,
+}
+const TRUNK_SPRITE_ID := "decoration.tree.palm"
 
 var pack: Pack
 var level: LevelData
@@ -64,21 +84,37 @@ func _draw_decorations() -> void:
 		if parts.is_empty():
 			continue
 		var centre := (Vector2(float(entry.get("x", 0)), float(entry.get("y", 0))) + Vector2(0.5, 0.5)) * tile
+
+		# See this file's header (CANOPY_SPRITE_IDS) -- give a floating frond cluster a trunk
+		# to stand on, drawn first so the canopy parts layer on top of it.
+		var is_canopy_only := true
+		for part in parts:
+			if not CANOPY_SPRITE_IDS.has(part.get("sprite_id", "")):
+				is_canopy_only = false
+				break
+		if is_canopy_only:
+			_draw_sprite_centered(TRUNK_SPRITE_ID, centre)
+
 		# See this file's header -- real per-part positions aren't known, so multi-part
 		# decorations are spread evenly around a small ring instead of stacked identically.
 		var ring_radius: float = 0.0 if parts.size() <= 1 else tile * 0.22
 		for i in parts.size():
 			var sprite_id: String = parts[i].get("sprite_id", "")
-			var sprite := pack.get_sprite(sprite_id)
-			if sprite.is_empty():
-				continue
-			var tex := pack.get_texture(int(sprite.get("page", 0)))
-			if tex == null:
-				continue
-			var w: float = sprite.get("w", 0)
-			var h: float = sprite.get("h", 0)
 			var angle := TAU * float(i) / float(parts.size())
-			var pos := centre + Vector2(cos(angle), sin(angle)) * ring_radius
-			var src := Rect2(sprite.get("x", 0), sprite.get("y", 0), w, h)
-			var dst := Rect2(pos.x - w * 0.5, pos.y - h * 0.5, w, h)
-			draw_texture_rect_region(tex, dst, src)
+			_draw_sprite_centered(sprite_id, centre + Vector2(cos(angle), sin(angle)) * ring_radius)
+
+
+## Draws one sprite centred at `pos`, in world pixels. Shared by the tile-decoration parts
+## loop above and the CANOPY_SPRITE_IDS trunk-completion draw.
+func _draw_sprite_centered(sprite_id: String, pos: Vector2) -> void:
+	var sprite := pack.get_sprite(sprite_id)
+	if sprite.is_empty():
+		return
+	var tex := pack.get_texture(int(sprite.get("page", 0)))
+	if tex == null:
+		return
+	var w: float = sprite.get("w", 0)
+	var h: float = sprite.get("h", 0)
+	var src := Rect2(sprite.get("x", 0), sprite.get("y", 0), w, h)
+	var dst := Rect2(pos.x - w * 0.5, pos.y - h * 0.5, w, h)
+	draw_texture_rect_region(tex, dst, src)
