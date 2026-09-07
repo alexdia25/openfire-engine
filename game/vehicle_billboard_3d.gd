@@ -33,6 +33,15 @@ extends Node3D
 ## quad doesn't clip into the ground plane.
 const HEIGHT_PX := 10.0
 
+## See _process()'s own comment at the one place this is used: GROUND_DECAL's rotation used
+## to assume _frames[0]'s raw art already faces vehicle.gd's own "0 = +X" convention. It
+## doesn't -- confirmed by direct atlas inspection and by the user noticing driving forward
+## moved the vehicle 90 degrees away from its visible front. This scope is deliberately
+## GROUND_DECAL-only: BILLBOARD and GROUND_DECAL_MULTI (debug-only, not used in normal play)
+## go through Vehicle._frame_for_heading() instead of this rotation formula, so they likely
+## carry the same underlying mismatch unaddressed -- not fixed here.
+const FACING_OFFSET_DEG := 90.0
+
 ## GROUND_DECAL (the default): lays the textured quad flat, like a decal on the ground (the
 ## same orientation the terrain plane already uses), and gives it a *real* Node3D yaw matching
 ## the vehicle's continuous heading, instead of billboarding to face the camera -- Godot's own
@@ -99,9 +108,23 @@ func _process(_delta: float) -> void:
 	global_position = Vector3(vehicle.position.x, HEIGHT_PX, vehicle.position.y)
 	if quad_mode != QuadMode.BILLBOARD:
 		# The real, continuous heading -- not vehicle.gd's discrete quadrant-flip selection
-		# (see the file header's "would double-count" note). Sign empirically matched against
-		# tracked.rotation_degrees.y in terrain_view_3d.gd's Phase 1 placeholder.
-		rotation_degrees.y = -vehicle.heading_deg
+		# (see the file header's "would double-count" note).
+		#
+		# FACING_OFFSET_DEG (2026-09-08, user-reported): this used to be plain
+		# `-vehicle.heading_deg`, whose sign was only ever checked against a Phase 1
+		# placeholder box's own rotation for internal consistency -- never against what
+		# _frames[0]'s actual pixels depict. They depict the vehicle's front-indicator nub
+		# pointing toward the *bottom* of the raw, unrotated cel, not toward the cel's own
+		# right edge -- confirmed by direct atlas inspection (`vehicle.hovercraft.rotation.
+		# tan.01`, cel 218) and by the user, who noticed driving forward moved the vehicle 90
+		# degrees away from where its front visibly pointed. The +90 correction was found by
+		# comparing a straight (turn=0) RF_DEBUG_DRIVE run's real movement direction against
+		# the rendered nub direction, then confirmed across a curving turning path too -- not
+		# derived analytically. Get the sign wrong and the mismatch just moves from "-90" to
+		# "+90" without looking obviously more wrong at a glance, so a real reference (an
+		# actual known movement direction) is what settled it, the same way document 30's own
+		# billboard-vs-position test needed a real comparison rather than reasoning about it.
+		rotation_degrees.y = -vehicle.heading_deg + FACING_OFFSET_DEG
 	_refresh()
 
 
