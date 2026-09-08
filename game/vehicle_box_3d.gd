@@ -3,9 +3,16 @@ extends Node3D
 ## Replaces game/vehicle_billboard_3d.gd's flat-card approximation with the vehicle's REAL
 ## geometry, traced directly out of RFIRE.BIN rather than approximated. Chasing the user's
 ## "why are there no visible treads" observation all the way through found that the Tank was
-## never a flat sprite in the original at all -- it's a real multi-part 3D shape. Six parts
-## are implemented here, each a separate `ART.CAR` cel with its own 3D corner coordinates,
-## confirmed correct by a real driven screenshot:
+## never a flat sprite in the original at all -- it's a real multi-part 3D shape.
+##
+## The Tank's real descriptor has **14 parts, not 6 and not the 8 document 37's own addendum
+## found** -- both earlier counts were undercounts from trusting the wrong signal (the
+## descriptor's own count-like field turned out to be the CORNER array's length, not a part
+## count; the angle-bucket draw-order lists only cover 6 of the 14 parts, not a manifest of all
+## of them). Document 38 re-derived the real count the only reliable way: walking the parts
+## array from index 0 and stopping at the first entry whose cel/corner indices are implausible
+## -- applied generally (see tools/ghidra_scripts/DumpVehicleTypeParts.java), not just for the
+## Tank. The first six (FACES below) are the ones this file already had rendering correctly:
 ##
 ##   bottom (167 tan / 168 green) -- flat, at the vehicle's base
 ##   top    (172 tan / 173 green) -- flat, at full height (the detailed "hull-top" cel,
@@ -14,28 +21,36 @@ extends Node3D
 ##                                   this project found completely unused until now
 ##   front, back detail (187 tan / 188 green) -- small vertical accent faces
 ##
-## The real descriptor actually lists **eight** parts, not six -- found only after a user
-## follow-up ("something's missing/wrong around the wheels") led to checking whether the
-## angle-bucket draw-order data (see FACING_OFFSET_DEG's neighbourhood below) ever referenced
-## more than six part indices. It does: parts 6 and 7 (cels 202, 212) are real, with real
-## corner data, but every corner-order/triangulation tried for them produced a visible glitch
-## (a thin stray spike) rather than a sensible panel -- so they're recorded as data
-## (WARPED_PARTS) but deliberately NOT rendered yet, rather than ship something visibly wrong.
-## A further user follow-up ("missing the top box part of the turret") suggests these two
-## might not even be what a first guess assumed (a fender/ridge) -- unresolved, not a guess
-## restated as fact. See document 37's addendum. **A separate, distinct gap, also unresolved:**
-## the reference screenshots also show a raised turret box and gun barrel neither this file
-## nor the 8-part descriptor account for at all -- if the real Tank has one, it isn't in this
-## specific per-vehicle-type record; where it actually lives hasn't been traced.
+## The remaining 8 real parts split into two groups (see EXTRA_PARTS and UNRESOLVED_PARTS below
+## for the full story on each):
+##   - 4 (177, 192 x2, 212) are instantiated and confirmed clean at every heading. Two are exact
+##     positional duplicates of a FACES panel with a different cel (177 over the bottom, 192
+##     over both the top and the left tread) -- read as trim/window/hatch decals layered on the
+##     base panel (177's atlas note: "tan block, red-dot windows"; 192's: "tan cab, red
+##     eyes+mouth trim"), not a second copy of the same face. 212 is this file's old, single
+##     "WARPED_PARTS" entry, now confirmed to be a genuine flat (if tilted) rectangle.
+##   - 4 more (197, 207, and BOTH of cel 202's real parts) are real but NOT instantiated -- this
+##     session traced the actual cause precisely (a texture-UV mapping problem this function's
+##     naive rectangle-onto-4-corners assumption gets wrong for a non-rectangular quad,
+##     confirmed by a magenta-debug-colour render proving the triangle COVERAGE is already
+##     complete and gap-free), a materially better diagnosis than the previous session's "every
+##     triangulation looked glitched."
+##
+## Still open, and NOT settled by any of this: whether/how 177/192 take a team colour (their
+## "+1" cels are already flagged in the registry as not a confirmed pair -- see EXTRA_PARTS' own
+## comment), the UV fix above, and whether these 14 parts are really the *entire* Tank -- a
+## raised turret box and gun barrel are visible in the user's reference screenshots and still
+## don't match anything in this exhaustively-boundary-detected 14-part descriptor at all; a
+## rendered screenshot of these 14 real parts (see document 38) is real evidence that gap is
+## NOT hiding anywhere in this specific per-vehicle-type record, wherever it does live.
 ##
 ## Traced via the real per-object rendering pipeline document 35 already found for
 ## decorations (same FUN_0041afb0/FUN_0041b2b0 CCB-corner-projection call), starting from
 ## RFIRE.BIN's own vehicle-type table (`0x004452d8`, 4 entries -- type 0's name string reads
 ## literally "Tank") down to its real local-space corner array. Team colour is a flat +1 cel
-## offset for the six implemented parts (167->168, 172->173, 182->183, 187->188), confirmed by
-## direct visual comparison. The unrendered parts' own "+1" cels were spot-checked the same
-## way: 203 measures genuinely greener than 202 (a real pair), but 212/213 measure
-## byte-identical (not a real pair) -- recorded in WARPED_PARTS for whoever finishes this.
+## offset for the six FACES parts (167->168, 172->173, 182->183, 187->188), confirmed by direct
+## visual comparison. Cel 202's own "+1" (203) measures genuinely greener (a real pair); 212's
+## (213) measures byte-identical (not a real pair) -- both confirmed this session.
 ##
 ## `vehicle.hovercraft.rotation.tan.01-09` (game/vehicle_billboard_3d.gd's GROUND_DECAL
 ## texture, cels 218-226) turned out never to be referenced by this real descriptor at all --
@@ -74,31 +89,72 @@ const FACES := [
 	{"cel": 187, "center": Vector3(0, 6.667, 27), "half": Vector2(8, 6.667), "axis": "side_z", "sign": 1},
 ]
 
-## Parts 6 and 7 of the real 8-part descriptor -- real cel, real corners (px, in this file's
-## local space), taken directly from RFIRE.BIN's corner array, not approximated as a flat
-## panel. NOT currently instantiated by setup() -- see the file header for why (every
-## triangulation tried produced a visible glitch, and a further user observation suggests the
-## "fender"/"ridge" guess in these two comments may be wrong regardless). Kept as real,
-## verified data for whoever solves the correct interpretation next, along with
-## `_build_warped_mesh()` below (a generic "quad from 4 real corners" builder, otherwise
-## unused). "team_colour" reflects a real measured check (see file header), not a guess.
-const WARPED_PARTS := [
-	{  # tentatively: right-tread-to-front panel -- unconfirmed, see file header
-		"cel": 202,
-		"team_colour": true,
-		"corners": [
-			Vector3(18, 0, -32), Vector3(18, 0, 32),
-			Vector3(-8, 13.333, -22), Vector3(18, 13.333, -32),
-		],
-	},
-	{  # tentatively: front-to-back centre panel -- unconfirmed, see file header
-		"cel": 212,
-		"team_colour": false,
-		"corners": [
-			Vector3(8, 0, -22), Vector3(-8, 0, -22),
-			Vector3(-8, 13.333, 30), Vector3(8, 13.333, 30),
-		],
-	},
+## The real descriptor's remaining 8 parts (indices 6-13 of the real 14 -- see document 38),
+## found only after re-checking the boundary-detection this document 38 needed: the earlier
+## "8 parts, not 6" addendum (document 37) was *itself* still an undercount, because it trusted
+## the angle-bucket draw-order lists as a part manifest when they only ever cover the first six
+## "primary" hull faces. These eight are drawn unconditionally, outside any angle bucket.
+##
+## Only 4 of the 8 are instantiated below -- confirmed rendering cleanly at every heading (this
+## session swept all 8 compass directions, not just one screenshot). Two are exact positional
+## duplicates of an existing FACES entry with a DIFFERENT cel (177 over the bottom's 167, 192
+## over both the top's 172 and the left tread's 182) -- read as detail/trim decals layered on
+## the base hull panel (177's atlas note is "tan block, red-dot windows", 192's is "tan cab, red
+## eyes+mouth trim"), not a second copy of the same face. 212 (this file's old, single
+## WARPED_PARTS entry) is a genuine flat, if tilted, rectangle -- confirmed clean on its own by
+## the same sweep.
+##
+## The remaining 4 (197, 207, and BOTH of cel 202's real parts) are deliberately NOT
+## instantiated -- see UNRESOLVED_PARTS below for why, and for this session's real, precise
+## diagnosis (a texture-UV problem, not the triangulation/geometry problem the previous
+## session's "every triangulation glitched" framing assumed).
+##
+## Team colour: only cel 202's pair (203) is a confirmed real tan->green shift (measured this
+## session) -- moot for now since 202 isn't rendered. 177/192's own "+1" cels (178/193) are
+## already flagged in the registry as NOT part of a confirmed team pair -- so, honestly, this
+## file does not yet know whether/how these take a team colour, and deliberately does not guess:
+## they draw their single known (tan) cel for both teams until that's traced. 212 has no team
+## variant at all (213 measures byte-identical to it, confirmed this session).
+const EXTRA_PARTS := [
+	{"cel": 177, "team_pair": -1, "corners": [
+		Vector3(-32, 0, -32), Vector3(32, 0, -32), Vector3(32, 0, 32), Vector3(-32, 0, 32),
+	]},
+	{"cel": 192, "team_pair": -1, "corners": [
+		Vector3(-32, 13.333, -32), Vector3(32, 13.333, -32), Vector3(32, 13.333, 32), Vector3(-32, 13.333, 32),
+	]},
+	{"cel": 192, "team_pair": -1, "corners": [
+		Vector3(-18, 13.333, 32), Vector3(-18, 13.333, -32), Vector3(-18, 0, -32), Vector3(-18, 0, 32),
+	]},
+	{"cel": 212, "team_pair": -1, "corners": [
+		Vector3(8, 0, -22), Vector3(-8, 0, -22), Vector3(-8, 13.333, 30), Vector3(8, 13.333, 30),
+	]},
+]
+
+## Real cel + corners for the 4 remaining parts of the real 14, NOT instantiated by setup().
+## Both 202 parts were confirmed (this session, via a magenta-debug-colour material bypassing
+## the real texture entirely) to have COMPLETE, gap-free triangle coverage -- the visible defect
+## is a genuine texture-UV artifact, not a hole: this function's naive "map the atlas rectangle
+## straight onto the 4 corners in order" UV assignment produces a warped/self-overlapping UV
+## layout for a non-rectangular (here: concave) quad, which samples into the wrong part of the
+## atlas (very likely the transparent/black padding around the real sprite) for some pixels.
+## 197/207 are genuinely non-planar (not just non-rectangular), so likely need the same fix
+## plus something else. Whoever picks this up next needs a real per-corner UV, not a rectangle
+## stretched over 4 arbitrary points -- possibly stored in RFIRE.BIN's own corner/part data
+## somewhere this session didn't look, since a 1996 renderer doing real quad texture-mapping
+## must have had per-vertex UVs from *somewhere*.
+const UNRESOLVED_PARTS := [
+	{"cel": 197, "team_pair": -1, "corners": [
+		Vector3(32, 13.333, -32), Vector3(-18, 13.333, -32), Vector3(-18, 0, -32), Vector3(32, 13.333, 32),
+	]},
+	{"cel": 207, "team_pair": -1, "corners": [
+		Vector3(-32, 13.333, -32), Vector3(-18, 13.333, 32), Vector3(-18, 0, 32), Vector3(-32, 13.333, 32),
+	]},
+	{"cel": 202, "team_pair": 203, "corners": [
+		Vector3(18, 13.333, 32), Vector3(8, 13.333, -22), Vector3(-8, 13.333, -22), Vector3(18, 13.333, -32),
+	]},
+	{"cel": 202, "team_pair": 203, "corners": [
+		Vector3(18, 0, -32), Vector3(18, 0, 32), Vector3(-8, 13.333, -22), Vector3(18, 13.333, -32),
+	]},
 ]
 
 ## Empirically matched (see file header) -- 0 until verified against a real driven-forward
@@ -108,7 +164,7 @@ const FACING_OFFSET_DEG := 90.0
 var vehicle: Vehicle
 var pack: Pack
 var _sprites: Array[Sprite3D] = []
-var _warped_meshes: Array[MeshInstance3D] = []
+var _extra_meshes: Array[MeshInstance3D] = []
 
 
 func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
@@ -133,20 +189,54 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 		add_child(sprite)
 		_sprites.append(sprite)
 
-	# WARPED_PARTS (cels 202/212, real data, real corners) is deliberately NOT instantiated
-	# here yet -- both tried triangulations produced a visible glitch (a thin spike, not a
-	# panel), and the user's own follow-up ("missing the top box part of the turret") suggests
-	# these two parts may not even be what this file first guessed (a fender/ridge) at all.
-	# Left as real, confirmed-but-unplaced data (see the file header and document 37's
-	# addendum) rather than ship something visibly wrong.
+	for part in EXTRA_PARTS:
+		var mesh_instance := MeshInstance3D.new()
+		add_child(mesh_instance)
+		_extra_meshes.append(mesh_instance)
+
+	# Built once, not per-frame like the Sprite3D faces' _apply_cel: a vehicle's team never
+	# changes after spawn, and rebuilding a SurfaceTool mesh every frame (unlike just swapping
+	# a Sprite3D's texture/region) would be real, needless per-frame cost for no visual benefit.
+	for i in EXTRA_PARTS.size():
+		var part: Dictionary = EXTRA_PARTS[i]
+		var cel: int = part["cel"]
+		if part["team_pair"] != -1 and vehicle.team == "green":
+			cel = part["team_pair"]
+		_build_warped_mesh(_extra_meshes[i], part["corners"], cel)
 
 	_refresh()
 
 
+## Approximates the quad's own overall normal via Newell's method (sum of successive edge
+## cross products) -- works even for a not-quite-planar quad, which is exactly why this is
+## Newell's method rather than a single 3-point cross product: it doesn't depend on picking
+## "the right" 3 corners out of 4 that might not agree.
+func _quad_normal(corners: Array) -> Vector3:
+	var n := Vector3.ZERO
+	for i in corners.size():
+		var a: Vector3 = corners[i]
+		var b: Vector3 = corners[(i + 1) % corners.size()]
+		n += Vector3(
+			(a.y - b.y) * (a.z + b.z),
+			(a.z - b.z) * (a.x + b.x),
+			(a.x - b.x) * (a.y + b.y),
+		)
+	return n.normalized()
+
+
 ## Builds a two-triangle quad from four real corners (in loop order, taken directly from
-## RFIRE.BIN's own corner data -- see WARPED_PARTS) textured with one cel's atlas region.
+## RFIRE.BIN's own corner data -- see EXTRA_PARTS) textured with one cel's atlas region.
 ## Sprite3D can't represent this (it's always an axis-aligned rectangle in its own local
 ## plane); a real ArrayMesh is the only way to place a non-rectangular quad exactly.
+##
+## The diagonal to split on (0-2 or 1-3) is NOT always 1-3: real corner data extracted this
+## session (document 38 -- Tank part 11, cel 202) turned out to be a non-convex quad, where
+## splitting on the wrong diagonal produces one inverted/overlapping triangle and a visible
+## hole in the rendered hull (confirmed by disabling every other new part one at a time until
+## this one was isolated as the cause). The fix that works for both convex and non-convex
+## simple quads: pick whichever diagonal produces two triangles that both wind the same way as
+## the quad's own overall normal (see _quad_normal above) -- the wrong diagonal always produces
+## at least one triangle winding the opposite way.
 func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index: int) -> void:
 	var s := pack.get_sprite(_CEL_NAMES.get(cel_index, ""))
 	if s.is_empty():
@@ -169,20 +259,41 @@ func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index
 		Vector2(sx / tex_w, (sy + sh) / tex_h),
 	]
 
+	var normal := _quad_normal(corners)
+	var c0: Vector3 = corners[0]
+	var c1: Vector3 = corners[1]
+	var c2: Vector3 = corners[2]
+	var c3: Vector3 = corners[3]
+	# Score each candidate diagonal by how well its two triangles' own normals agree with the
+	# quad's overall normal -- the correct diagonal scores positively on both; the wrong one
+	# scores negatively on at least one (see this function's own comment above).
+	var score_02 := (c1 - c0).cross(c2 - c0).dot(normal) + (c2 - c0).cross(c3 - c0).dot(normal)
+	var score_13 := (c1 - c0).cross(c3 - c0).dot(normal) + (c2 - c1).cross(c3 - c1).dot(normal)
+	var tri_indices: Array[int]
+	if score_02 >= score_13:
+		tri_indices = [0, 1, 2, 0, 2, 3]
+	else:
+		tri_indices = [0, 1, 3, 1, 2, 3]
+
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_uv(uvs[0]); st.add_vertex(corners[0])
-	st.set_uv(uvs[1]); st.add_vertex(corners[1])
-	st.set_uv(uvs[3]); st.add_vertex(corners[3])
-	st.set_uv(uvs[1]); st.add_vertex(corners[1])
-	st.set_uv(uvs[2]); st.add_vertex(corners[2])
-	st.set_uv(uvs[3]); st.add_vertex(corners[3])
+	for idx in tri_indices:
+		st.set_uv(uvs[idx])
+		st.add_vertex(corners[idx])
 	st.generate_normals()
 
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	mat.albedo_texture = tex
+	# Debug-only: RF_DEBUG_WARPED_MESH_COLOR=1 swaps the real texture for a flat colour, so a
+	# screenshot shows exactly what triangle area this function actually covers, independent of
+	# the texture's own UV sampling. This is what distinguished "the mesh has a real hole" from
+	# "the mesh is complete but its UVs sample the wrong part of the atlas" for UNRESOLVED_PARTS
+	# (cel 202's magenta render this session had zero gaps, proving it's the latter).
+	if OS.get_environment("RF_DEBUG_WARPED_MESH_COLOR") == "1":
+		mat.albedo_color = Color.MAGENTA
+	else:
+		mat.albedo_texture = tex
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # real corner winding not verified -- see file header
 	mesh_instance.mesh = st.commit()
 	mesh_instance.material_override = mat
@@ -227,11 +338,15 @@ const _CEL_NAMES := {
 	168: "vehicle.hovercraft.hull.02",
 	172: "vehicle.hovercraft.hull.04",
 	173: "vehicle.hovercraft.hull.05",
+	177: "vehicle.hovercraft.hull.07",
 	182: "vehicle.hovercraft.track.01",
 	183: "vehicle.hovercraft.track.02",
 	187: "vehicle.hovercraft.hull.10",
 	188: "vehicle.hovercraft.hull.21",  # registry correction, document 37 -- see that cel's own note
+	192: "vehicle.hovercraft.hull.12",
+	197: "vehicle.hovercraft.hull.14",
 	202: "vehicle.hovercraft.hull.16",
 	203: "vehicle.hovercraft.turret_detail.01",
+	207: "vehicle.hovercraft.hull.18",
 	212: "vehicle.hovercraft.wheel_hub.01",
 }
