@@ -3,16 +3,23 @@ extends Node3D
 ## Replaces game/vehicle_billboard_3d.gd's flat-card approximation with the vehicle's REAL
 ## geometry, traced directly out of RFIRE.BIN rather than approximated. Chasing the user's
 ## "why are there no visible treads" observation all the way through found that the Tank was
-## never a flat sprite in the original at all -- it's a real multi-part 3D shape.
+## never a flat sprite in the original at all -- it's a real multi-part 3D shape, and (document
+## 39) a genuinely separate turret+barrel object drawn on top of it.
 ##
-## The Tank's real descriptor has **14 parts, not 6 and not the 8 document 37's own addendum
-## found** -- both earlier counts were undercounts from trusting the wrong signal (the
-## descriptor's own count-like field turned out to be the CORNER array's length, not a part
-## count; the angle-bucket draw-order lists only cover 6 of the 14 parts, not a manifest of all
-## of them). Document 38 re-derived the real count the only reliable way: walking the parts
-## array from index 0 and stopping at the first entry whose cel/corner indices are implausible
-## -- applied generally (see tools/ghidra_scripts/DumpVehicleTypeParts.java), not just for the
-## Tank. The first six (FACES below) are the ones this file already had rendering correctly:
+## **The Tank's hull has 6 real parts.** Document 38's "14 parts, not 6, not 8" finding was
+## itself wrong, and document 39 found exactly why: the hull descriptor's own parts array
+## (0x0043e700) sits in memory immediately before a DIFFERENT, real descriptor's parts array --
+## the turret's (0x0043e7c0, exactly 6 part-records later) -- and boundary-detection walking
+## forward from the hull's own array, with no way to know where one descriptor's data ends and
+## an unrelated one begins, walked straight into the turret's real data and misread it as 8
+## more hull parts. Those 8 "extra hull parts" were real records the whole time, just read
+## against the WRONG corner array (the hull's 24-corner array instead of the turret's own
+## 22-corner one, which happens to start exactly where the hull's ends) -- which is the real
+## reason every one of them looked distorted, oversized, or "outside the bounds of the wheels"
+## no matter which of 3 unrelated bugs got fixed along the way (a triangulation winding bug, a
+## missing `.transparency` line, neither of which was ever the actual problem). See document
+## 39 for the full trace and the reasoning that finally isolated it. The 6 real hull parts
+## (FACES below) are exactly document 37's original, correct finding:
 ##
 ##   bottom (167 tan / 168 green) -- flat, at the vehicle's base
 ##   top    (172 tan / 173 green) -- flat, at full height (the detailed "hull-top" cel,
@@ -21,26 +28,34 @@ extends Node3D
 ##                                   this project found completely unused until now
 ##   front, back detail (187 tan / 188 green) -- small vertical accent faces
 ##
-## NONE of these 8 are instantiated -- see DETAIL_PARTS and WARPED_DETAIL_PARTS below for the
-## full story. Two real bugs got found and fixed along the way (a triangulation-winding bug
-## producing an inverted triangle/visible hole for a non-convex quad; a missing
-## `.transparency` line rendering every transparent pixel as opaque black), and each looked
-## like real progress in turn -- but a real, visible defect (most concretely: cel 212, a 16x16
-## circular ring, stretched across a corner span ~3.25x longer in one axis than the other,
-## spills visibly past the tread's own wheel graphics instead of sitting on one of them)
-## survived both fixes. Non-uniform stretching distorts detailed/circular content even when the
-## destination is a genuine rectangle, not just when it's skewed -- a materially different (and
-## still unresolved) problem from either bug already fixed. All 8 are reverted; see DETAIL_PARTS'
-## own comment for the honest, complete diagnosis.
+## **The turret and gun barrel are a real, separate object, now found and rendered
+## (TURRET_PARTS below).** Decompiling the real vehicle draw dispatcher (`FUN_00402dc0`, not
+## `FUN_0041b430` -- that's one level down, the generic per-descriptor renderer both the hull
+## and the turret call) found it draws the hull once with the vehicle's own descriptor, then --
+## when a linked turret sub-object exists -- swaps in a wholly different, dedicated descriptor
+## (`0x0043e9b8`) and draws again with an independently composed rotation (hull heading plus a
+## separate turret-aim angle). That second descriptor has its own real corner array
+## (`0x0043e538`, 22 corners, contiguous with but distinct from the hull's) and its own 8 real
+## parts -- the exact same 8 cels (177, 192 x2, 197, 207, 202 x2, 212) this project spent a
+## whole session trying and failing to place correctly as hull decals, because they were never
+## hull decals. Read against the CORRECT (turret's own) corner array, they form a coherent,
+## correctly-scaled raised box (177/192x2/197/207, sitting right on the hull's own roof) with a
+## barrel extending forward from it (202 x2) capped with a ring (212) -- matching the user's
+## reference screenshots directly. This project does not yet model independent turret aim (no
+## AI/player aim-angle state exists to drive it) -- the turret renders at the same heading as
+## the hull, a known, documented simplification, not the real mechanism.
 ##
-## The colour-footprint map (`RF_DEBUG_PART_MAP=1`, with the real, already-verified camera
-## settings -- an exaggerated tilt/zoom badly distorts this check) did settle the turret/gun
-## barrel question conclusively rather than by absence, independent of whether any of these 8
-## parts ever render correctly: none of their real 3D corners extend past the hull's own
-## bounding box. The raised turret box and gun barrel visible in the user's reference
-## screenshots are not anywhere in this exhaustively-walked 14-part descriptor -- not a search
-## gap, a geometric impossibility for anything encoded in this specific record. Whatever draws
-## them is a separate mechanism this file doesn't reach.
+## Still open: cel 212 (the muzzle ring, part 7) renders visibly larger/lower than the barrel
+## tip it caps -- confirmed real, unmodified data (triple-checked directly against the raw
+## corner table, not a transcription error), and confirmed NOT explained by anything in
+## `FUN_0041b2b0`'s own code this session re-checked for exactly this: the backface-culling
+## flag bits it reads (piVar7[2]/[3], gated by flags bits 0x1/0x2) are unset here so inert; the
+## rotation matrix `FUN_0041ae10` builds is a pure rotation (no embedded scale); the turret's
+## angle-bucket lists all include index 7 at every viewing angle (a depth-sort order, not a
+## per-angle subset -- it's never hidden). One hand-adjustment attempt (constraining the ring's
+## height to the barrel's own tip band) was tried and reverted -- it fixed the size but broke
+## the aspect ratio into a visibly squashed oval, confirming the raw data's own proportions
+## (not the position) are more likely correct and this needs a real answer, not another guess.
 ##
 ## Traced via the real per-object rendering pipeline document 35 already found for
 ## decorations (same FUN_0041afb0/FUN_0041b2b0 CCB-corner-projection call), starting from
@@ -87,77 +102,53 @@ const FACES := [
 	{"cel": 187, "center": Vector3(0, 6.667, 27), "half": Vector2(8, 6.667), "axis": "side_z", "sign": 1},
 ]
 
-## The real descriptor's remaining 8 parts (indices 6-13 of the real 14 -- see document 38),
-## found only after re-checking the boundary-detection this document 38 needed: the earlier
-## "8 parts, not 6" addendum (document 37) was *itself* still an undercount, because it trusted
-## the angle-bucket draw-order lists as a part manifest when they only ever cover the first six
-## "primary" hull faces. These eight are drawn unconditionally, outside any angle bucket.
+## The Tank's real, SEPARATE turret+barrel descriptor (`0x0043e9b8`, document 39) -- a
+## dedicated 8-part, 22-corner record, structurally identical in format to the hull's own but
+## entirely distinct data. Corners already converted (same 8/3 fixed-point-to-pixel scale, same
+## axis relabelling as FACES above) and confirmed against the correct (turret's own) corner
+## array this time, not the hull's:
+##   - 177: the turret's flat top panel (24 units above the vehicle's local origin -- well above
+##     the hull's own 13.333-unit roof).
+##   - 192 (x2), 197, 207: the turret box's 4 sloped side panels, tapering from the wider top
+##     (177's edges) down to the hull's own roofline.
+##   - 202 (x2): the gun barrel -- two panels meeting at a point, extending forward from the
+##     turret box's front and rising slightly, ending flush with the hull's own front edge.
+##   - 212: a ring/cap mounted vertically at the barrel's tip (the muzzle) -- real, unmodified
+##     corner data, but renders visibly larger/lower than the barrel tip it caps; see the file
+##     header for what's been ruled out and why this is flagged rather than hand-tuned further.
+## This single set replaces this file's entire previous, wrong attempt at these same 8 cels
+## (read against the hull's own corner array by mistake -- see the file header) -- every part
+## here is a genuine rectangle or simple planar quad relative to the turret's own geometry, and
+## renders cleanly with the same `_build_warped_mesh()` this file already has.
 ##
-## NONE of these 8 are instantiated by setup() -- every one of them, including the 4 (177,
-## 192 x2, 212) that are geometrically clean rectangles, was shipped and then pulled back out
-## this same session after a real, visible defect survived two independent bug fixes:
-##   - Fix 1 (real bug, confirmed correct): `_build_warped_mesh()`'s triangulation always split
-##     a quad on the same diagonal, producing an inverted triangle and a visible hole for a
-##     non-convex quad (cel 202's part 11). Fixed generally via a Newell-normal winding check.
-##   - Fix 2 (real bug, confirmed correct): the hand-built `StandardMaterial3D` never set
-##     `.transparency`, so every transparent source pixel rendered as opaque black -- the
-##     "black gaps" both this file and its own earlier debug renders showed. Fixed with
-##     `mat.transparency = TRANSPARENCY_ALPHA`.
-##   - Neither fix addressed the actual remaining problem: **non-uniform stretching distorts
-##     detailed/circular content even when the destination is a genuine rectangle.** 212 is a
-##     16x16 circular ring stretched across a corner span roughly 16 wide x 52 long -- a true
-##     rectangle, not skewed, but stretched ~3.25x more in one axis than the other, so the ring
-##     spills visibly past the tread's own wheel graphics instead of sitting on one of them
-##     (confirmed directly against a live render, user-reported). 177 (32x32) and 192 (32x16)
-##     have the same non-uniform-scale problem at a smaller, less obvious magnitude. 197/207
-##     (non-planar) and 202's two parts (one non-rectangular, one non-planar) have this same
-##     problem *plus* an outright skew.
-##
-## The 6 primary FACES don't have this problem because they were already confirmed (document
-## 37) to match their own corner span exactly at native size in BOTH dimensions -- a uniform
-## 1:1 "scale," not a stretch. None of these 8 parts share that property in both dimensions
-## (confirmed by comparing each cel's real atlas pixel size against its own corner span -- see
-## the table in document 38's addendum). Two real, unresolved possibilities for what's actually
-## missing: (a) the original engine has some correction this project hasn't found (a per-part
-## scale field, a different placement rule for small decals vs. primary panels), confirmed NOT
-## to be a separate CCB mode (`FUN_00419820` is identical for every part, decompiled and
-## checked this session); or (b) this project's corner-to-part mapping for indices 6-13 is
-## still subtly wrong despite passing every consistency check tried so far (shared corners with
-## already-verified faces, boundary detection, real cel content matching plausible roles).
-##
-## Kept below as real, RE-verified data (cel, corners, and team-colour pairing where confirmed)
-## for whoever resolves either possibility -- not deleted, not guessed at further.
-const DETAIL_PARTS := [
+## Team colour: only cel 202's pair (203) is a confirmed real tan->green shift (measured this
+## session). 177/192/197/207's own "+1" cels are already flagged in the registry as NOT part of
+## a confirmed team pair -- unknown, not guessed, same as the hull's own unresolved decals were.
+## 212 has no team variant at all (213 measures byte-identical to it, confirmed this session).
+const TURRET_PARTS := [
 	{"cel": 177, "team_pair": -1, "corners": [
-		Vector3(-32, 0, -32), Vector3(32, 0, -32), Vector3(32, 0, 32), Vector3(-32, 0, 32),
+		Vector3(-13.33, 24, -16), Vector3(13.33, 24, -16), Vector3(13.33, 24, 16), Vector3(-13.33, 24, 16),
 	]},
 	{"cel": 192, "team_pair": -1, "corners": [
-		Vector3(-32, 13.333, -32), Vector3(32, 13.333, -32), Vector3(32, 13.333, 32), Vector3(-32, 13.333, 32),
+		Vector3(-8, 24, -13.33), Vector3(-8, 24, 16), Vector3(-8, 13.33, 10.67), Vector3(-8, 13.33, -10),
 	]},
 	{"cel": 192, "team_pair": -1, "corners": [
-		Vector3(-18, 13.333, 32), Vector3(-18, 13.333, -32), Vector3(-18, 0, -32), Vector3(-18, 0, 32),
+		Vector3(8, 24, -13.33), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(8, 13.33, -10),
 	]},
-	{"cel": 212, "team_pair": -1, "corners": [
-		Vector3(8, 0, -22), Vector3(-8, 0, -22), Vector3(-8, 13.333, 30), Vector3(8, 13.333, 30),
-	]},
-]
-
-## The other 4 real parts -- corners genuinely don't form a rectangle (202's two parts -- one's
-## a trapezoid, one's non-planar) or aren't even planar (197, 207) -- same non-shipped status
-## and same reasoning as DETAIL_PARTS above, with an outright skew on top. See that const's own
-## comment for the full explanation.
-const WARPED_DETAIL_PARTS := [
 	{"cel": 197, "team_pair": -1, "corners": [
-		Vector3(32, 13.333, -32), Vector3(-18, 13.333, -32), Vector3(-18, 0, -32), Vector3(32, 13.333, 32),
+		Vector3(-8, 24, 16), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(-8, 13.33, 10.67),
 	]},
 	{"cel": 207, "team_pair": -1, "corners": [
-		Vector3(-32, 13.333, -32), Vector3(-18, 13.333, 32), Vector3(-18, 0, 32), Vector3(-32, 13.333, 32),
+		Vector3(-8, 24, -13.33), Vector3(8, 24, -13.33), Vector3(8, 13.33, -10), Vector3(-8, 13.33, -10),
 	]},
 	{"cel": 202, "team_pair": 203, "corners": [
-		Vector3(18, 13.333, 32), Vector3(8, 13.333, -22), Vector3(-8, 13.333, -22), Vector3(18, 13.333, -32),
+		Vector3(8, 18.67, -14), Vector3(8, 18.67, -32), Vector3(0, 29.33, -32), Vector3(0, 24, -14),
 	]},
 	{"cel": 202, "team_pair": 203, "corners": [
-		Vector3(18, 0, -32), Vector3(18, 0, 32), Vector3(-8, 13.333, -22), Vector3(18, 13.333, -32),
+		Vector3(-8, 18.67, -14), Vector3(-8, 18.67, -32), Vector3(0, 29.33, -32), Vector3(0, 24, -14),
+	]},
+	{"cel": 212, "team_pair": -1, "corners": [
+		Vector3(-10, 29.33, -32), Vector3(10, 29.33, -32), Vector3(10, 8, -32), Vector3(-10, 8, -32),
 	]},
 ]
 
@@ -192,31 +183,28 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 		add_child(sprite)
 		_sprites.append(sprite)
 
-	# Debug-only: RF_DEBUG_PART_MAP=1 hides the 6 primary faces and colours all 8 real detail
-	# parts (DETAIL_PARTS + WARPED_DETAIL_PARTS -- neither is instantiated normally, see both
-	# consts' own comments) distinctly instead of texturing them, so a screenshot shows exactly
-	# where each part's real 3D footprint sits relative to the hull -- this is what confirmed
-	# (with the standard, already-verified camera settings -- an exaggerated tilt/zoom badly
-	# distorts this) that none of the 8 extends past the hull's own bounding box, meaning the
-	# turret/gun barrel visible in reference footage genuinely is not encoded anywhere in this
-	# per-vehicle-type record, not just unaccounted-for by an incomplete search.
-	if OS.get_environment("RF_DEBUG_PART_MAP") == "1":
-		for s in _sprites:
-			s.visible = false
-		var debug_colors := [Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.PURPLE, Color.WHITE]
-		var all_parts: Array = DETAIL_PARTS + WARPED_DETAIL_PARTS
-		for i in all_parts.size():
-			var part: Dictionary = all_parts[i]
-			var mesh_instance := MeshInstance3D.new()
-			add_child(mesh_instance)
-			var cel: int = part["cel"]
-			if part["team_pair"] != -1 and vehicle.team == "green":
-				cel = part["team_pair"]
+	# Debug-only: RF_DEBUG_PART_MAP=1 colours each of the 8 TURRET_PARTS distinctly instead of
+	# texturing them, so a screenshot shows exactly where each part's real 3D footprint sits --
+	# this is what confirmed the turret sits well above the hull's own roofline (24 units vs
+	# 13.333) rather than overlapping it, and that the barrel (202 x2) extends forward to the
+	# hull's own front edge, matching the user's reference screenshots' proportions.
+	var debug_part_map := OS.get_environment("RF_DEBUG_PART_MAP") == "1"
+	var debug_colors := [Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.PURPLE, Color.WHITE]
+
+	# Built once, not per-frame like the Sprite3D faces' _apply_cel: a vehicle's team never
+	# changes after spawn, and rebuilding a SurfaceTool mesh every frame (unlike just swapping
+	# a Sprite3D's texture/region) would be real, needless per-frame cost for no visual benefit.
+	for i in TURRET_PARTS.size():
+		var part: Dictionary = TURRET_PARTS[i]
+		var mesh_instance := MeshInstance3D.new()
+		add_child(mesh_instance)
+		var cel: int = part["cel"]
+		if part["team_pair"] != -1 and vehicle.team == "green":
+			cel = part["team_pair"]
+		if debug_part_map:
 			_build_warped_mesh(mesh_instance, part["corners"], cel, debug_colors[i])
-	# DETAIL_PARTS and WARPED_DETAIL_PARTS are NOT instantiated in a normal run -- see both
-	# consts' own comments for why (every one of these 8 real parts produced a visible defect
-	# once actually compared against the user's reference screenshots, surviving 2 real,
-	# independently-confirmed bug fixes along the way). Only the 6 primary FACES render.
+		else:
+			_build_warped_mesh(mesh_instance, part["corners"], cel)
 
 	_refresh()
 
@@ -239,7 +227,7 @@ func _quad_normal(corners: Array) -> Vector3:
 
 
 ## Builds a two-triangle quad from four real corners (in loop order, taken directly from
-## RFIRE.BIN's own corner data -- see DETAIL_PARTS) textured with one cel's atlas region.
+## RFIRE.BIN's own corner data -- see TURRET_PARTS) textured with one cel's atlas region.
 ## Sprite3D can't represent this (it's always an axis-aligned rectangle in its own local
 ## plane); a real ArrayMesh is the only way to place a non-rectangular quad exactly.
 ##
@@ -359,15 +347,15 @@ const _CEL_NAMES := {
 	168: "vehicle.hovercraft.hull.02",
 	172: "vehicle.hovercraft.hull.04",
 	173: "vehicle.hovercraft.hull.05",
-	177: "vehicle.hovercraft.hull.07",
+	177: "vehicle.hovercraft.turret.top.01",
 	182: "vehicle.hovercraft.track.01",
 	183: "vehicle.hovercraft.track.02",
 	187: "vehicle.hovercraft.hull.10",
 	188: "vehicle.hovercraft.hull.21",  # registry correction, document 37 -- see that cel's own note
-	192: "vehicle.hovercraft.hull.12",
-	197: "vehicle.hovercraft.hull.14",
-	202: "vehicle.hovercraft.hull.16",
-	203: "vehicle.hovercraft.turret_detail.01",
-	207: "vehicle.hovercraft.hull.18",
-	212: "vehicle.hovercraft.wheel_hub.01",
+	192: "vehicle.hovercraft.turret.side.01",
+	197: "vehicle.hovercraft.turret.back.01",
+	202: "vehicle.hovercraft.turret.barrel.01",
+	203: "vehicle.hovercraft.turret.barrel.02",  # renamed from turret_detail.01, document 39 -- see that cel's own note
+	207: "vehicle.hovercraft.turret.front.01",
+	212: "vehicle.hovercraft.turret.muzzle_ring.01",
 }
