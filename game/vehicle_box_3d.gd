@@ -21,24 +21,26 @@ extends Node3D
 ##                                   this project found completely unused until now
 ##   front, back detail (187 tan / 188 green) -- small vertical accent faces
 ##
-## NONE of the remaining 8 real parts are instantiated -- see REMAINING_PARTS below. An earlier
-## pass this same session shipped 4 of them (177, 192 x2, 212), verified only against "does the
-## silhouette have any holes" across an 8-heading sweep. Comparing the result directly against
-## the user's own real reference screenshots (not just this project's own renders) found that
-## check was not enough: several of these cels' own native pixel size is much smaller than the
-## corner span this function was stretching them across (212 is a 16x16 icon stretched across a
-## corner span roughly 16x52 -- more than 3x too long), which produces a real, visibly-wrong
-## result (a smeared, barely-recognizable decal) with no geometric hole to catch it. Reverted --
-## see REMAINING_PARTS' own comment for the corrected diagnosis and what's still needed.
+## NONE of these 8 are instantiated -- see DETAIL_PARTS and WARPED_DETAIL_PARTS below for the
+## full story. Two real bugs got found and fixed along the way (a triangulation-winding bug
+## producing an inverted triangle/visible hole for a non-convex quad; a missing
+## `.transparency` line rendering every transparent pixel as opaque black), and each looked
+## like real progress in turn -- but a real, visible defect (most concretely: cel 212, a 16x16
+## circular ring, stretched across a corner span ~3.25x longer in one axis than the other,
+## spills visibly past the tread's own wheel graphics instead of sitting on one of them)
+## survived both fixes. Non-uniform stretching distorts detailed/circular content even when the
+## destination is a genuine rectangle, not just when it's skewed -- a materially different (and
+## still unresolved) problem from either bug already fixed. All 8 are reverted; see DETAIL_PARTS'
+## own comment for the honest, complete diagnosis.
 ##
-## Still open: whether/how any of these 8 take a team colour, the real per-part scale/anchor
-## convention (below), and whether these 14 parts are really the *entire* Tank -- a raised
-## turret box and gun barrel are visible in the user's reference screenshots and still don't
-## match anything in this exhaustively-boundary-detected 14-part descriptor at all (this
-## descriptor has been walked completely -- that gap is not hiding anywhere in it, wherever it
-## does live). The gun barrel is very likely cel 202/203 (its own atlas art is unmistakably a
-## barrel with a red band and bright tip) -- but same problem: naive stretch-to-corner-span
-## does not reproduce it correctly, so it stays unshipped rather than shown looking wrong.
+## The colour-footprint map (`RF_DEBUG_PART_MAP=1`, with the real, already-verified camera
+## settings -- an exaggerated tilt/zoom badly distorts this check) did settle the turret/gun
+## barrel question conclusively rather than by absence, independent of whether any of these 8
+## parts ever render correctly: none of their real 3D corners extend past the hull's own
+## bounding box. The raised turret box and gun barrel visible in the user's reference
+## screenshots are not anywhere in this exhaustively-walked 14-part descriptor -- not a search
+## gap, a geometric impossibility for anything encoded in this specific record. Whatever draws
+## them is a separate mechanism this file doesn't reach.
 ##
 ## Traced via the real per-object rendering pipeline document 35 already found for
 ## decorations (same FUN_0041afb0/FUN_0041b2b0 CCB-corner-projection call), starting from
@@ -91,37 +93,41 @@ const FACES := [
 ## the angle-bucket draw-order lists as a part manifest when they only ever cover the first six
 ## "primary" hull faces. These eight are drawn unconditionally, outside any angle bucket.
 ##
-## NONE of these are instantiated by setup() -- see this section's header comment above for why
-## an earlier pass this session shipped 4 of them and then reverted that. Real, RE-extracted
-## cel + corners for all 8, kept as verified data for whoever solves the real scale/anchor
-## convention:
-##   - 177, 192 (x2) are exact positional duplicates of an existing FACES panel with a
-##     different cel (177 over the bottom's 167, 192 over both the top's 172 and the left
-##     tread's 182) -- but 177's native size (32x32) and 192's (32x16) are each roughly a
-##     quarter the AREA of the 64x64/64x13-ish panel they'd be stretched across, which is very
-##     likely why simply stretching them to fill that panel looked wrong against the reference.
-##   - 197, 207 are genuinely non-planar, not just wrongly-scaled.
-##   - 202's two real parts (the gun barrel, almost certainly -- its own atlas art is
-##     unmistakably a barrel with a red band and a bright tip) span a corner range far larger
-##     than the cel's own native 32x16 -- confirmed (via a magenta-debug-colour render bypassing
-##     the real texture) to have complete, gap-free triangle coverage, so a real hole isn't the
-##     problem; a naive "stretch the whole atlas rect across these corners" UV assignment is.
-##   - 212 (this file's old, single "WARPED_PARTS" entry) is a genuine flat, if tilted,
-##     rectangle geometrically, but its native size (16x16) is a small fraction of the ~16x52
-##     corner span it would be stretched across -- the same scale problem as 177/192.
+## NONE of these 8 are instantiated by setup() -- every one of them, including the 4 (177,
+## 192 x2, 212) that are geometrically clean rectangles, was shipped and then pulled back out
+## this same session after a real, visible defect survived two independent bug fixes:
+##   - Fix 1 (real bug, confirmed correct): `_build_warped_mesh()`'s triangulation always split
+##     a quad on the same diagonal, producing an inverted triangle and a visible hole for a
+##     non-convex quad (cel 202's part 11). Fixed generally via a Newell-normal winding check.
+##   - Fix 2 (real bug, confirmed correct): the hand-built `StandardMaterial3D` never set
+##     `.transparency`, so every transparent source pixel rendered as opaque black -- the
+##     "black gaps" both this file and its own earlier debug renders showed. Fixed with
+##     `mat.transparency = TRANSPARENCY_ALPHA`.
+##   - Neither fix addressed the actual remaining problem: **non-uniform stretching distorts
+##     detailed/circular content even when the destination is a genuine rectangle.** 212 is a
+##     16x16 circular ring stretched across a corner span roughly 16 wide x 52 long -- a true
+##     rectangle, not skewed, but stretched ~3.25x more in one axis than the other, so the ring
+##     spills visibly past the tread's own wheel graphics instead of sitting on one of them
+##     (confirmed directly against a live render, user-reported). 177 (32x32) and 192 (32x16)
+##     have the same non-uniform-scale problem at a smaller, less obvious magnitude. 197/207
+##     (non-planar) and 202's two parts (one non-rectangular, one non-planar) have this same
+##     problem *plus* an outright skew.
 ##
-## The likely real fix, not yet attempted: these smaller decal cels are probably meant to be
-## placed at (at or near) their OWN native pixel size, anchored somewhere within the corner
-## span, not stretched to fill every one of the 4 given corners the way the 6 primary FACES
-## correctly are (those 6 were confirmed to already match their corner span at native size --
-## that's how the 8/3 scale factor was originally confirmed in the first place). What anchor
-## point/rule the original actually uses is untraced.
+## The 6 primary FACES don't have this problem because they were already confirmed (document
+## 37) to match their own corner span exactly at native size in BOTH dimensions -- a uniform
+## 1:1 "scale," not a stretch. None of these 8 parts share that property in both dimensions
+## (confirmed by comparing each cel's real atlas pixel size against its own corner span -- see
+## the table in document 38's addendum). Two real, unresolved possibilities for what's actually
+## missing: (a) the original engine has some correction this project hasn't found (a per-part
+## scale field, a different placement rule for small decals vs. primary panels), confirmed NOT
+## to be a separate CCB mode (`FUN_00419820` is identical for every part, decompiled and
+## checked this session); or (b) this project's corner-to-part mapping for indices 6-13 is
+## still subtly wrong despite passing every consistency check tried so far (shared corners with
+## already-verified faces, boundary detection, real cel content matching plausible roles).
 ##
-## Team colour: only cel 202's pair (203) is a confirmed real tan->green shift (measured this
-## session). 177/192's own "+1" cels (178/193) are already flagged in the registry as NOT part
-## of a confirmed team pair -- unknown, not guessed. 212 has no team variant at all (213
-## measures byte-identical to it, confirmed this session).
-const REMAINING_PARTS := [
+## Kept below as real, RE-verified data (cel, corners, and team-colour pairing where confirmed)
+## for whoever resolves either possibility -- not deleted, not guessed at further.
+const DETAIL_PARTS := [
 	{"cel": 177, "team_pair": -1, "corners": [
 		Vector3(-32, 0, -32), Vector3(32, 0, -32), Vector3(32, 0, 32), Vector3(-32, 0, 32),
 	]},
@@ -131,6 +137,16 @@ const REMAINING_PARTS := [
 	{"cel": 192, "team_pair": -1, "corners": [
 		Vector3(-18, 13.333, 32), Vector3(-18, 13.333, -32), Vector3(-18, 0, -32), Vector3(-18, 0, 32),
 	]},
+	{"cel": 212, "team_pair": -1, "corners": [
+		Vector3(8, 0, -22), Vector3(-8, 0, -22), Vector3(-8, 13.333, 30), Vector3(8, 13.333, 30),
+	]},
+]
+
+## The other 4 real parts -- corners genuinely don't form a rectangle (202's two parts -- one's
+## a trapezoid, one's non-planar) or aren't even planar (197, 207) -- same non-shipped status
+## and same reasoning as DETAIL_PARTS above, with an outright skew on top. See that const's own
+## comment for the full explanation.
+const WARPED_DETAIL_PARTS := [
 	{"cel": 197, "team_pair": -1, "corners": [
 		Vector3(32, 13.333, -32), Vector3(-18, 13.333, -32), Vector3(-18, 0, -32), Vector3(32, 13.333, 32),
 	]},
@@ -142,9 +158,6 @@ const REMAINING_PARTS := [
 	]},
 	{"cel": 202, "team_pair": 203, "corners": [
 		Vector3(18, 0, -32), Vector3(18, 0, 32), Vector3(-8, 13.333, -22), Vector3(18, 13.333, -32),
-	]},
-	{"cel": 212, "team_pair": -1, "corners": [
-		Vector3(8, 0, -22), Vector3(-8, 0, -22), Vector3(-8, 13.333, 30), Vector3(8, 13.333, 30),
 	]},
 ]
 
@@ -179,12 +192,31 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 		add_child(sprite)
 		_sprites.append(sprite)
 
-	# REMAINING_PARTS (the other 8 of the real 14 parts) is deliberately NOT instantiated here --
-	# see that const's own comment, and this file's header, for why: every one of them looked
-	# visibly wrong against the user's real reference screenshots once actually compared,
-	# either non-planar (197/207) or stretched far past the source cel's own native size
-	# (177/192 x2/202 x2/212). `_build_warped_mesh()` below is kept, generic and working, for
-	# whoever solves the real per-part scale/anchor convention next.
+	# Debug-only: RF_DEBUG_PART_MAP=1 hides the 6 primary faces and colours all 8 real detail
+	# parts (DETAIL_PARTS + WARPED_DETAIL_PARTS -- neither is instantiated normally, see both
+	# consts' own comments) distinctly instead of texturing them, so a screenshot shows exactly
+	# where each part's real 3D footprint sits relative to the hull -- this is what confirmed
+	# (with the standard, already-verified camera settings -- an exaggerated tilt/zoom badly
+	# distorts this) that none of the 8 extends past the hull's own bounding box, meaning the
+	# turret/gun barrel visible in reference footage genuinely is not encoded anywhere in this
+	# per-vehicle-type record, not just unaccounted-for by an incomplete search.
+	if OS.get_environment("RF_DEBUG_PART_MAP") == "1":
+		for s in _sprites:
+			s.visible = false
+		var debug_colors := [Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.PURPLE, Color.WHITE]
+		var all_parts: Array = DETAIL_PARTS + WARPED_DETAIL_PARTS
+		for i in all_parts.size():
+			var part: Dictionary = all_parts[i]
+			var mesh_instance := MeshInstance3D.new()
+			add_child(mesh_instance)
+			var cel: int = part["cel"]
+			if part["team_pair"] != -1 and vehicle.team == "green":
+				cel = part["team_pair"]
+			_build_warped_mesh(mesh_instance, part["corners"], cel, debug_colors[i])
+	# DETAIL_PARTS and WARPED_DETAIL_PARTS are NOT instantiated in a normal run -- see both
+	# consts' own comments for why (every one of these 8 real parts produced a visible defect
+	# once actually compared against the user's reference screenshots, surviving 2 real,
+	# independently-confirmed bug fixes along the way). Only the 6 primary FACES render.
 
 	_refresh()
 
@@ -207,11 +239,9 @@ func _quad_normal(corners: Array) -> Vector3:
 
 
 ## Builds a two-triangle quad from four real corners (in loop order, taken directly from
-## RFIRE.BIN's own corner data -- see REMAINING_PARTS) textured with one cel's atlas region.
+## RFIRE.BIN's own corner data -- see DETAIL_PARTS) textured with one cel's atlas region.
 ## Sprite3D can't represent this (it's always an axis-aligned rectangle in its own local
-## plane); a real ArrayMesh is the only way to place a non-rectangular quad exactly. NOT
-## currently called by setup() -- kept working and generic for whoever fixes REMAINING_PARTS'
-## real scale/anchor problem next (see that const's own comment).
+## plane); a real ArrayMesh is the only way to place a non-rectangular quad exactly.
 ##
 ## The diagonal to split on (0-2 or 1-3) is NOT always 1-3: real corner data extracted this
 ## session (document 38 -- Tank part 11, cel 202) turned out to be a non-convex quad, where
@@ -221,7 +251,7 @@ func _quad_normal(corners: Array) -> Vector3:
 ## simple quads: pick whichever diagonal produces two triangles that both wind the same way as
 ## the quad's own overall normal (see _quad_normal above) -- the wrong diagonal always produces
 ## at least one triangle winding the opposite way.
-func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index: int) -> void:
+func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index: int, debug_color: Color = Color.TRANSPARENT) -> void:
 	var s := pack.get_sprite(_CEL_NAMES.get(cel_index, ""))
 	if s.is_empty():
 		return
@@ -269,13 +299,19 @@ func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	# StandardMaterial3D defaults transparency to DISABLED -- unlike Sprite3D (used for FACES
+	# above), which configures its own material's alpha handling automatically. Without this,
+	# every fully-transparent pixel in the source cel renders as opaque using whatever raw RGB
+	# happens to sit there (often black), which is exactly the "black gaps" this file's own
+	# earlier magenta-vs-textured debug comparison found and misdiagnosed as a scale/anchor
+	# problem -- it's this missing line.
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	# Debug-only: RF_DEBUG_WARPED_MESH_COLOR=1 swaps the real texture for a flat colour, so a
 	# screenshot shows exactly what triangle area this function actually covers, independent of
-	# the texture's own UV sampling. This is what distinguished "the mesh has a real hole" from
-	# "the mesh is complete but the source cel doesn't cover the whole stretched area" for
-	# REMAINING_PARTS' cel 202 (its magenta render this session had zero gaps, proving it's the
-	# latter -- a scale problem, not a hole).
-	if OS.get_environment("RF_DEBUG_WARPED_MESH_COLOR") == "1":
+	# the texture's own UV sampling.
+	if debug_color != Color.TRANSPARENT:
+		mat.albedo_color = debug_color
+	elif OS.get_environment("RF_DEBUG_WARPED_MESH_COLOR") == "1":
 		mat.albedo_color = Color.MAGENTA
 	else:
 		mat.albedo_texture = tex
