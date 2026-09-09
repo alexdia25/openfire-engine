@@ -45,17 +45,23 @@ extends Node3D
 ## AI/player aim-angle state exists to drive it) -- the turret renders at the same heading as
 ## the hull, a known, documented simplification, not the real mechanism.
 ##
-## Still open: cel 212 (the muzzle ring, part 7) renders visibly larger/lower than the barrel
-## tip it caps -- confirmed real, unmodified data (triple-checked directly against the raw
-## corner table, not a transcription error), and confirmed NOT explained by anything in
-## `FUN_0041b2b0`'s own code this session re-checked for exactly this: the backface-culling
-## flag bits it reads (piVar7[2]/[3], gated by flags bits 0x1/0x2) are unset here so inert; the
-## rotation matrix `FUN_0041ae10` builds is a pure rotation (no embedded scale); the turret's
-## angle-bucket lists all include index 7 at every viewing angle (a depth-sort order, not a
-## per-angle subset -- it's never hidden). One hand-adjustment attempt (constraining the ring's
-## height to the barrel's own tip band) was tried and reverted -- it fixed the size but broke
-## the aspect ratio into a visibly squashed oval, confirming the raw data's own proportions
-## (not the position) are more likely correct and this needs a real answer, not another guess.
+## **Fixed (document 40): the muzzle ring was never static geometry in the first place.** Three
+## checks in `FUN_0041b2b0` ruled out backface-culling flags, the rotation matrix, and the
+## angle-bucket draw lists as explanations -- correctly, but they were the wrong function. The
+## real cause sat in `FUN_00402dc0` itself, in six lines this project had previously dismissed
+## as "an unrelated small 7-corner linkage computation": they unconditionally overwrite, every
+## frame, exactly corner indices 15-21 of the turret's 22-corner array -- the barrel's far tip
+## (15, 16, 17) plus all 4 muzzle-ring corners (18-21) -- from two other static tables via a
+## per-component vector add (a single constant offset, not a per-corner one -- `FUN_00409b10`
+## never advances its offset pointer) and, when a linked sub-object supplies a nonzero angle, a
+## single-plane rotation first. The corner values this project had been reading directly for
+## that cluster were therefore whatever the compiler happened to leave in a slot the game always
+## overwrites before the first frame -- not a value any running game necessarily ever displayed.
+## Recomputing those 7 corners from the "base" + constant "offset" tables (the identity/no-
+## rotation case) and rendering the result shrinks and repositions the ring into a small, well-
+## proportioned cap that sits at the barrel's actual tapered tip -- confirmed across all 8
+## headings by direct screenshot comparison against the previous, oversized rendering, not
+## assumed. See document 40 for the full trace and the raw data.
 ##
 ## Traced via the real per-object rendering pipeline document 35 already found for
 ## decorations (same FUN_0041afb0/FUN_0041b2b0 CCB-corner-projection call), starting from
@@ -112,10 +118,15 @@ const FACES := [
 ##   - 192 (x2), 197, 207: the turret box's 4 sloped side panels, tapering from the wider top
 ##     (177's edges) down to the hull's own roofline.
 ##   - 202 (x2): the gun barrel -- two panels meeting at a point, extending forward from the
-##     turret box's front and rising slightly, ending flush with the hull's own front edge.
-##   - 212: a ring/cap mounted vertically at the barrel's tip (the muzzle) -- real, unmodified
-##     corner data, but renders visibly larger/lower than the barrel tip it caps; see the file
-##     header for what's been ruled out and why this is flagged rather than hand-tuned further.
+##     turret box's front and rising slightly, ending flush with the hull's own front edge. The
+##     far/tip corners (shared with the ring below) are recomputed per document 40's finding,
+##     not read as static data -- see the file header.
+##   - 212: a ring/cap mounted at the barrel's tip (the muzzle). Its corners, and the barrel's
+##     own far-tip corners above, are NOT the descriptor's static data -- document 40 found
+##     `FUN_00402dc0` overwrites exactly this cluster every frame from two other static tables
+##     (a small local "base" shape plus one constant translation `offset`), and recomputing them
+##     that way (the identity/no-turret-aim case) is what actually fits the barrel's taper,
+##     confirmed by screenshot across all 8 headings.
 ## This single set replaces this file's entire previous, wrong attempt at these same 8 cels
 ## (read against the hull's own corner array by mistake -- see the file header) -- every part
 ## here is a genuine rectangle or simple planar quad relative to the turret's own geometry, and
@@ -142,13 +153,13 @@ const TURRET_PARTS := [
 		Vector3(-8, 24, -13.33), Vector3(8, 24, -13.33), Vector3(8, 13.33, -10), Vector3(-8, 13.33, -10),
 	]},
 	{"cel": 202, "team_pair": 203, "corners": [
-		Vector3(8, 18.67, -14), Vector3(8, 18.67, -32), Vector3(0, 29.33, -32), Vector3(0, 24, -14),
+		Vector3(8, 18.67, -14), Vector3(5.87, 18.67, -32), Vector3(0, 24, -32), Vector3(0, 24, -14),
 	]},
 	{"cel": 202, "team_pair": 203, "corners": [
-		Vector3(-8, 18.67, -14), Vector3(-8, 18.67, -32), Vector3(0, 29.33, -32), Vector3(0, 24, -14),
+		Vector3(-8, 18.67, -14), Vector3(-5.87, 18.67, -32), Vector3(0, 24, -32), Vector3(0, 24, -14),
 	]},
 	{"cel": 212, "team_pair": -1, "corners": [
-		Vector3(-10, 29.33, -32), Vector3(10, 29.33, -32), Vector3(10, 8, -32), Vector3(-10, 8, -32),
+		Vector3(-2.67, 22.93, -32), Vector3(2.67, 22.93, -32), Vector3(2.67, 17.33, -32), Vector3(-2.67, 17.33, -32),
 	]},
 ]
 
