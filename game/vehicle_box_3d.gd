@@ -163,9 +163,21 @@ const TURRET_PARTS := [
 	]},
 ]
 
-## Empirically matched (see file header) -- 0 until verified against a real driven-forward
-## screenshot, the same process the GROUND_DECAL facing fix needed.
-const FACING_OFFSET_DEG := 90.0
+## Empirically matched against a real driven-forward screenshot (RF_DEBUG_DRIVE), the same
+## process the GROUND_DECAL facing fix needed -- see the file header.
+##
+## **Corrected 2026-09-09 (user-reported "the turret and barrel is facing backwards"):** the
+## previous value (90.0) was 180 degrees wrong. It went unnoticed through documents 37-40
+## because FACES is fully symmetric front-to-back (167/172's top faces are centred, 182's
+## treads and 187's front/back detail cels are the identical texture mirrored to both ends) --
+## a full 180-degree yaw error is visually invisible on a shape with no directional feature at
+## all. TURRET_PARTS' barrel (document 39) is the vehicle's first asymmetric part, and it
+## immediately exposed the error: a real RF_DEBUG_DRIVE run (turn=0, heading_deg=0, confirmed
+## by RF_DEBUG_CAMERA_LOG to move in real +X only) showed the barrel pointing screen-left --
+## directly opposite the vehicle's own confirmed direction of travel. The earlier "empirically
+## matched" claim above was real but insufficient: it confirmed the hull looked right, which a
+## 180-degree error can't disprove on a symmetric shape.
+const FACING_OFFSET_DEG := -90.0
 
 var vehicle: Vehicle
 var pack: Pack
