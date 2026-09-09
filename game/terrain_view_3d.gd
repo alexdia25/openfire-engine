@@ -86,6 +86,7 @@ func _ready() -> void:
 		camera_height_px = float(height_env)
 
 	_build_terrain_ground()
+	_build_decorations()
 	_spawn_match()
 	_build_light()
 	_build_camera()
@@ -147,6 +148,15 @@ func _build_terrain_ground() -> void:
 	# world Y (2D "down") -> node Z ("forward").
 	ground.position = Vector3(_map_size_px.x * 0.5, 0.0, _map_size_px.y * 0.5)
 	add_child(ground)
+
+
+## Document 40 follow-up: real Node3D decorations (game/decoration_field_3d.gd), not baked
+## into the ground texture above -- see that file's header for why baking them flush with the
+## dirt could never look like standing scenery, no matter how correct the camera projection is.
+func _build_decorations() -> void:
+	var field := DecorationField3D.new()
+	add_child(field)
+	field.setup(pack, level)
 
 
 ## Phases 3-4 of the rendering-migration plan (section 2.2, section 4 item 13): a real,
