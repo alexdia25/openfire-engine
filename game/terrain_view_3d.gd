@@ -42,7 +42,13 @@ extends Node3D
 ## screen equals the height exactly (tan(45) == 1) -- if camera_tilt_deg is ever changed from
 ## 45, _camera_target_position()'s pull-back math below must change from a 1:1 ratio to
 ## height / tan(camera_tilt_deg).
-@export var camera_height_px: float = 260.0
+@export var camera_height_px: float = 212.13
+
+## Section 1.10 point 6: the original's perspective focal length (DAT_00443000) is exactly 300.0
+## in native 320-px-wide screen units, i.e. a horizontal FOV of 2*atan(160/300). With that FOV
+## and a camera 300 units from the target (height 300/sqrt(2) at the 45-degree tilt), 320 world
+## px span the screen width -- matching the 1:1 native scale of the user's Win95 reference shots.
+const CAMERA_HFOV_DEG := 56.63
 
 ## Same follow-smoothing speed terrain_view.gd's Camera2D uses (position_smoothing_speed)
 ## -- Camera3D has no built-in equivalent, so this scene hand-rolls the same exponential
@@ -230,6 +236,8 @@ func _build_light() -> void:
 
 func _build_camera() -> void:
 	camera = Camera3D.new()
+	camera.keep_aspect = Camera3D.KEEP_WIDTH
+	camera.fov = CAMERA_HFOV_DEG
 	add_child(camera)
 	_apply_tilt()
 	_place_camera_immediately()
