@@ -46,6 +46,12 @@ const TRUNK_SPRITE_ID := "decoration.tree.palm"
 ## ground-level decorations at this project's tile_size_px (32) without a real traced value.
 const TRUNK_HEIGHT_PX := 40.0
 
+## Uniform scale for palm compositions (trunk + elevated canopy). NOT traced -- estimated from the
+## user's Win95 reference shots (palm ~18 native px wide / ~21 tall there vs ~36 / ~38 here at the
+## 1:1 calibrated camera, document 43). Ground-level decorations (bushes, rocks) already read
+## close to the reference at 1.0, so only the palms are scaled.
+const PALM_SCALE := 0.5
+
 ## So a ground-level decoration's quad doesn't z-fight with the terrain plane it shares a Y
 ## with -- same reasoning as vehicle_box_3d.gd's GROUND_CLEARANCE_PX.
 const GROUND_CLEARANCE_PX := 1.0
@@ -77,17 +83,18 @@ func _build() -> void:
 			if not CANOPY_SPRITE_IDS.has(part.get("sprite_id", "")):
 				is_canopy_only = false
 				break
+		var s := PALM_SCALE if is_canopy_only else 1.0
 		if is_canopy_only:
-			_add_vertical(TRUNK_SPRITE_ID, centre_x, centre_z)
+			_add_vertical(TRUNK_SPRITE_ID, centre_x, centre_z, s)
 
-		var height := TRUNK_HEIGHT_PX if is_canopy_only else GROUND_CLEARANCE_PX
-		var ring_radius: float = 0.0 if parts.size() <= 1 else tile * 0.22
+		var height := TRUNK_HEIGHT_PX * s if is_canopy_only else GROUND_CLEARANCE_PX
+		var ring_radius: float = 0.0 if parts.size() <= 1 else tile * 0.22 * s
 		for i in parts.size():
 			var sprite_id: String = parts[i].get("sprite_id", "")
 			var angle := TAU * float(i) / float(parts.size())
 			var px := centre_x + cos(angle) * ring_radius
 			var pz := centre_z + sin(angle) * ring_radius
-			_add_flat(sprite_id, px, height, pz)
+			_add_flat(sprite_id, px, height, pz, s)
 
 
 ## A horizontal card lying in the XZ plane (like the ground plane itself), the same
@@ -95,10 +102,11 @@ func _build() -> void:
 ## Godot's default vertical, -Z-facing Sprite3D plane lies flat instead. Real 3D height (`y`)
 ## is what actually fixes the bug this file exists for -- everything else about this call is
 ## document 36's original technique.
-func _add_flat(sprite_id: String, x: float, y: float, z: float) -> void:
+func _add_flat(sprite_id: String, x: float, y: float, z: float, s: float = 1.0) -> void:
 	var sprite := _make_sprite(sprite_id)
 	if sprite == null:
 		return
+	sprite.scale = Vector3.ONE * s
 	sprite.rotation_degrees.x = -90.0
 	sprite.position = Vector3(x, y, z)
 
@@ -109,11 +117,12 @@ func _add_flat(sprite_id: String, x: float, y: float, z: float) -> void:
 ## already confirmed this game's camera never yaws, only translates, so a plain fixed-
 ## orientation card is exactly as correct as a billboard and cheaper -- the same reasoning
 ## vehicle_billboard_3d.gd's GROUND_DECAL already relies on).
-func _add_vertical(sprite_id: String, x: float, z: float) -> void:
+func _add_vertical(sprite_id: String, x: float, z: float, s: float = 1.0) -> void:
 	var sprite := _make_sprite(sprite_id)
 	if sprite == null:
 		return
-	sprite.position = Vector3(x, TRUNK_HEIGHT_PX * 0.5, z)
+	sprite.scale = Vector3.ONE * s
+	sprite.position = Vector3(x, TRUNK_HEIGHT_PX * s * 0.5, z)
 
 
 ## Shared Sprite3D setup (texture/region lookup + the pixel-art rendering flags every other
