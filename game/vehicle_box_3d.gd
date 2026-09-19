@@ -179,6 +179,12 @@ const TURRET_PARTS := [
 ## 180-degree error can't disprove on a symmetric shape.
 const FACING_OFFSET_DEG := -90.0
 
+## Uniform world scale for the whole vehicle. NOT a traced value: the 64px texture size above
+## only fixes proportions between parts; the original stretches each cel to whatever its 3D
+## projection gives, so absolute size was never pinned. Estimated from the user's Win95 reference
+## shots (tank length ~26 native px at 1:1 scale, vs 65 here) and the road/path width (~24px).
+const VEHICLE_SCALE := 0.4
+
 var vehicle: Vehicle
 var pack: Pack
 var _sprites: Array[Sprite3D] = []
@@ -186,6 +192,7 @@ var _sprites: Array[Sprite3D] = []
 
 func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	vehicle = shared_vehicle
+	scale = Vector3.ONE * VEHICLE_SCALE
 	pack = shared_pack
 	vehicle.visible = false  # logic only -- same reasoning as VehicleBillboard3D
 
