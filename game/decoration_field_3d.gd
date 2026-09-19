@@ -1,60 +1,24 @@
 class_name DecorationField3D
 extends Node3D
-## Gives every level decoration (document 35/36, docs/process/ -- bushes, coral, dock posts,
-## palm clusters, ...) a real 3D presence instead of document 36's original choice: baking them
-## flat into game/terrain_tile_renderer.gd's one-shot ground-plane texture, at the same Y as the
-## dirt underneath. That was defensible when it shipped -- decorations never move, so a live
-## Node3D per part seemed like paying vehicle-grade cost for zero vehicle-grade benefit -- but
-## the user caught the real problem: baked-flush-with-the-ground content can never actually look
-## like it stands up, no matter how correctly the real tilted Camera3D foreshortens it, because
-## it never leaves the ground plane's own Y. A tank driving past a "tree" that's really a flat
-## mark on the dirt shows no parallax and no occlusion -- it reads as a shadow, not a plant.
+## Every level decoration (bushes, palms, coral, dock posts, ...) as real 3D geometry, built from
+## the ORIGINAL's own per-part quad corners (document 44, extracted from RFIRE.BIN: each coastal
+## id's descriptor lists parts, and each part's 4 corners are local-space coordinates in world
+## units, tile = 32 units, x=width, y=length (+y = screen down), z=height). Each part's cel is
+## stretched over its quad exactly the way the original's CCB corner-mapping does (document 38),
+## so sizes, tilt and height are traced, not estimated. This replaces the earlier hand-made
+## composition (a ring of flat cards + an invented palm-trunk card + PALM_SCALE): no decoration
+## in the original references the trunk cel that composition drew.
 ##
-## This is a straight extraction, same spirit as document 29/33's own "pull shared logic into
-## one place, don't duplicate it" choice: the per-tile decoration-part lookup and the palm-
-## canopy/trunk-pairing logic below are unchanged from terrain_tile_renderer.gd's own
-## `_draw_decorations()`, just re-targeted at real Node3D children built once instead of 2D
-## draw calls baked into a texture.
+## All quads are batched into one ArrayMesh per atlas page (thousands of parts, one draw call
+## each would be wasteful) and use alpha-scissor instead of blending, so no depth sorting is
+## needed for the hard-edged pixel art.
 ##
-## Real per-part 3D corner data was never decoded for decorations (document 35's own gap,
-## unchanged) -- only which cels compose a given coastal id, not their real relative offsets.
-## So, same as before: a multi-part decoration spreads its parts evenly around a small fixed-
-## radius ring instead of the original's real (unknown) layout, and canopy height is a placeholder
-## (TRUNK_HEIGHT_PX below), not a traced value. What's fixed here is the axis that was flatly
-## wrong -- real elevation now exists at all -- not claiming the exact height is authentic.
-##
-## Two real shapes, not one, matching what direct atlas inspection of the two cel families
-## actually shows (not assumed): CANOPY_SPRITE_IDS' art (e.g. frond_blue, cel 135) is drawn as
-## if seen from directly above -- a radial cluster of fronds -- so it lies flat like the ground
-## plane, elevated to canopy height. TRUNK_SPRITE_ID's art (cel 138, two crossed palm trunks) is
-## drawn side-on, so it stands as a plain vertical card from ground level up to that same
-## height. Every other decoration part (rocks, bushes, coral, debris, ...) keeps document 36's
-## original top-down framing and simply lies flat at ground level, a real Node3D quad instead of
-## baked texture, with no invented height.
-const CANOPY_SPRITE_IDS := {
-	"decoration.foliage.frond_blue": true,
-	"decoration.foliage.bush_green.07": true,
-	"decoration.foliage.bush_green.08": true,
-	"decoration.foliage.bush_green.09": true,
-	"decoration.foliage.bush_green.10": true,
-	"decoration.foliage.bush_green.11": true,
-}
-const TRUNK_SPRITE_ID := "decoration.tree.palm"
+## Still NOT modelled: the original's per-tile position jitter (descriptor callback +0x28,
+## document 35 -- a deterministic hash that nudges each decoration off its tile centre) and the
+## team-colour cel variant for flag bit 3.
 
-## Placeholder, flagged honestly (see file header) -- how high off the ground a canopy-only
-## decoration's trunk (and therefore its canopy) stands. Tall enough to clearly separate from
-## ground-level decorations at this project's tile_size_px (32) without a real traced value.
-const TRUNK_HEIGHT_PX := 40.0
-
-## Uniform scale for palm compositions (trunk + elevated canopy). NOT traced -- estimated from the
-## user's Win95 reference shots (palm ~18 native px wide / ~21 tall there vs ~36 / ~38 here at the
-## 1:1 calibrated camera, document 43). Ground-level decorations (bushes, rocks) already read
-## close to the reference at 1.0, so only the palms are scaled.
-const PALM_SCALE := 0.5
-
-## So a ground-level decoration's quad doesn't z-fight with the terrain plane it shares a Y
-## with -- same reasoning as vehicle_box_3d.gd's GROUND_CLEARANCE_PX.
-const GROUND_CLEARANCE_PX := 1.0
+const EFFECT_PAGE := 1
+const SHADOW_ALPHA := 0.3
 
 var pack: Pack
 var level: LevelData
@@ -68,82 +32,73 @@ func setup(shared_pack: Pack, shared_level: LevelData) -> void:
 
 func _build() -> void:
 	var tile := pack.tile_size_px
+	var builders := {}  # page index -> SurfaceTool
 	for entry in level.decorations:
 		var parts: Array = pack.get_decoration_parts(int(entry.get("coastal_id", 0)))
-		if parts.is_empty():
-			continue
-		var centre_x := (float(entry.get("x", 0)) + 0.5) * tile
-		var centre_z := (float(entry.get("y", 0)) + 0.5) * tile
-
-		# See this file's header (CANOPY_SPRITE_IDS) -- give a floating frond cluster a trunk to
-		# stand on, exactly document 36's original composition rule, just rendered as real
-		# elevated 3D geometry instead of two flat marks at the same ground-level Y.
-		var is_canopy_only := true
+		var cx := (float(entry.get("x", 0)) + 0.5) * tile
+		var cz := (float(entry.get("y", 0)) + 0.5) * tile
 		for part in parts:
-			if not CANOPY_SPRITE_IDS.has(part.get("sprite_id", "")):
-				is_canopy_only = false
-				break
-		var s := PALM_SCALE if is_canopy_only else 1.0
-		if is_canopy_only:
-			_add_vertical(TRUNK_SPRITE_ID, centre_x, centre_z, s)
+			if not part.has("corners"):
+				continue
+			var s := pack.get_sprite(part.get("sprite_id", ""))
+			if s.is_empty():
+				continue
+			var page := int(s.get("page", 0))
+			if not builders.has(page):
+				var st := SurfaceTool.new()
+				st.begin(Mesh.PRIMITIVE_TRIANGLES)
+				builders[page] = st
+			var off: Array = part.get("offset", [0.0, 0.0])
+			var corners: Array[Vector3] = []
+			for c in part["corners"]:
+				corners.append(Vector3(cx + off[0] + c[0], c[2] + 0.5, cz + off[1] + c[1]))
+			_add_quad(builders[page], corners, s, pack.get_texture(page))
 
-		var height := TRUNK_HEIGHT_PX * s if is_canopy_only else GROUND_CLEARANCE_PX
-		var ring_radius: float = 0.0 if parts.size() <= 1 else tile * 0.22 * s
-		for i in parts.size():
-			var sprite_id: String = parts[i].get("sprite_id", "")
-			var angle := TAU * float(i) / float(parts.size())
-			var px := centre_x + cos(angle) * ring_radius
-			var pz := centre_z + sin(angle) * ring_radius
-			_add_flat(sprite_id, px, height, pz, s)
-
-
-## A horizontal card lying in the XZ plane (like the ground plane itself), the same
-## GROUND_DECAL orientation vehicle_billboard_3d.gd already uses -- tipped -90 degrees on X so
-## Godot's default vertical, -Z-facing Sprite3D plane lies flat instead. Real 3D height (`y`)
-## is what actually fixes the bug this file exists for -- everything else about this call is
-## document 36's original technique.
-func _add_flat(sprite_id: String, x: float, y: float, z: float, s: float = 1.0) -> void:
-	var sprite := _make_sprite(sprite_id)
-	if sprite == null:
-		return
-	sprite.scale = Vector3.ONE * s
-	sprite.rotation_degrees.x = -90.0
-	sprite.position = Vector3(x, y, z)
-
-
-## A plain vertical card, standing from ground level up to TRUNK_HEIGHT_PX -- Sprite3D's
-## un-rotated default orientation already stands vertical, so no rotation is needed (and,
-## unlike vehicles, nothing here ever needs to billboard to face the camera: document 27/28
-## already confirmed this game's camera never yaws, only translates, so a plain fixed-
-## orientation card is exactly as correct as a billboard and cheaper -- the same reasoning
-## vehicle_billboard_3d.gd's GROUND_DECAL already relies on).
-func _add_vertical(sprite_id: String, x: float, z: float, s: float = 1.0) -> void:
-	var sprite := _make_sprite(sprite_id)
-	if sprite == null:
-		return
-	sprite.scale = Vector3.ONE * s
-	sprite.position = Vector3(x, TRUNK_HEIGHT_PX * s * 0.5, z)
+	for page in builders:
+		var tex := pack.get_texture(page)
+		var st: SurfaceTool = builders[page]
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.albedo_texture = tex
+		if page == EFFECT_PAGE:
+			# Effect-mask cels (document 9: a translucent darken blend through the game's shadow
+			# tables, e.g. the palm/bush ground shadows). The exact darken strength isn't recorded
+			# (rows 2/4 of a 32-row table) -- black at SHADOW_ALPHA is a placeholder, not traced.
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(0.0, 0.0, 0.0, SHADOW_ALPHA)
+		else:
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mi.material_override = mat
+		add_child(mi)
 
 
-## Shared Sprite3D setup (texture/region lookup + the pixel-art rendering flags every other
-## real 3D presentation in this project already uses -- vehicle_billboard_3d.gd,
-## vehicle_box_3d.gd) for the two placement helpers above. Returns null (nothing added) if the
-## sprite id doesn't resolve, matching Pack.get_decoration_parts()'s own "draw nothing" contract
-## for unknown content.
-func _make_sprite(sprite_id: String) -> Sprite3D:
-	var s := pack.get_sprite(sprite_id)
-	if s.is_empty():
-		return null
-	var tex := pack.get_texture(int(s.get("page", 0)))
-	if tex == null:
-		return null
-
-	var sprite := Sprite3D.new()
-	sprite.shaded = false  # pre-rendered flat art, not something to relight
-	sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST  # hard-edged pixel art
-	sprite.pixel_size = 1.0  # 1 texture pixel = 1 world unit, matching every other scene node
-	sprite.texture = tex
-	sprite.region_enabled = true
-	sprite.region_rect = Rect2(s.get("x", 0), s.get("y", 0), s.get("w", 0), s.get("h", 0))
-	add_child(sprite)
-	return sprite
+## Same corner -> UV mapping and split-diagonal choice as VehicleBoxRender3D._build_warped_mesh:
+## corners run in loop order, mapped to the cel's TL, TR, BR, BL; the diagonal whose two triangles
+## both agree with the quad's overall normal (Newell's method) avoids a hole on non-convex quads.
+func _add_quad(st: SurfaceTool, c: Array[Vector3], s: Dictionary, tex: Texture2D) -> void:
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var sx: float = s.get("x", 0)
+	var sy: float = s.get("y", 0)
+	var sw: float = s.get("w", 0)
+	var sh: float = s.get("h", 0)
+	var uvs := [
+		Vector2(sx / tw, sy / th), Vector2((sx + sw) / tw, sy / th),
+		Vector2((sx + sw) / tw, (sy + sh) / th), Vector2(sx / tw, (sy + sh) / th),
+	]
+	var n := Vector3.ZERO
+	for i in 4:
+		var a := c[i]
+		var b := c[(i + 1) % 4]
+		n += Vector3((a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x), (a.x - b.x) * (a.y + b.y))
+	n = n.normalized()
+	var score_02 := (c[1] - c[0]).cross(c[2] - c[0]).dot(n) + (c[2] - c[0]).cross(c[3] - c[0]).dot(n)
+	var score_13 := (c[1] - c[0]).cross(c[3] - c[0]).dot(n) + (c[2] - c[1]).cross(c[3] - c[1]).dot(n)
+	var tri := [0, 1, 2, 0, 2, 3] if score_02 >= score_13 else [0, 1, 3, 1, 2, 3]
+	for idx in tri:
+		st.set_uv(uvs[idx])
+		st.add_vertex(c[idx])
