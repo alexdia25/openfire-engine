@@ -14,9 +14,8 @@ extends Node3D
 ## this file's Phase 4 completion is what finally makes game/terrain_view.gd/.tscn retirable.
 ##
 ## Deliberately NOT here yet:
-## - The exact effective height/FOV. Section 1.10 point 6 explicitly left this for
-##   screenshot-matching once Phase 2 has real terrain art to match against -- camera_height_px
-##   below is a reasonable placeholder for this phase's own verification, not a traced value.
+## - (Resolved, document 43: FOV and height now come from the traced focal length of 300, see
+##   CAMERA_HFOV_DEG below.)
 ## - Split-screen / 4-player (section 4 item 7); win/lose declaration and flag pickup/carry
 ##   (section 4 item 1) -- MatchController only implements the flag-spawn *trigger*, same as
 ##   the flat 2D scene always has.
@@ -192,9 +191,12 @@ func _spawn_match() -> void:
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
 
-	var overlay := DebugMarkerOverlay3D.new()
-	add_child(overlay)
-	overlay.setup(pack, level, controller)
+	# Debug-only: RF_DEBUG_NO_MARKERS=1 hides the spawn/candidate debug markers for clean visual
+	# comparison against reference shots.
+	if OS.get_environment("RF_DEBUG_NO_MARKERS") != "1":
+		var overlay := DebugMarkerOverlay3D.new()
+		add_child(overlay)
+		overlay.setup(pack, level, controller)
 
 
 ## Debug-only fallback to the flat-card GROUND_DECAL approximation
@@ -273,6 +275,12 @@ func _place_camera_immediately() -> void:
 ## spawned one (RFMAP001, the default level, always has spawn points; this only matters for a
 ## level file that doesn't).
 func _camera_track_position() -> Vector2:
+	# Debug-only: RF_DEBUG_FOCUS_TILE="x,y" points the camera at a tile centre instead of the
+	# vehicle, for comparing a specific spot against reference shots.
+	var focus := OS.get_environment("RF_DEBUG_FOCUS_TILE")
+	if focus != "":
+		var parts := focus.split(",")
+		return (Vector2(float(parts[0]), float(parts[1])) + Vector2(0.5, 0.5)) * pack.tile_size_px
 	if controller != null and controller.vehicle != null:
 		return controller.vehicle.position
 	return _map_size_px * 0.5
