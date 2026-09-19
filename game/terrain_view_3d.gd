@@ -64,6 +64,9 @@ var controller: MatchController
 var billboard: Node3D                         ## player vehicle's 3D presentation -- VehicleBoxRender3D by default, VehicleBillboard3D if RF_DEBUG_VEHICLE_RENDER=billboard
 var _enemy_billboards: Array = []             ## one per controller.enemy_vehicles, same type as billboard
 var _map_size_px: Vector2 = Vector2.ZERO
+var _terrain_vp: SubViewport
+var _tile_renderer: TerrainTileRenderer
+var _decoration_field: DecorationField3D
 
 
 func _ready() -> void:
@@ -99,6 +102,13 @@ func _ready() -> void:
 	_build_light()
 	_build_camera()
 
+	# Debug-only: RF_DEBUG_DESTROY_TILE="x,y" runs the same tile-destroyed step a projectile hit
+	# on a pool's active target triggers, for before/after screenshots of the damaged state.
+	var destroy_env := OS.get_environment("RF_DEBUG_DESTROY_TILE")
+	if destroy_env != "":
+		var dp := destroy_env.split(",")
+		_on_target_hit("debug", Vector2i(int(dp[0]), int(dp[1])))
+
 	var screenshot_path := OS.get_environment("RF_DEBUG_SCREENSHOT")
 	if screenshot_path != "":
 		var wait_frames := 2
@@ -119,7 +129,8 @@ func _ready() -> void:
 ## texture -- no hand-ported scanline math, exactly the rationale section 2.2 recorded for
 ## choosing this architecture in the first place.
 func _build_terrain_ground() -> void:
-	var sub_vp := SubViewport.new()
+	_terrain_vp = SubViewport.new()
+	var sub_vp := _terrain_vp
 	sub_vp.size = Vector2i(int(_map_size_px.x), int(_map_size_px.y))
 	# The terrain art never changes after a level loads (no animated tiles anywhere in this
 	# project's tile pipeline) -- render once and stop, instead of re-drawing an identical
@@ -127,9 +138,9 @@ func _build_terrain_ground() -> void:
 	sub_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	add_child(sub_vp)
 
-	var tile_renderer := TerrainTileRenderer.new()
-	sub_vp.add_child(tile_renderer)
-	tile_renderer.setup(pack, level)
+	_tile_renderer = TerrainTileRenderer.new()
+	sub_vp.add_child(_tile_renderer)
+	_tile_renderer.setup(pack, level)
 
 	var ground := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
@@ -162,9 +173,9 @@ func _build_terrain_ground() -> void:
 ## into the ground texture above -- see that file's header for why baking them flush with the
 ## dirt could never look like standing scenery, no matter how correct the camera projection is.
 func _build_decorations() -> void:
-	var field := DecorationField3D.new()
-	add_child(field)
-	field.setup(pack, level)
+	_decoration_field = DecorationField3D.new()
+	add_child(_decoration_field)
+	_decoration_field.setup(pack, level)
 
 
 ## Phases 3-4 of the rendering-migration plan (section 2.2, section 4 item 13): a real,
@@ -184,6 +195,7 @@ func _spawn_match() -> void:
 	controller.setup(pack, level, pack_path, self)
 	controller.projectile_spawned.connect(_on_projectile_spawned)
 	controller.flag_spawned.connect(_on_flag_spawned)
+	controller.target_hit.connect(_on_target_hit)
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
@@ -220,6 +232,23 @@ func _on_projectile_spawned(projectile: Projectile) -> void:
 	var pb := ProjectileBillboard3D.new()
 	add_child(pb)
 	pb.setup(projectile)
+
+
+## A pool's active target ran out of hit points: the tile becomes its coastal entry's destroyed
+## state (document 44: candidate building 22 -> 62, ground art 109 -> 110), exactly what
+## FUN_0042e6a0 does in the original -- the decoration changes to the damaged building and the
+## ground art underneath is re-baked. One hit is enough (the weapon-damage-vs-hit-points model,
+## and the second stage 62 -> 63, are not traced yet).
+func _on_target_hit(_pool_id: String, tile: Vector2i) -> void:
+	var damage := pack.get_coastal_damage(level.get_coastal_id(tile.x, tile.y))
+	var next_id := int(damage.get("destroyed_coastal", 0))
+	if next_id == 0:
+		return
+	level.set_coastal_id(tile.x, tile.y, next_id)
+	level.set_art_id(tile.x, tile.y, int(pack.get_coastal_damage(next_id).get("base_art", 0)))
+	_decoration_field.refresh()
+	_tile_renderer.queue_redraw()
+	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
 func _on_flag_spawned(flag: FlagMarker, _pool_id: String) -> void:

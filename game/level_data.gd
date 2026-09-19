@@ -51,3 +51,27 @@ func load_from(level_dir: String) -> bool:
 
 func get_art_id(x: int, y: int) -> int:
 	return art_grid[y * width + x]
+
+
+func set_art_id(x: int, y: int, art_id: int) -> void:
+	art_grid[y * width + x] = art_id
+
+
+## Coastal id of the decoration on this tile (0 if none) -- the same field a tile word's bits 7-13
+## hold in the original (document 35).
+func get_coastal_id(x: int, y: int) -> int:
+	var i := _decoration_index(x, y)
+	return int(decorations[i].get("coastal_id", 0)) if i >= 0 else 0
+
+
+func set_coastal_id(x: int, y: int, coastal_id: int) -> void:
+	var i := _decoration_index(x, y)
+	if i >= 0:
+		decorations[i]["coastal_id"] = coastal_id
+
+
+func _decoration_index(x: int, y: int) -> int:
+	for i in decorations.size():
+		if int(decorations[i].get("x", -1)) == x and int(decorations[i].get("y", -1)) == y:
+			return i
+	return -1

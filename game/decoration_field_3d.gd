@@ -50,6 +50,13 @@ func _build_jitter_table() -> void:
 		_jitter.append(Vector2(vals[0] - 12, vals[1] - 12))
 
 
+## Rebuilds every mesh from the level's current decoration list (after a tile changed state).
+func refresh() -> void:
+	for c in get_children():
+		c.queue_free()
+	_build()
+
+
 func _build() -> void:
 	var tile := pack.tile_size_px
 	var builders := {}  # page index -> SurfaceTool

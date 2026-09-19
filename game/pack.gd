@@ -10,6 +10,7 @@ var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x
 var atlas_textures: Array[Texture2D] = []
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
+var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
 var tile_size_px: int = 32
 
 
@@ -62,6 +63,12 @@ func load_from(dir: String) -> bool:
 		if ddoc is Dictionary:
 			decoration_types = ddoc.get("decoration_types", {})
 
+	var damage_path := dir.path_join("terrain/coastal_damage.json")
+	if FileAccess.file_exists(damage_path):
+		var cdoc: Variant = _read_json(damage_path)
+		if cdoc is Dictionary:
+			coastal_damage = cdoc.get("coastal", {})
+
 	return true
 
 
@@ -87,6 +94,11 @@ func get_tile_sprite_id(art_id: int) -> String:
 ## "draw nothing" is the correct behaviour either way).
 func get_decoration_parts(coastal_id: int) -> Array:
 	return decoration_types.get(str(coastal_id), [])
+
+
+## {hp, base_art, destroyed_coastal, ...} for a coastal id, or {} if unknown.
+func get_coastal_damage(coastal_id: int) -> Dictionary:
+	return coastal_damage.get(str(coastal_id), {})
 
 
 func list_levels() -> Array[String]:
