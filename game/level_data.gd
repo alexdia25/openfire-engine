@@ -11,6 +11,7 @@ var height: int = 0
 var art_grid: PackedByteArray = PackedByteArray()
 var spawn_points: Array = []
 var candidate_pools: Dictionary = {}
+var tile_seed: int = 0  ## sum of raw tile bytes -- seeds the per-tile decoration jitter (document 44)
 var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_parts()
 
 
@@ -33,6 +34,7 @@ func load_from(level_dir: String) -> bool:
 	spawn_points = doc.get("spawn_points", [])
 	candidate_pools = doc.get("candidate_pools", {})
 	decorations = doc.get("decorations", [])
+	tile_seed = int(doc.get("tile_seed", 0))
 
 	var af := FileAccess.open(art_path, FileAccess.READ)
 	if af == null:

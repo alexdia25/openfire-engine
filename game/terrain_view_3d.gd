@@ -68,6 +68,9 @@ var _map_size_px: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
+	var level_env := OS.get_environment("RF_DEBUG_LEVEL")  # debug-only, e.g. RFMAP117
+	if level_env != "":
+		level_id = level_env
 	pack = Pack.new()
 	if not pack.load_from(pack_path):
 		push_error("TerrainView3D: failed to load pack at %s" % pack_path)

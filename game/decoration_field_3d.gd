@@ -13,21 +13,41 @@ extends Node3D
 ## each would be wasteful) and use alpha-scissor instead of blending, so no depth sorting is
 ## needed for the hard-edged pixel art.
 ##
-## Still NOT modelled: the original's per-tile position jitter (descriptor callback +0x28,
-## document 35 -- a deterministic hash that nudges each decoration off its tile centre) and the
-## team-colour cel variant for flag bit 3.
+## Per-tile position jitter (document 44, FUN_004365c0 / FUN_00436540): a descriptor whose
+## callback at +0x28 is 0x4365c0 (28 parts) is nudged off its tile centre by a 16x16 table indexed
+## by (tile_y & 15, tile_x & 15), each entry (dx, dy) = rand(25) - 12 world units. The table is
+## built at level load from the MSVC LCG (seed*214013 + 2531011, >>16 & 0x7fff, scaled as
+## (r * 2 * n) >> 16) seeded with the sum of every raw tile byte (LevelData.tile_seed).
+## Flag-8 parts (building walls etc.) shift their cel by the tile's variant (0 = tan, 1 = green),
+## carried per decoration from the level's tile table (see tools/convert_rfm.py).
 
 const EFFECT_PAGE := 1
-const SHADOW_ALPHA := 0.3
+const SHADOW_ALPHA := 5.0 / 32.0
 
 var pack: Pack
 var level: LevelData
+var _jitter: Array[Vector2] = []
 
 
 func setup(shared_pack: Pack, shared_level: LevelData) -> void:
 	pack = shared_pack
 	level = shared_level
+	_build_jitter_table()
 	_build()
+
+
+## 256 entries of [dx, dy], in the exact draw order of FUN_00436540 (dx, dy, then two more
+## rand calls whose values are consumed but unused by the jitter callback).
+func _build_jitter_table() -> void:
+	var state := level.tile_seed & 0xFFFFFFFF
+	_jitter.clear()
+	for i in 256:
+		var vals := []
+		for n in [25, 25, 11, 256]:
+			state = (state * 214013 + 2531011) & 0xFFFFFFFF
+			var r := (state >> 16) & 0x7FFF
+			vals.append(((r * 2 * n) >> 16))
+		_jitter.append(Vector2(vals[0] - 12, vals[1] - 12))
 
 
 func _build() -> void:
@@ -37,10 +57,16 @@ func _build() -> void:
 		var parts: Array = pack.get_decoration_parts(int(entry.get("coastal_id", 0)))
 		var cx := (float(entry.get("x", 0)) + 0.5) * tile
 		var cz := (float(entry.get("y", 0)) + 0.5) * tile
+		var jit: Vector2 = _jitter[((int(entry.get("y", 0)) & 15) * 16) + (int(entry.get("x", 0)) & 15)]
 		for part in parts:
 			if not part.has("corners"):
 				continue
-			var s := pack.get_sprite(part.get("sprite_id", ""))
+			var sprite_id: String = part.get("sprite_id", "")
+			if part.has("variant_sprite_ids"):
+				var v: Variant = part["variant_sprite_ids"][clampi(int(entry.get("variant", 0)), 0, 3)]
+				if v != null:
+					sprite_id = v
+			var s := pack.get_sprite(sprite_id)
 			if s.is_empty():
 				continue
 			var page := int(s.get("page", 0))
@@ -49,9 +75,11 @@ func _build() -> void:
 				st.begin(Mesh.PRIMITIVE_TRIANGLES)
 				builders[page] = st
 			var off: Array = part.get("offset", [0.0, 0.0])
+			var j := jit if part.get("jitter", false) else Vector2.ZERO
+			var zoff: float = part.get("zoff", 0.0)
 			var corners: Array[Vector3] = []
 			for c in part["corners"]:
-				corners.append(Vector3(cx + off[0] + c[0], c[2] + 0.5, cz + off[1] + c[1]))
+				corners.append(Vector3(cx + j.x + off[0] + c[0], c[2] + zoff + 0.5, cz + j.y + off[1] + c[1]))
 			_add_quad(builders[page], corners, s, pack.get_texture(page))
 
 	for page in builders:
@@ -65,9 +93,9 @@ func _build() -> void:
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mat.albedo_texture = tex
 		if page == EFFECT_PAGE:
-			# Effect-mask cels (document 9: a translucent darken blend through the game's shadow
-			# tables, e.g. the palm/bush ground shadows). The exact darken strength isn't recorded
-			# (rows 2/4 of a 32-row table) -- black at SHADOW_ALPHA is a placeholder, not traced.
+			# Effect-mask cels (document 9): PRE0 13 = darken row 4 of the game's 32-row table, where
+			# row k scales each colour channel by (31 - k) / 32 (FUN_00424420) -- 27/32 for row 4,
+			# i.e. black at 5/32. (The original then snaps to the nearest palette index; ignored.)
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			mat.albedo_color = Color(0.0, 0.0, 0.0, SHADOW_ALPHA)
 		else:
