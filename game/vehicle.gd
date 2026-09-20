@@ -190,6 +190,16 @@ func fire_enabled() -> bool:
 	return vehicle_type == 0 or vehicle_type == 2
 
 
+## Rockets fired in the current salvo (0-2): the original's state +0x58 (document 59), which the MSV's draw uses.
+func salvo_index() -> int:
+	return _salvo_index
+
+
+## Ticks left of the launcher reload (40 down to 0).
+func salvo_reload_remaining() -> float:
+	return _salvo_reload
+
+
 ## One trigger pull. Tank: FUN_0040d240 (documents 45, 52). MSV: FUN_0040d520 in level fire (document 58): rockets
 ## (projectile type 8) leave three launcher positions in turn from (x, -8.96, 10.54) in its own frame, 30 ticks
 ## apart, with a back-blast at (x, +7.53, 11.05); after the third the launcher reloads for 6.0 / 0.15 = 40 ticks

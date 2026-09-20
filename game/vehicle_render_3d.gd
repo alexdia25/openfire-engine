@@ -11,6 +11,8 @@ const GROUND_CLEARANCE_PX := 2.0  ## same as VehicleBoxRender3D
 
 var vehicle: Vehicle
 var _pack: Pack
+var _parts: Array = []          ## per part: {mesh: MeshInstance3D, data: Dictionary, sprite_id: String}
+var _anim_key: Variant = null   ## last animation state drawn (rebuild the animated parts only when it changes)
 
 
 func setup(v: Vehicle, pack: Pack) -> void:
@@ -23,6 +25,7 @@ func setup(v: Vehicle, pack: Pack) -> void:
 		var ids: Array = part["sprite_ids"]
 		var s := pack.get_sprite(ids[clampi(variant, 0, ids.size() - 1)])
 		if s.is_empty():
+			_parts.append({})
 			continue
 		var tex := pack.get_texture(int(s.get("page", 0)))
 		var mi := MeshInstance3D.new()
@@ -35,11 +38,57 @@ func setup(v: Vehicle, pack: Pack) -> void:
 		mat.albedo_texture = tex
 		mi.material_override = mat
 		add_child(mi)
+		_parts.append({"mesh": mi, "mat": mat})
 	_follow()
 
 
 func _process(_delta: float) -> void:
 	_follow()
+	_animate()
+
+
+## Per-tick part animation, read from the type's draw callbacks (document 59). Only what the callbacks do to the
+## part list is reproduced; parts not named here are static.
+func _animate() -> void:
+	if vehicle == null or not is_instance_valid(vehicle):
+		return
+	if vehicle.vehicle_type == 1:
+		# FUN_00402fc0: the wheel-strip parts 9 and 10 (cel 457) are drawn as cel 457 + ((obj+0x40 & 0x30000) >> 16),
+		# obj+0x40 being the object's x position in 16.16: the frame is the integer x (world units) modulo 4, so
+		# the strip steps once per unit driven along x and (as coded) does not move for travel along y alone.
+		var frame := int(floorf(vehicle.position.x)) & 3
+		if frame != _anim_key:
+			_anim_key = frame
+			for i in [9, 10]:
+				_set_part_sprite(i, "vehicle.jeep.p457.frame_%02d" % (frame + 1), null)
+	elif vehicle.vehicle_type == 2:
+		# FUN_00402ec0: the canister part 13 is cel 326 minus the rockets fired in the current salvo (326, 325,
+		# 324: three, two, one canisters), and while the launcher reloads (state+0x58 runs -6.0 -> 0 at 0.15 per
+		# tick, FUN_0040d790) its two front corners (48, 49) slide: y = 11.25 - 6 + 6 * remaining / 40.
+		var fired: int = vehicle.salvo_index()
+		var slide: float = 6.0 * vehicle.salvo_reload_remaining() / 40.0
+		var key := [fired, roundf(slide * 8.0)]
+		if key != _anim_key:
+			_anim_key = key
+			var y := 5.25 + slide
+			var t: Dictionary = _pack.vehicle_types.get("2", {})
+			var corners: Array = (t["parts"][13]["corners"] as Array).duplicate(true)
+			corners[0][1] = y   # corner 49
+			corners[1][1] = y   # corner 48
+			_set_part_sprite(13, "vehicle.msv.p324.canisters_%d" % (3 - fired), corners)
+
+
+func _set_part_sprite(index: int, sprite_id: String, corners: Variant) -> void:
+	if index >= _parts.size() or _parts[index].is_empty():
+		return
+	var s := _pack.get_sprite(sprite_id)
+	if s.is_empty():
+		return
+	var tex := _pack.get_texture(int(s.get("page", 0)))
+	var t: Dictionary = _pack.vehicle_types.get(str(vehicle.vehicle_type), {})
+	var c: Array = corners if corners != null else t["parts"][index]["corners"]
+	_parts[index]["mesh"].mesh = _quad(c, s, tex)
+	_parts[index]["mat"].albedo_texture = tex
 
 
 func _follow() -> void:
