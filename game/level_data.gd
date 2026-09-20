@@ -78,6 +78,12 @@ func get_variant(x: int, y: int) -> int:
 	return int(decorations[i].get("variant", 0)) if i >= 0 else 0
 
 
+func set_variant(x: int, y: int, variant: int) -> void:
+	var i := _decoration_index(x, y)
+	if i >= 0:
+		decorations[i]["variant"] = variant
+
+
 func _decoration_index(x: int, y: int) -> int:
 	if _decoration_lookup.size() != decorations.size():
 		_decoration_lookup.clear()

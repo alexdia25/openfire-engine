@@ -197,6 +197,7 @@ func _spawn_match() -> void:
 	controller.flag_spawned.connect(_on_flag_spawned)
 	controller.target_hit.connect(_on_target_hit)
 	controller.tile_destroyed.connect(_on_tile_destroyed)
+	controller.tile_crushed.connect(_on_tile_crushed)
 	controller.impact_effect.connect(_on_impact_effect)
 
 	if controller.vehicle != null:
@@ -281,6 +282,25 @@ func _on_target_hit(_pool_id: String, tile: Vector2i) -> void:
 		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
 
 
+## A vehicle flattened the tile (document 54): the bush callback (FUN_00436640) swaps in the entry's second
+## effect record (`coastal_crush_effect`, script WAIT 1 / DRAW_LIST 7 / TILE_STATE) and sets the tile's variant
+## bits to 1; the crate callback (FUN_00436a50) uses the ordinary destroy effect.
+func _on_tile_crushed(tile: Vector2i) -> void:
+	var coastal_id := level.get_coastal_id(tile.x, tile.y)
+	var centre := (Vector2(tile) + Vector2(0.5, 0.5)) * pack.tile_size_px
+	var record := pack.get_crush_effect(coastal_id)
+	if not record.is_empty():
+		level.set_variant(tile.x, tile.y, 1)
+	else:
+		record = pack.get_destroy_effect(coastal_id)
+	var fx := ExplosionEffect3D.spawn(self, pack, record, centre)
+	if fx == null:
+		_apply_tile_destroyed(tile, coastal_id)
+	else:
+		fx.tile_cleared.connect(_clear_tile_decoration.bind(tile))
+		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
+
+
 func _on_tile_destroyed(tile: Vector2i) -> void:
 	_on_target_hit("", tile)
 
@@ -321,6 +341,7 @@ func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
 		if offset != 0:
 			art = (offset + variation) & 0x7F
 	level.set_art_id(tile.x, tile.y, art)
+	controller.tile_state_applied(tile)
 	_decoration_field.refresh()
 	_tile_renderer.queue_redraw()
 	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE

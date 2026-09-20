@@ -70,6 +70,12 @@ var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwi
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
 var hp: float = MAX_HP
+## Vehicle type index in the original's table (0 Tank, 1 Jeep, 2 MSV, 3 Heli): tile callbacks treat the Jeep
+## differently (document 54). Only the Tank is played here.
+var vehicle_type := 0
+## Set by the match: Callable(vehicle, position, heading_deg) -> bool, true when the vehicle's shape would
+## overlap something solid there (document 54). Null = no collision.
+var blocked_test: Callable = Callable()
 var alive: bool = true
 
 
@@ -121,6 +127,32 @@ func _wants_to_fire() -> bool:
 	return _debug_fire or Input.is_action_pressed("ui_accept")
 
 
+## FUN_0040b980's movement step (document 54). The turn is already applied to `heading_deg` and the speed
+## updated; the displacement is speed x the new heading. Standing still, a turn that would overlap something
+## is undone. Moving, if the new place overlaps: undo the turn and try the same displacement with the old
+## heading; if that also overlaps, do not move and bounce back at a quarter of the speed (-speed >> 2).
+func _move(heading_before: float, delta: float) -> void:
+	var rad := deg_to_rad(heading_deg)
+	var step := Vector2(cos(rad), sin(rad)) * speed * delta
+	var target := position + step
+	if not blocked_test.is_valid():
+		position = target
+		return
+	if speed == 0.0:
+		if heading_deg != heading_before and blocked_test.call(self, position, heading_deg):
+			heading_deg = heading_before
+		return
+	if not blocked_test.call(self, target, heading_deg):
+		position = target
+		return
+	if heading_deg != heading_before and not blocked_test.call(self, target, heading_before):
+		heading_deg = heading_before
+		position = target
+		return
+	heading_deg = heading_before
+	speed = -speed * 0.25
+
+
 ## FUN_0040c460: returns true if the hit did anything.
 func take_damage(damage: float) -> bool:
 	if not alive or damage <= ARMOR:
@@ -134,14 +166,18 @@ func take_damage(damage: float) -> bool:
 
 ## The collision polygon in world coordinates (the Tank's shape at 0x43e8f8).
 func hit_polygon() -> PackedVector2Array:
-	var rad := deg_to_rad(heading_deg)
+	return polygon_at(position, heading_deg)
+
+
+static func polygon_at(at: Vector2, heading: float) -> PackedVector2Array:
+	var rad := deg_to_rad(heading)
 	var fwd := Vector2(cos(rad), sin(rad))
 	var right := Vector2(-fwd.y, fwd.x)
 	return PackedVector2Array([
-		position + fwd * -HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
-		position + fwd * -HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
-		position + fwd * HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
-		position + fwd * HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
+		at + fwd * -HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
+		at + fwd * -HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
+		at + fwd * HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
+		at + fwd * HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
 	])
 
 
@@ -163,6 +199,7 @@ func _process(delta: float) -> void:
 
 	var controls := _get_controls()
 	var turn := controls.x
+	var turn_before := heading_deg
 	heading_deg = fposmod(heading_deg + turn * TURN_RATE_DEG * delta, 360.0)
 
 	var thrust := controls.y
@@ -174,12 +211,12 @@ func _process(delta: float) -> void:
 	else:
 		speed = move_toward(speed, 0.0, FRICTION * delta)
 
-	var rad := deg_to_rad(heading_deg)
-	position += Vector2(cos(rad), sin(rad)) * speed * delta
+	_move(turn_before, delta)
 
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
 	if _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
+		var rad := deg_to_rad(heading_deg)
 		var dir := Vector2(cos(rad), sin(rad))
 		var muzzle_pos := position + dir * MUZZLE_OFFSET_PX
 		fired.emit(muzzle_pos, heading_deg, team)

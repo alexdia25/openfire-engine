@@ -98,6 +98,13 @@ func get_destroy_effect(coastal_id: int) -> Dictionary:
 	return explosions.get("records", {}).get(addr, {})
 
 
+## The record played when a vehicle crushes a tile of this coastal id (entry field +0x28, swapped in by the
+## bush tile callback FUN_00436640; document 54), or {}.
+func get_crush_effect(coastal_id: int) -> Dictionary:
+	var addr: String = explosions.get("coastal_crush_effect", {}).get(str(coastal_id), "")
+	return explosions.get("records", {}).get(addr, {})
+
+
 ## An explosion record by address string ("0x444b68"), or {}.
 func get_explosion(addr: String) -> Dictionary:
 	return explosions.get("records", {}).get(addr, {})

@@ -42,6 +42,8 @@ signal flag_spawned(flag: FlagMarker, pool_id: String)
 signal target_hit(pool_id: String, tile: Vector2i)
 ## A tile that is not a pool's active target ran out of hit points (document 53).
 signal tile_destroyed(tile: Vector2i)
+## A vehicle drove over a crushable tile fast enough to flatten it (document 54).
+signal tile_crushed(tile: Vector2i)
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
 
@@ -54,6 +56,7 @@ var enemy_vehicles: Array = []   ## EnemyVehicle nodes
 var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
 var _player_spawn_px := Vector2.ZERO
+var _crushing: Dictionary = {}   ## tiles already flattened and waiting for their state change
 var _tile_hp: Dictionary = {}    ## Vector2i -> remaining hit points of a damaged pool target
 
 var _debug_target_log: bool = OS.get_environment("RF_DEBUG_TARGET_LOG") == "1"
@@ -94,6 +97,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	world.add_child(vehicle)
 	vehicle.setup(pack)
 	vehicle.level = level
+	vehicle.blocked_test = vehicle_blocked
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 	vehicle.fired.connect(_on_vehicle_fired.bind(vehicle))
 	vehicle.destroyed.connect(_on_player_destroyed)
@@ -108,6 +112,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		world.add_child(enemy)
 		enemy.setup(pack)
 		enemy.level = level
+		enemy.blocked_test = vehicle_blocked
 		enemy.position = (Vector2(float(other_sp.get("x", 0)), float(other_sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 		enemy.target = vehicle
 		enemy.fired.connect(_on_vehicle_fired.bind(enemy))
@@ -172,6 +177,93 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 			impact_effect.emit("0x444b68", to)  # surface 3, object hit
 			return true
 	return false
+
+
+## Document 54 (FUN_0042c830 -> FUN_0042bd40 -> FUN_0042bb10): would this vehicle's shape overlap a tile shape
+## or another vehicle at `at` / `heading`? Tiles first: the nine around it, each coastal id's shape chain
+## placed as for shells; a shape only counts if the layer/mask and z rules pass, and then the coastal entry's
+## own callback (`callback` in coastal_shapes.json) decides whether the vehicle is blocked, passes, or crushes
+## the tile; a tile shape without a callback blocks (the vehicle class's tile callback FUN_0040c130 returns 1).
+## Another living vehicle always blocks (FUN_0040c150 returns 5).
+func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
+	var poly := Vehicle.polygon_at(at, heading_deg)
+	var tsz := float(pack.tile_size_px)
+	var tx := int(floor(at.x / tsz))
+	var ty := int(floor(at.y / tsz))
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var t := Vector2i(tx + dx, ty + dy)
+			if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+				continue
+			var id := level.get_coastal_id(t.x, t.y)
+			if id == 0:
+				continue
+			var info := pack.get_coastal_shapes(id)
+			if info.is_empty():
+				continue
+			var centre := (Vector2(t) + Vector2(0.5, 0.5)) * tsz
+			if info.get("jitter", false):
+				centre += level.jitter_at(t.x, t.y)
+			for sh in info["shapes"]:
+				if not Collision.vehicle_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK, int(sh["layer"]), int(sh["mask"])):
+					continue
+				if not Collision.z_ranges_overlap(Vehicle.HIT_Z[0], Vehicle.HIT_Z[1], float(sh["z"][0]), float(sh["z"][1])):
+					continue
+				var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
+				var hit := false
+				if int(sh["type"]) == 2:
+					hit = Collision.polygon_hits_box(poly, origin, sh["box"])
+				elif int(sh["type"]) == 3:
+					var tp := PackedVector2Array()
+					for pt in sh["poly"]:
+						tp.append(origin + Vector2(pt[0], pt[1]))
+					hit = Collision.polygons_hit(poly, tp)
+				if hit and _tile_blocks_vehicle(v, t, id, info, sh):
+					return true
+	for other in [vehicle] + enemy_vehicles:
+		if other == null or other == v or not is_instance_valid(other) or not other.alive:
+			continue
+		if at.distance_to(other.position) > 40.0:
+			continue
+		if Collision.polygons_hit(poly, other.hit_polygon()):
+			return true
+	return false
+
+
+## The coastal entry's tile callback for a vehicle (documents 54): FUN_00436640 (bushes), FUN_00436610 (rocks),
+## FUN_004366f0 (zones), FUN_00436a50 (crates); 8 = pass through, 1/0 = blocked. Speeds are 0x8000 = 0.5
+## units per tick in the original (31.25 px/s here).
+func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh: Dictionary) -> bool:
+	var crush_speed := 0.5 * Vehicle.TICK_HZ
+	match String(info.get("callback", "0x0")):
+		"0x436640":
+			if int(sh["mask"]) == 4:
+				return false
+			if v.vehicle_type == 1:
+				return true
+			if v.speed > crush_speed:
+				_crush_tile(t, id)
+				return false
+			return true
+		"0x436610":
+			return v.vehicle_type == 1
+		"0x4366f0":
+			return (int(sh.get("flags", 0)) & 2) == 0
+		"0x436a50":
+			if v.speed > crush_speed:
+				_crush_tile(t, id)
+				return false
+			return true
+	return true
+
+
+## FUN_0042e8c0 with damage 100 (0x640000): every tile in the table has at most 6 hit points, so it is destroyed.
+func _crush_tile(t: Vector2i, _id: int) -> void:
+	if _crushing.has(t):
+		return
+	_crushing[t] = true
+	_tile_hp.erase(t)
+	tile_crushed.emit(t)
 
 
 ## No life system is traced yet (NEXT_STEPS): the player simply respawns at the start point.
@@ -253,6 +345,12 @@ func _damage_tile(t: Vector2i, id: int, p: Projectile) -> void:
 			_spawn_flag(pool_id, tile_px)
 		return
 	tile_destroyed.emit(t)
+
+
+## The scene calls this once a crushed tile's state has changed.
+func tile_state_applied(t: Vector2i) -> void:
+	_crushing.erase(t)
+	_tile_hp.erase(t)
 
 
 func _initial_tile_hp(tile: Vector2i) -> int:

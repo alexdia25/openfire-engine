@@ -51,3 +51,24 @@ static func segment_hits_polygon(from: Vector2, to: Vector2, poly: PackedVector2
 		if segments_cross(from, to, poly[i], poly[(i + 1) % poly.size()]):
 			return true
 	return Geometry2D.is_point_in_polygon(to, poly)
+
+
+## A vehicle's shape against another shape (document 54): each mask must contain the other's layer, the z ranges
+## overlap, and the vehicle's polygon must overlap the box or polygon (FUN_0041d8d0 / FUN_0041dc10).
+static func vehicle_collides_with(v_layer: int, v_mask: int, layer: int, mask: int) -> bool:
+	return (v_mask & layer) != 0 and (mask & v_layer) != 0
+
+
+static func z_ranges_overlap(a0: float, a1: float, b0: float, b1: float) -> bool:
+	return a0 <= b1 and b0 <= a1
+
+
+static func polygon_hits_box(poly: PackedVector2Array, origin: Vector2, box: Array) -> bool:
+	var r := PackedVector2Array([
+		origin + Vector2(box[0], box[1]), origin + Vector2(box[2], box[1]),
+		origin + Vector2(box[2], box[3]), origin + Vector2(box[0], box[3])])
+	return not Geometry2D.intersect_polygons(poly, r).is_empty()
+
+
+static func polygons_hit(a: PackedVector2Array, b: PackedVector2Array) -> bool:
+	return not Geometry2D.intersect_polygons(a, b).is_empty()
