@@ -202,6 +202,15 @@ func _spawn_match() -> void:
 
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
+		enemy.destroyed.connect(_on_vehicle_destroyed)
+	if controller.vehicle != null:
+		controller.vehicle.destroyed.connect(_on_vehicle_destroyed)
+		# Debug-only: RF_DEBUG_WRECK=1 drops a tan and a green wreck next to the player for screenshots.
+		if OS.get_environment("RF_DEBUG_WRECK") == "1":
+			for i in 2:
+				var w := Wreck3D.new()
+				add_child(w)
+				w.setup(pack, ["tan", "green"][i], controller.vehicle.position + Vector2(-70.0 + i * 140.0, 40.0), 30.0)
 
 	# Debug-only: RF_DEBUG_NO_MARKERS=1 hides the spawn/candidate debug markers for clean visual
 	# comparison against reference shots.
@@ -228,10 +237,17 @@ func _spawn_vehicle_render(v: Vehicle) -> Node3D:
 	return box
 
 
+## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, document 48) where it died.
+func _on_vehicle_destroyed(v: Vehicle) -> void:
+	var w := Wreck3D.new()
+	add_child(w)
+	w.setup(pack, v.team, v.position, v.heading_deg)
+
+
 func _on_projectile_spawned(projectile: Projectile) -> void:
 	var pb := ProjectileBillboard3D.new()
 	add_child(pb)
-	pb.setup(projectile)
+	pb.setup(projectile, pack)
 
 
 ## A pool's active target ran out of hit points: the tile becomes its coastal entry's destroyed
