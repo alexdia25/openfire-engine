@@ -23,6 +23,12 @@ const TICK_HZ := 62.5
 
 signal tile_state  ## the script reached its TILE_STATE op
 
+## A muzzle flash is attached to its vehicle (FUN_0042e0b0 / FUN_0042daf0): every tick it is placed at
+## the vehicle's position plus `follow_offset` (x sideways, y forward, z up, in world units) turned by
+## the vehicle's heading, and drawn turned with it.
+var follow: Vehicle = null
+var follow_offset := Vector3.ZERO
+
 var _record: Dictionary
 var _pc := 0
 var _script_done := false
@@ -74,7 +80,29 @@ func _add_part(data: Dictionary) -> void:
 	_parts.append({"data": data, "mi": mi, "mat": mat, "last": -1})
 
 
+static func spawn_attached(parent: Node, pack: Pack, record: Dictionary, vehicle: Vehicle,
+		offset: Vector3) -> ExplosionEffect3D:
+	var fx := spawn(parent, pack, record, vehicle.position)
+	if fx != null:
+		fx.follow = vehicle
+		fx.follow_offset = offset
+		fx._follow()
+	return fx
+
+
+func _follow() -> void:
+	if follow == null or not is_instance_valid(follow):
+		return
+	var rad := deg_to_rad(follow.heading_deg)
+	var fwd := Vector2(cos(rad), sin(rad))
+	var p := follow.position + fwd * follow_offset.y
+	position = Vector3(p.x, follow_offset.z, p.y)
+	# corners are (x right, y = -forward, z up): the same yaw the vehicle box uses
+	rotation_degrees.y = -90.0 - follow.heading_deg
+
+
 func _process(delta: float) -> void:
+	_follow()
 	_progress += float(_record.get("rate_per_tick", 0.25)) * delta * TICK_HZ
 	if _progress >= float(_record.get("duration", 1.0)):
 		queue_free()

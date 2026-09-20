@@ -35,9 +35,13 @@ const TURN_RATE_DEG := 0.25 * 5.625 * TICK_HZ  ## 87.9 deg/s
 
 ## Phase 4 step 4: firing. The Tank's cooldown is traced (weapon slot at record +0x194, +0x10 =
 ## 20 ticks = 0.32 s; FUN_0040d240 -- document 45). Ammo (150 rounds, refilled on rearm tiles)
-## and the muzzle offset are not modelled: MUZZLE_OFFSET_PX is still a placeholder.
+## is not modelled; the muzzle offset is traced (below).
 const FIRE_COOLDOWN_SEC := 20.0 / TICK_HZ
-const MUZZLE_OFFSET_PX := 20.0
+## Muzzle position, traced (document 52): FUN_0040d240 builds it with FUN_00402bf0 from the point
+## (0, -6.75, 0) rotated by the gun's pitch about the pivot (0, -5.25, 7): at level fire 12 units
+## in front of the vehicle's centre (the hull's front edge) and 7 units up.
+const MUZZLE_OFFSET_PX := 12.0
+const MUZZLE_HEIGHT_PX := 7.0
 
 ## Hit points and armour, traced (document 47): the Tank record's `+0x28` = 22.0 is its hit points
 ## and `+0x24` = 0.3 its armour; FUN_0040c460 ignores a hit whose damage does not exceed the armour

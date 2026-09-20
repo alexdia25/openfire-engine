@@ -227,6 +227,7 @@ func _spawn_match() -> void:
 ## unset). Returns the spawned node (typed Node3D, since the two classes don't share a
 ## common base beyond that).
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
+	v.fired.connect(_on_muzzle_flash.bind(v))
 	if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
 		var b := VehicleBillboard3D.new()
 		add_child(b)
@@ -236,6 +237,13 @@ func _spawn_vehicle_render(v: Vehicle) -> Node3D:
 	add_child(box)
 	box.setup(v, pack)
 	return box
+
+
+## The Tank's muzzle flash (document 52): record 0x445138, spawned by the fire handler FUN_0040d240 attached
+## to the vehicle at the muzzle (12 units ahead, 7 up) and following it while it plays.
+func _on_muzzle_flash(_muzzle: Vector2, _heading: float, _team: String, v: Vehicle) -> void:
+	ExplosionEffect3D.spawn_attached(self, pack, pack.get_explosion("0x445138"), v,
+			Vector3(0.0, Vehicle.MUZZLE_OFFSET_PX, Vehicle.MUZZLE_HEIGHT_PX))
 
 
 ## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, document 48) where it died.

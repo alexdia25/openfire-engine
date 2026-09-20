@@ -11,7 +11,10 @@ const SHADOW_ID := "effect.shadow.hard.projectile_shell"
 const QUAD_SIZE := 4.0
 const SHADOW_ALPHA := 5.0 / 32.0
 
-const HEIGHT_PX := 10.0  ## matches VehicleBillboard3D's own placeholder height off the ground
+const HEIGHT_PX := 10.0  ## fallback sphere only (placeholder)
+## The Tank shell leaves the muzzle 7 units up and flies level (pitch 0: the velocity is (0, -speed, 0)
+## turned by the heading only, FUN_004148f0/FUN_00414b10), so it keeps that height (document 52).
+const SHELL_HEIGHT_PX := 7.0
 const RADIUS_PX := 3.0   ## matches Projectile.RADIUS_PX
 
 const TEAM_COLOURS := {
@@ -21,6 +24,7 @@ const TEAM_COLOURS := {
 
 var projectile: Projectile
 var _mesh: MeshInstance3D
+var _height := HEIGHT_PX
 
 
 func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
@@ -28,9 +32,10 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 	projectile.visible = false  # logic only -- see file header
 
 	if pack != null and not pack.get_sprite(SHELL_ID).is_empty():
-		_add_quad(pack, SHADOW_ID, -HEIGHT_PX + 0.5, true)
+		_add_quad(pack, SHADOW_ID, -SHELL_HEIGHT_PX + 0.5, true)
 		_add_quad(pack, SHELL_ID, 0.0, false)
-		global_position = Vector3(projectile.position.x, HEIGHT_PX, projectile.position.y)
+		_height = SHELL_HEIGHT_PX
+		global_position = Vector3(projectile.position.x, _height, projectile.position.y)
 		projectile.tree_exited.connect(queue_free)
 		return
 
@@ -45,7 +50,7 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 	_mesh.material_override = mat
 	add_child(_mesh)
 
-	global_position = Vector3(projectile.position.x, HEIGHT_PX, projectile.position.y)
+	global_position = Vector3(projectile.position.x, _height, projectile.position.y)
 	# Projectile queue_free()s itself on expiry (its own LIFETIME_SEC) -- nothing else frees
 	# this pairing node, so it has to notice and follow.
 	projectile.tree_exited.connect(queue_free)
@@ -55,7 +60,7 @@ func _process(_delta: float) -> void:
 	if not is_instance_valid(projectile):
 		queue_free()
 		return
-	global_position = Vector3(projectile.position.x, HEIGHT_PX, projectile.position.y)
+	global_position = Vector3(projectile.position.x, _height, projectile.position.y)
 
 
 func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool) -> void:
