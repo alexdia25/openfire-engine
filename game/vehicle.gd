@@ -1,11 +1,15 @@
 class_name Vehicle
 extends Node2D
-## Phase 4 step 2: a player-controlled vehicle with *playable* movement -- not yet
-## authentic movement. RFIRE.BIN's real acceleration/turn-rate constants haven't been
-## traced (the .RFM "vehicle_params" fields decode to unlabeled values A/H/J/M/T/unk4,
-## almost always "default" -- section 1.5 never identified what they tune), so this
-## uses reasonable placeholder physics, not reverse-engineered ones. Flagged honestly
-## rather than presented as authentic; tightening this is a real, separate follow-up.
+## Phase 4 step 2: a player-controlled vehicle. Movement constants are the ORIGINAL's, traced
+## from RFIRE.BIN (document 45): the Tank type record (0x4456b8) holds max forward speed, max
+## reverse speed, acceleration, friction and turn rate at +0x168..+0x178, read by the per-vehicle
+## drive function FUN_0040c190. All are per-tick values in 16.16 fixed point; the game's tick is
+## one unit of `timeGetTime() >> 4` = 16 ms (62.5 Hz, FUN_00401110) and every step is multiplied by
+## the number of ticks elapsed since the last frame, so this is frame-rate independent like the
+## original. World units are 1/32 tile = 1 px here. Only the Tank's record is traced; Jeep/MSV/
+## Heli values are in their own records and this class (shared by all ground vehicles) still uses
+## the Tank's. Not modelled yet: the 1.2x road speed bonus and 0.25/0.75x water penalty
+## (FUN_0040c390), auto-steer toward a target heading.
 ##
 ## Phase 4 step 6: also the base class for game/enemy_vehicle.gd's EnemyVehicle --
 ## _get_controls()/_wants_to_fire() are the seam a non-player controller overrides,
@@ -18,12 +22,14 @@ extends Node2D
 ## (section 2.2's "knowingly accept a simpler visual target" option), not the projected-
 ## quad technique. Good enough to prove movement; revisit for visual fidelity later.
 
-const MAX_SPEED := 220.0
-const ACCEL := 260.0
-const BRAKE := 220.0
-const REVERSE_MAX_SPEED := 90.0
-const FRICTION := 140.0
-const TURN_RATE_DEG := 160.0
+const TICK_HZ := 62.5  ## 1000 ms / 16 ms (timeGetTime() >> 4)
+const MAX_SPEED := 1.05 * TICK_HZ           ## 0x10ccc/65536 units/tick = 65.6 px/s (~2 tiles/s)
+const ACCEL := 0.05 * TICK_HZ * TICK_HZ     ## 0x0ccc/65536 units/tick^2 (also used for braking)
+const BRAKE := ACCEL
+const REVERSE_MAX_SPEED := 0.4 * TICK_HZ    ## 0xffff999a = -0.4 units/tick
+const FRICTION := 0.025 * TICK_HZ * TICK_HZ ## 0x0666/65536 units/tick^2 when no throttle
+## Heading is 22-bit: 0x400000 = 360 deg = 64 steps of 5.625 deg; the Tank turns 0.25 step/tick.
+const TURN_RATE_DEG := 0.25 * 5.625 * TICK_HZ  ## 87.9 deg/s
 
 ## Phase 4 step 4 (first pass): firing, not yet authentic either. RFIRE.BIN's real
 ## weapon damage/rate-of-fire/projectile-speed constants haven't been traced (Phase 3
