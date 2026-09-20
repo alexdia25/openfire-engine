@@ -39,7 +39,17 @@ const TURN_RATE_DEG := 0.25 * 5.625 * TICK_HZ  ## 87.9 deg/s
 const FIRE_COOLDOWN_SEC := 20.0 / TICK_HZ
 const MUZZLE_OFFSET_PX := 20.0
 
+## Hit points and armour, traced (document 47): the Tank record's `+0x28` = 22.0 is its hit points
+## and `+0x24` = 0.3 its armour; FUN_0040c460 ignores a hit whose damage does not exceed the armour
+## and otherwise subtracts (damage - armour). At zero the original spawns a wreck object; here the
+## vehicle just stops (`alive = false`). HIT_RADIUS_PX is a PLACEHOLDER (the real collision shape is
+## untraced): half the Tank's 24-unit hull.
+const MAX_HP := 22.0
+const ARMOR := 0.3
+const HIT_RADIUS_PX := 12.0
+
 signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
+signal destroyed(vehicle: Vehicle)
 
 @export var pack_path: String = "res://packs/original_pc"
 @export var team: String = "tan"  ## "tan" or "green" -- section 4 item 5
@@ -50,6 +60,8 @@ var _frames: Array[String] = []
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
+var hp: float = MAX_HP
+var alive: bool = true
 
 
 func setup(shared_pack: Pack) -> void:
@@ -100,8 +112,26 @@ func _wants_to_fire() -> bool:
 	return _debug_fire or Input.is_action_pressed("ui_accept")
 
 
+## FUN_0040c460: returns true if the hit did anything.
+func take_damage(damage: float) -> bool:
+	if not alive or damage <= ARMOR:
+		return false
+	hp -= damage - ARMOR
+	if hp <= 0.0:
+		alive = false
+		destroyed.emit(self)
+	return true
+
+
+func respawn(at: Vector2) -> void:
+	position = at
+	hp = MAX_HP
+	speed = 0.0
+	alive = true
+
+
 func _process(delta: float) -> void:
-	if pack == null or _frames.is_empty():
+	if pack == null or _frames.is_empty() or not alive:
 		return
 
 	if _debug_heading != "":

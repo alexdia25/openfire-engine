@@ -53,6 +53,7 @@ var vehicle: Vehicle
 var enemy_vehicles: Array = []   ## EnemyVehicle nodes
 var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
+var _player_spawn_px := Vector2.ZERO
 var _tile_hp: Dictionary = {}    ## Vector2i -> remaining hit points of a damaged pool target
 
 var _debug_target_log: bool = OS.get_environment("RF_DEBUG_TARGET_LOG") == "1"
@@ -94,7 +95,9 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.setup(pack)
 	vehicle.level = level
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
-	vehicle.fired.connect(_on_vehicle_fired)
+	vehicle.fired.connect(_on_vehicle_fired.bind(vehicle))
+	vehicle.destroyed.connect(_on_player_destroyed)
+	_player_spawn_px = vehicle.position
 
 	for other_sp in level.spawn_points:
 		if int(other_sp.get("team", 0)) == player_team:
@@ -107,7 +110,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		enemy.level = level
 		enemy.position = (Vector2(float(other_sp.get("x", 0)), float(other_sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 		enemy.target = vehicle
-		enemy.fired.connect(_on_vehicle_fired)
+		enemy.fired.connect(_on_vehicle_fired.bind(enemy))
 		enemy_vehicles.append(enemy)
 
 
@@ -129,8 +132,9 @@ func _setup_target_pools() -> void:
 ## Phase 4 step 4 (first pass): spawn a projectile as a sibling of the firing vehicle in
 ## `world` -- not a child of it -- so its transform is independent of the vehicle's own
 ## position/rotation once launched.
-func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: String) -> void:
+func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: String, shooter: Vehicle) -> void:
 	var p := Projectile.new()
+	p.shooter = shooter
 	world.add_child(p)
 	p.team = team
 	p.heading_deg = heading_deg
@@ -142,6 +146,28 @@ func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: Strin
 func _process(_delta: float) -> void:
 	_projectiles = _projectiles.filter(func(p): return is_instance_valid(p))
 	_check_target_hits()
+	_check_vehicle_hits()
+
+
+## A projectile within Vehicle.HIT_RADIUS_PX of a living vehicle other than its shooter damages
+## it (FUN_00414e60 -> FUN_0040c460, document 47) and is consumed.
+func _check_vehicle_hits() -> void:
+	var targets: Array = [vehicle] + enemy_vehicles
+	for p in _projectiles:
+		if not is_instance_valid(p) or p.is_queued_for_deletion():
+			continue
+		for v in targets:
+			if v == null or not is_instance_valid(v) or not v.alive or v == p.shooter:
+				continue
+			if p.global_position.distance_to(v.position) <= Vehicle.HIT_RADIUS_PX:
+				v.take_damage(p.damage)
+				p.queue_free()
+				break
+
+
+## No life system is traced yet (NEXT_STEPS): the player simply respawns at the start point.
+func _on_player_destroyed(_v: Vehicle) -> void:
+	vehicle.respawn(_player_spawn_px)
 
 
 ## Phase 4 step 5 (first pass): a projectile within TARGET_HIT_RADIUS_PX of a pool's active
@@ -164,8 +190,9 @@ func _check_target_hits() -> void:
 				consumed.append(p)
 				p.queue_free()
 				var hp: int = _tile_hp.get(active_tile, _initial_tile_hp(active_tile))
-				if hp > p.damage_hp:
-					_tile_hp[active_tile] = hp - p.damage_hp
+				var dmg := maxi(int(p.damage), 1)  ## FUN_0042e8c0: whole units, at least 1
+				if hp > dmg:
+					_tile_hp[active_tile] = hp - dmg
 					break  # damaged, not destroyed
 				_tile_hp.erase(active_tile)
 				var reactivated := pool.destroy_active()

@@ -28,7 +28,7 @@ var _debug_ai_log: bool = OS.get_environment("RF_DEBUG_AI_LOG") == "1"
 
 
 func _get_controls() -> Vector2:
-	if target == null or not is_instance_valid(target):
+	if target == null or not is_instance_valid(target) or not target.alive:
 		return Vector2.ZERO
 
 	var to_target := target.position - position
@@ -56,7 +56,7 @@ func _get_controls() -> Vector2:
 
 
 func _wants_to_fire() -> bool:
-	if target == null or not is_instance_valid(target):
+	if not alive or target == null or not is_instance_valid(target) or not target.alive:
 		return false
 	var to_target := target.position - position
 	if to_target.length() > FIRE_RANGE_PX:
