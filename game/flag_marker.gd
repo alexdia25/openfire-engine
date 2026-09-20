@@ -13,10 +13,11 @@ extends Node2D
 ## a pool goes silent, using the real, confirmed `marker.capture_flag.<team>` art (document 24)
 ## instead of a placeholder shape.
 ##
-## What this deliberately is NOT: nothing carries it, no vehicle can pick it up, there's no
-## "return to base" check, and no win/lose declaration reads its existence. Section 4 item 1's
-## real object (`FUN_00432920`) also homes toward something every frame -- this one doesn't
-## move at all. All of that is still untraced; this is the spawn trigger, nothing past it.
+## Since document 57 the flag can be taken: only a Jeep (vehicle type 1) can pick it up, it hangs from the
+## carrier, the Jeep's action key drops or takes it, and carrying the other pool's flag onto the home tile
+## ends the match (all in game/match_controller.gd). This node is still the flat, cycling-frame placeholder
+## presentation of the flag: its real drawing (a plate and a leaning banner, a flutter child sprite) is not
+## reproduced.
 ##
 ## Team-colour choice per pool is UNCONFIRMED. Section 1.5 never established whether either
 ## physical pool (tile 0xB4 "pool A" vs 0xDC "pool B") belongs to a specific team, or whether
@@ -27,6 +28,12 @@ extends Node2D
 const FRAME_INTERVAL_SEC := 0.12  ## placeholder wave-animation speed, not traced from RFIRE.BIN
 
 var pack: Pack
+## The flag object of document 57 (class 12, 0x44e3c0): `owner_idx` is its pool (0 = the pool whose buildings
+## carry variant 0, 1 = variant 1), `carrier` the vehicle it hangs from (or null), `dropper` the vehicle that
+## just let it go and cannot re-take it until it stops touching it (FUN_00432920's +0x70).
+var owner_idx := 0
+var carrier: Vehicle = null
+var dropper: Vehicle = null
 var _frames: Array[String] = []
 var _frame_index: int = 0
 var _timer: float = 0.0

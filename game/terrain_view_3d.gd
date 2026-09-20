@@ -210,6 +210,10 @@ func _spawn_match() -> void:
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
+		controller.vehicle.type_changed.connect(_on_player_type_changed)
+		if OS.get_environment("RF_VEHICLE") == "jeep":
+			controller.vehicle.set_vehicle_type(1)
+	controller.match_over.connect(_on_match_over)
 
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
@@ -236,7 +240,30 @@ func _spawn_match() -> void:
 ## 6-face box (VehicleBoxRender3D) is the default -- never affects a normal run (env var
 ## unset). Returns the spawned node (typed Node3D, since the two classes don't share a
 ## common base beyond that).
+## The player switched type: replace its 3D presentation (the Tank's box renderer or the generic descriptor one).
+func _on_player_type_changed(v: Vehicle) -> void:
+	if billboard != null and is_instance_valid(billboard):
+		billboard.queue_free()
+	billboard = _spawn_vehicle_render(v)
+
+
+## The match ended (document 57): a placeholder banner (the original fades to its score screen).
+func _on_match_over(winner_idx: int) -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	var label := Label.new()
+	label.text = "%s WINS  -  flag captured" % ("TAN" if winner_idx == 0 else "GREEN")
+	label.add_theme_font_size_override("font_size", 40)
+	label.position = Vector2(60, 40)
+	layer.add_child(label)
+
+
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
+	if v.vehicle_type != 0:
+		var gen := VehicleRender3D.new()
+		add_child(gen)
+		gen.setup(v, pack)
+		return gen
 	v.fired.connect(_on_muzzle_flash.bind(v))
 	if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
 		var b := VehicleBillboard3D.new()

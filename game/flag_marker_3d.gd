@@ -47,6 +47,7 @@ func _process(_delta: float) -> void:
 	if not is_instance_valid(flag):
 		queue_free()
 		return
+	global_position = Vector3(flag.position.x, HEIGHT_PX + (6.0 if flag.carrier != null else 0.0), flag.position.y)
 	_refresh()
 
 

@@ -59,6 +59,7 @@ const HIT_MASK := 0x27
 
 signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
 signal destroyed(vehicle: Vehicle)
+signal type_changed(vehicle: Vehicle)
 
 @export var pack_path: String = "res://packs/original_pc"
 @export var team: String = "tan"  ## "tan" or "green" -- section 4 item 5
@@ -70,6 +71,21 @@ var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwi
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
 var hp: float = MAX_HP
+## Per-type values, from tools/data/vehicle_types.json (document 57); the constants above are the Tank's and
+## remain the defaults when no pack data exists.
+var max_speed := MAX_SPEED
+var reverse_max_speed := REVERSE_MAX_SPEED
+var accel := ACCEL
+var brake := BRAKE
+var friction := FRICTION
+var turn_rate_deg := TURN_RATE_DEG
+var max_hp := MAX_HP
+var armor := ARMOR
+var fuel_max := FUEL_MAX
+var hit_half_width := HIT_HALF_WIDTH
+var hit_half_length := HIT_HALF_LENGTH
+var hit_z: Array = HIT_Z
+var hit_poly_local: PackedVector2Array = PackedVector2Array()
 ## Vehicle type index in the original's table (0 Tank, 1 Jeep, 2 MSV, 3 Heli): tile callbacks treat the Jeep
 ## differently (document 54). Only the Tank is played here.
 var vehicle_type := 0
@@ -88,10 +104,12 @@ var zone_box: Array = []
 ## overlap something solid there (document 54). Null = no collision.
 var blocked_test: Callable = Callable()
 var alive: bool = true
+var frozen := false  ## the match is over: no input, no movement
 
 
 func setup(shared_pack: Pack) -> void:
 	pack = shared_pack
+	_apply_type()
 	var prefix := "vehicle.hovercraft.rotation.%s." % team
 	for id in pack.sprites.keys():
 		if id.begins_with(prefix):
@@ -138,6 +156,35 @@ func _wants_to_fire() -> bool:
 	return _debug_fire or Input.is_action_pressed("ui_accept")
 
 
+## Loads this vehicle's traced numbers (speed, acceleration, friction, turn rate, hit points, armour, fuel, the
+## collision polygon and its height) from the pack's vehicle table.
+func _apply_type() -> void:
+	var t: Dictionary = pack.vehicle_types.get(str(vehicle_type), {})
+	if t.is_empty():
+		return
+	max_speed = float(t["max_forward_per_tick"]) * TICK_HZ
+	reverse_max_speed = -float(t["max_reverse_per_tick"]) * TICK_HZ
+	accel = float(t["accel_per_tick2"]) * TICK_HZ * TICK_HZ
+	brake = accel
+	friction = float(t["friction_per_tick2"]) * TICK_HZ * TICK_HZ
+	turn_rate_deg = float(t["turn_steps_per_tick"]) * 5.625 * TICK_HZ
+	max_hp = float(t["hit_points"])
+	armor = float(t["armor"])
+	fuel_max = float(t["fuel"])
+	hit_z = [float(t["shape"]["z"][0]), float(t["shape"]["z"][1])]
+	hit_poly_local = PackedVector2Array()
+	for pt in t["shape"]["poly"]:
+		hit_poly_local.append(Vector2(pt[0], pt[1]))
+	hp = max_hp
+	fuel = fuel_max
+
+
+## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
+## FUN_00415b00) is not, so only the Tank fires.
+func fire_enabled() -> bool:
+	return vehicle_type == 0
+
+
 ## FUN_0040b980's movement step (document 54). The turn is already applied to `heading_deg` and the speed
 ## updated; the displacement is speed x the new heading. Standing still, a turn that would overlap something
 ## is undone. Moving, if the new place overlaps: undo the turn and try the same displacement with the old
@@ -175,9 +222,9 @@ func _move(heading_before: float, delta: float) -> void:
 
 ## FUN_0040c460: returns true if the hit did anything.
 func take_damage(damage: float) -> bool:
-	if not alive or damage <= ARMOR:
+	if not alive or damage <= armor:
 		return false
-	hp -= damage - ARMOR
+	hp -= damage - armor
 	if hp <= 0.0:
 		alive = false
 		destroyed.emit(self)
@@ -186,7 +233,24 @@ func take_damage(damage: float) -> bool:
 
 ## The collision polygon in world coordinates (the Tank's shape at 0x43e8f8).
 func hit_polygon() -> PackedVector2Array:
-	return polygon_at(position, heading_deg)
+	return polygon_for(position, heading_deg)
+
+
+## The collision polygon at `at` / `heading`: the type's shape (the Tank's is at 0x43e8f8, document 53) with its
+## y axis pointing along the heading (forward is -y in the original's shape coordinates).
+func polygon_for(at: Vector2, heading: float) -> PackedVector2Array:
+	var rad := deg_to_rad(heading)
+	var fwd := Vector2(cos(rad), sin(rad))
+	var right := Vector2(-fwd.y, fwd.x)
+	var out := PackedVector2Array()
+	if hit_poly_local.is_empty():
+		for c in [Vector2(-1, -1), Vector2(-1, 1), Vector2(1, 1), Vector2(1, -1)]:
+			out.append(at + fwd * (c.x * hit_half_length) + right * (c.y * hit_half_width))
+		return out
+	for pt in hit_poly_local:
+		# local (x lateral, y forward-negative): forward is -y, so world = at + fwd * (-y) + right * x
+		out.append(at + fwd * -pt.y + right * pt.x)
+	return out
 
 
 static func polygon_at(at: Vector2, heading: float) -> PackedVector2Array:
@@ -208,15 +272,24 @@ func player_index() -> int:
 
 func respawn(at: Vector2) -> void:
 	position = at
-	hp = MAX_HP
-	fuel = FUEL_MAX
+	hp = max_hp
+	fuel = fuel_max
 	zone_kind = 0
 	speed = 0.0
 	alive = true
 
 
+## Port-only convenience (the original picks a vehicle at the base, FUN_0040b400; document 57): become another
+## type in place, with that type's numbers and full hit points and fuel.
+func set_vehicle_type(t: int) -> void:
+	vehicle_type = t
+	_apply_type()
+	speed = 0.0
+	type_changed.emit(self)
+
+
 func _process(delta: float) -> void:
-	if pack == null or _frames.is_empty() or not alive:
+	if pack == null or _frames.is_empty() or not alive or frozen:
 		return
 
 	if _debug_heading != "":
@@ -227,21 +300,21 @@ func _process(delta: float) -> void:
 	var controls := _get_controls()
 	var turn := controls.x
 	var turn_before := heading_deg
-	heading_deg = fposmod(heading_deg + turn * TURN_RATE_DEG * delta, 360.0)
+	heading_deg = fposmod(heading_deg + turn * turn_rate_deg * delta, 360.0)
 
 	var thrust := controls.y
 	var terrain_scale := _terrain_speed_scale()
 	if thrust > 0.0:
-		speed = minf(speed + ACCEL * delta, MAX_SPEED * terrain_scale)
+		speed = minf(speed + accel * delta, max_speed * terrain_scale)
 	elif thrust < 0.0:
-		speed = maxf(speed - BRAKE * delta, -REVERSE_MAX_SPEED * terrain_scale)
+		speed = maxf(speed - brake * delta, -reverse_max_speed * terrain_scale)
 	else:
-		speed = move_toward(speed, 0.0, FRICTION * delta)
+		speed = move_toward(speed, 0.0, friction * delta)
 
 	_move(turn_before, delta)
 
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
-	if _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
+	if fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
 		var rad := deg_to_rad(heading_deg)
 		var dir := Vector2(cos(rad), sin(rad))

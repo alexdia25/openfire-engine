@@ -47,6 +47,8 @@ signal tile_crushed(tile: Vector2i)
 ## A team gate object took over a tile / gave it back (document 56).
 signal gate_created(gate: Gate)
 signal gate_removed(gate: Gate)
+## A vehicle carrying the other pool's flag stood on its home tile (document 57): the match is over.
+signal match_over(winner_idx: int)
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
 
@@ -60,6 +62,9 @@ var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
 var _player_spawn_px := Vector2.ZERO
 var gates: Dictionary = {}       ## Vector2i -> Gate
+var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
+var match_finished := false
+var winner_idx := -1
 var _crushing: Dictionary = {}   ## tiles already flattened and waiting for their state change
 var _tile_hp: Dictionary = {}    ## Vector2i -> remaining hit points of a damaged pool target
 
@@ -154,6 +159,7 @@ func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: Strin
 
 
 func _process(delta: float) -> void:
+	_update_flags(delta)
 	for v in [vehicle] + enemy_vehicles:
 		if v != null and is_instance_valid(v) and v.alive:
 			_update_zone(v, delta)
@@ -182,7 +188,7 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 			continue
 		if not Collision.shell_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK):
 			continue
-		if not Collision.shell_z_overlaps(Projectile.SHELL_Z, Vehicle.HIT_Z[0], Vehicle.HIT_Z[1]):
+		if not Collision.shell_z_overlaps(Projectile.SHELL_Z, v.hit_z[0], v.hit_z[1]):
 			continue
 		if Collision.segment_hits_polygon(from, to, v.hit_polygon()):
 			v.take_damage(p.damage)
@@ -208,7 +214,7 @@ func _update_zone(v: Vehicle, delta: float) -> void:
 		v.zone_kind = 0
 		return
 	if v.zone_kind == 1:
-		v.fuel = minf(Vehicle.FUEL_MAX, v.fuel + Vehicle.REFUEL_PER_TICK * delta * Vehicle.TICK_HZ)
+		v.fuel = minf(v.fuel_max, v.fuel + Vehicle.REFUEL_PER_TICK * delta * Vehicle.TICK_HZ)
 
 
 ## FUN_00432550: only if the tile still has hit points and its variant bits equal the player index; the
@@ -266,7 +272,7 @@ func _vehicle_in_bars(bars: Array) -> bool:
 ## the tile; a tile shape without a callback blocks (the vehicle class's tile callback FUN_0040c130 returns 1).
 ## Another living vehicle always blocks (FUN_0040c150 returns 5).
 func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
-	var poly := Vehicle.polygon_at(at, heading_deg)
+	var poly := v.polygon_for(at, heading_deg)
 	var tsz := float(pack.tile_size_px)
 	var tx := int(floor(at.x / tsz))
 	var ty := int(floor(at.y / tsz))
@@ -287,7 +293,7 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 			for sh in info["shapes"]:
 				if not Collision.vehicle_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK, int(sh["layer"]), int(sh["mask"])):
 					continue
-				if not Collision.z_ranges_overlap(Vehicle.HIT_Z[0], Vehicle.HIT_Z[1], float(sh["z"][0]), float(sh["z"][1])):
+				if not Collision.z_ranges_overlap(v.hit_z[0], v.hit_z[1], float(sh["z"][0]), float(sh["z"][1])):
 					continue
 				var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
 				var hit := false
@@ -473,7 +479,12 @@ func _initial_tile_hp(tile: Vector2i) -> int:
 ## comment and game/flag_marker.gd's docstring) at the position of the pool's last-destroyed
 ## target. Purely visual -- see flag_marker.gd for exactly what this isn't yet.
 func _spawn_flag(pool_id: String, at_position: Vector2) -> void:
+	var idx := 0 if pool_id == "a" else 1
+	if flags.has(idx):
+		return
 	var flag := FlagMarker.new()
+	flag.owner_idx = idx
+	flags[idx] = flag
 	world.add_child(flag)
 	flag.setup(pack, POOL_FLAG_COLOURS.get(pool_id, "red"))
 	flag.position = at_position
@@ -481,3 +492,118 @@ func _spawn_flag(pool_id: String, at_position: Vector2) -> void:
 	if _debug_target_log:
 		print("frame=%d pool=%s FLAG SPAWNED at=%s" % [
 			Engine.get_process_frames(), pool_id, at_position])
+
+
+## ---- The flag (document 57) ----------------------------------------------------------------------------------
+## Class 12 (0x44e3c0). Only a Jeep (vehicle type 1) can take it: the flag's object-collision callback
+## FUN_00432d00 and the ruin tile's FUN_00432d80 both test `record[0] == 1`, and the grab action FUN_00432e40 is
+## wired only to the Jeep's third weapon slot. Contact with a Jeep that carries nothing attaches the flag; the
+## flag then hangs from it at (3.75, 6.75) in its own frame (+x right, +y behind); the action button drops it (or
+## takes one that is touching); and a Jeep carrying the OTHER pool's flag that stands on its home tile (art 90 for
+## player 0, 91 for player 1) ends the match (FUN_0040d990 -> FUN_004225d0).
+const FLAG_BOX := [-3.0, -4.0, 5.0, 4.0]  ## the flag's shape at 0x440448: z 0-8, layer 1, mask 6
+const FLAG_CARRY_OFFSET := Vector2(3.75, 6.75)
+const HOME_ART_BASE := 90
+
+
+func _flag_touching(flag: FlagMarker, v: Vehicle) -> bool:
+	return Collision.vehicle_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK, 1, 6) \
+			and Collision.z_ranges_overlap(v.hit_z[0], v.hit_z[1], 0.0, 8.0) \
+			and Collision.polygon_hits_box(v.hit_polygon(), flag.position, FLAG_BOX)
+
+
+func _carrying_any(v: Vehicle) -> bool:
+	for f in flags.values():
+		if f.carrier == v:
+			return true
+	return false
+
+
+func _attach_flag(flag: FlagMarker, v: Vehicle) -> void:
+	flag.carrier = v
+	flag.dropper = null
+
+
+func _update_flags(_delta: float) -> void:
+	if match_finished:
+		return
+	for idx in flags.keys():
+		var flag: FlagMarker = flags[idx]
+		if flag.carrier != null:
+			var c: Vehicle = flag.carrier
+			if not is_instance_valid(c) or not c.alive:
+				flag.carrier = null  # the carrier died: the flag stays where it is
+				continue
+			var rad := deg_to_rad(c.heading_deg)
+			var fwd := Vector2(cos(rad), sin(rad))
+			var right := Vector2(-fwd.y, fwd.x)
+			flag.position = c.position + right * FLAG_CARRY_OFFSET.x + fwd * -FLAG_CARRY_OFFSET.y
+			continue
+		if flag.dropper != null and (not is_instance_valid(flag.dropper) or not _flag_touching(flag, flag.dropper)):
+			flag.dropper = null
+		for v in [vehicle] + enemy_vehicles:
+			if v == null or not is_instance_valid(v) or not v.alive or v.vehicle_type != 1:
+				continue
+			if v == flag.dropper or _carrying_any(v):
+				continue
+			if _flag_touching(flag, v):
+				_attach_flag(flag, v)
+				break
+	for v in [vehicle] + enemy_vehicles:
+		if v != null and is_instance_valid(v) and v.alive and v.vehicle_type == 1:
+			_check_capture(v)
+
+
+## FUN_0040d990: the Jeep carries the flag of the other pool and stands on its own home tile.
+func _check_capture(v: Vehicle) -> void:
+	var own := v.player_index()
+	var flag: FlagMarker = flags.get(own ^ 1)
+	if flag == null or flag.carrier != v:
+		return
+	var t := Vector2i(int(floor(v.position.x / pack.tile_size_px)), int(floor(v.position.y / pack.tile_size_px)))
+	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+		return
+	if (level.get_art_id(t.x, t.y) & 0x7F) == HOME_ART_BASE + own:
+		match_finished = true
+		winner_idx = own
+		for x in [vehicle] + enemy_vehicles:
+			if x != null and is_instance_valid(x):
+				x.frozen = true
+		match_over.emit(own)
+
+
+## FUN_00432e40, from the Jeep's action button: for the vehicle's own pool first, then the other: a flag it
+## carries is let go (and cannot be re-taken until it stops touching it); a free flag that touches it is taken.
+func flag_action(v: Vehicle) -> void:
+	if match_finished or v.vehicle_type != 1:
+		return
+	for idx in [v.player_index(), v.player_index() ^ 1]:
+		var flag: FlagMarker = flags.get(idx)
+		if flag == null:
+			continue
+		if flag.carrier == v:
+			flag.carrier = null
+			flag.dropper = v
+			return
+		if flag.carrier == null and not _carrying_any(v) and _flag_touching(flag, v):
+			_attach_flag(flag, v)
+			return
+
+
+## Port-only convenience: the original picks a vehicle at the base (FUN_0040b400, with per-type stock counts that
+## are not traced); here the player cycles Tank <-> Jeep while standing still on its own home tile.
+func switch_player_vehicle() -> void:
+	if vehicle == null or match_finished or vehicle.moving:
+		return
+	var t := Vector2i(int(floor(vehicle.position.x / pack.tile_size_px)), int(floor(vehicle.position.y / pack.tile_size_px)))
+	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
+		return
+	vehicle.set_vehicle_type(1 if vehicle.vehicle_type == 0 else 0)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and vehicle != null:
+		if event.keycode == KEY_V:
+			switch_player_vehicle()
+		elif event.keycode == KEY_F:
+			flag_action(vehicle)
