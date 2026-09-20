@@ -13,6 +13,8 @@ var spawn_points: Array = []
 var candidate_pools: Dictionary = {}
 var tile_seed: int = 0  ## sum of raw tile bytes -- seeds the per-tile decoration jitter (document 44)
 var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_parts()
+var _decoration_lookup: Dictionary = {}
+var _jitter: Array[Vector2] = []
 
 
 func load_from(level_dir: String) -> bool:
@@ -70,8 +72,31 @@ func set_coastal_id(x: int, y: int, coastal_id: int) -> void:
 		decorations[i]["coastal_id"] = coastal_id
 
 
+## The team variant (0 tan, 1 green ...) recorded for this tile's decoration (tile word bits 14-15).
+func get_variant(x: int, y: int) -> int:
+	var i := _decoration_index(x, y)
+	return int(decorations[i].get("variant", 0)) if i >= 0 else 0
+
+
 func _decoration_index(x: int, y: int) -> int:
-	for i in decorations.size():
-		if int(decorations[i].get("x", -1)) == x and int(decorations[i].get("y", -1)) == y:
-			return i
-	return -1
+	if _decoration_lookup.size() != decorations.size():
+		_decoration_lookup.clear()
+		for i in decorations.size():
+			_decoration_lookup[Vector2i(int(decorations[i].get("x", -1)), int(decorations[i].get("y", -1)))] = i
+	return int(_decoration_lookup.get(Vector2i(x, y), -1))
+
+
+## The per-tile decoration jitter of document 44 (FUN_00436540 / FUN_004365c0), in world units: a 16x16
+## table of rand(25) - 12 pairs built from the MSVC LCG seeded with `tile_seed`, indexed by
+## (tile_y & 15, tile_x & 15). The collision shapes of a jittered tile move with it (FUN_0042bb10 calls
+## the same callback), so both the decorations and the collision code read it here.
+func jitter_at(x: int, y: int) -> Vector2:
+	if _jitter.is_empty():
+		var state := tile_seed & 0xFFFFFFFF
+		for i in 256:
+			var vals := []
+			for n in [25, 25, 11, 256]:
+				state = (state * 214013 + 2531011) & 0xFFFFFFFF
+				vals.append((((state >> 16) & 0x7FFF) * 2 * n) >> 16)
+			_jitter.append(Vector2(vals[0] - 12, vals[1] - 12))
+	return _jitter[((y & 15) * 16) + (x & 15)]

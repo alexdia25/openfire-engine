@@ -26,28 +26,12 @@ const SHADOW_ALPHA := 5.0 / 32.0
 
 var pack: Pack
 var level: LevelData
-var _jitter: Array[Vector2] = []
 
 
 func setup(shared_pack: Pack, shared_level: LevelData) -> void:
 	pack = shared_pack
 	level = shared_level
-	_build_jitter_table()
 	_build()
-
-
-## 256 entries of [dx, dy], in the exact draw order of FUN_00436540 (dx, dy, then two more
-## rand calls whose values are consumed but unused by the jitter callback).
-func _build_jitter_table() -> void:
-	var state := level.tile_seed & 0xFFFFFFFF
-	_jitter.clear()
-	for i in 256:
-		var vals := []
-		for n in [25, 25, 11, 256]:
-			state = (state * 214013 + 2531011) & 0xFFFFFFFF
-			var r := (state >> 16) & 0x7FFF
-			vals.append(((r * 2 * n) >> 16))
-		_jitter.append(Vector2(vals[0] - 12, vals[1] - 12))
 
 
 ## Rebuilds every mesh from the level's current decoration list (after a tile changed state).
@@ -64,7 +48,7 @@ func _build() -> void:
 		var parts: Array = pack.get_decoration_parts(int(entry.get("coastal_id", 0)))
 		var cx := (float(entry.get("x", 0)) + 0.5) * tile
 		var cz := (float(entry.get("y", 0)) + 0.5) * tile
-		var jit: Vector2 = _jitter[((int(entry.get("y", 0)) & 15) * 16) + (int(entry.get("x", 0)) & 15)]
+		var jit: Vector2 = level.jitter_at(int(entry.get("x", 0)), int(entry.get("y", 0)))
 		for part in parts:
 			if not part.has("corners"):
 				continue

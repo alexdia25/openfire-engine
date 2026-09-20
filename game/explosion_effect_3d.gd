@@ -12,7 +12,9 @@ extends Node3D
 ## The record's script is run the way FUN_0042dbe0 runs it (WAIT until progress reaches n, STOP yields
 ## for a tick, END stops), but only the TILE_STATE op has an effect here: it fires `tile_state`, the
 ## moment the original re-textures the destroyed tile (FUN_0042e600) -- for a collapsing tile that is
-## AFTER the first frames of the explosion, not at the hit. Sounds, the ground glow, neighbour tiles
+## AFTER the first frames of the explosion, not at the hit. Op 21 (FUN_0042d9f0) does the same later: it
+## clears the tile's decoration at once and schedules the state change `n` ticks on (FUN_004146d0 ->
+## FUN_0042da50 -> FUN_0042e600) -- the bush and palm records use it. Sounds, the ground glow, neighbour tiles
 ## (TILE_SET / TILE_DMG) and damage boxes are not played.
 ##
 ## Approximations (marked, not traced): the mapping from a translucency level to an opacity (the
@@ -21,7 +23,8 @@ extends Node3D
 
 const TICK_HZ := 62.5
 
-signal tile_state  ## the script reached its TILE_STATE op
+signal tile_state  ## the script reached its TILE_STATE op (or the timer op 21 scheduled ran out)
+signal tile_cleared  ## op 21 ran: the tile loses its decoration NOW; its result state follows after the delay
 
 ## A muzzle flash is attached to its vehicle (FUN_0042e0b0 / FUN_0042daf0): every tick it is placed at
 ## the vehicle's position plus `follow_offset` (x sideways, y forward, z up, in world units) turned by
@@ -32,6 +35,7 @@ var follow_offset := Vector3.ZERO
 var _record: Dictionary
 var _pc := 0
 var _script_done := false
+var _timers: Array[float] = []  ## op 21's delayed FUN_0042e600 call (FUN_004146d0), in ticks
 var _pack: Pack
 var _progress := 0.0
 var _parts: Array = []  ## [{data, mesh_instance, material, last_frame}]
@@ -103,6 +107,11 @@ func _follow() -> void:
 
 func _process(delta: float) -> void:
 	_follow()
+	for i in range(_timers.size() - 1, -1, -1):
+		_timers[i] -= delta * TICK_HZ
+		if _timers[i] <= 0.0:
+			_timers.remove_at(i)
+			tile_state.emit()
 	_progress += float(_record.get("rate_per_tick", 0.25)) * delta * TICK_HZ
 	if _progress >= float(_record.get("duration", 1.0)):
 		queue_free()
@@ -130,6 +139,10 @@ func _run_script() -> void:
 				_pc += 1
 			"TILE_STATE":
 				tile_state.emit()
+				_pc += 1
+			"OP21":
+				tile_cleared.emit()
+				_timers.append(float(op[1]))
 				_pc += 1
 			_:
 				_pc += 1

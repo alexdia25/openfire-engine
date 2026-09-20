@@ -196,6 +196,7 @@ func _spawn_match() -> void:
 	controller.projectile_spawned.connect(_on_projectile_spawned)
 	controller.flag_spawned.connect(_on_flag_spawned)
 	controller.target_hit.connect(_on_target_hit)
+	controller.tile_destroyed.connect(_on_tile_destroyed)
 	controller.impact_effect.connect(_on_impact_effect)
 
 	if controller.vehicle != null:
@@ -276,16 +277,50 @@ func _on_target_hit(_pool_id: String, tile: Vector2i) -> void:
 	if fx == null:
 		_apply_tile_destroyed(tile, coastal_id)
 	else:
+		fx.tile_cleared.connect(_clear_tile_decoration.bind(tile))
 		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
 
 
+func _on_tile_destroyed(tile: Vector2i) -> void:
+	_on_target_hit("", tile)
+
+
+## FUN_0042e600 / the tail of FUN_0042e6a0 (document 53): the destroyed tile takes the coastal entry's
+## result. With a destroyed coastal id it becomes that id (FUN_0042e4f0: its ground art unless the entry's
+## art is 0xFF "keep", plus the tile's team variant when the entry's flags are exactly 8), else it loses its
+## decoration; the entry's own art byte, plus a random 0..1 or 0..3 when its flags have bit 1 or bit 2, then
+## sets the ground art. The tile's hit points restart from the new entry (the controller reads them lazily).
+## Op 21 of a bush/palm collapse script (FUN_0042d9f0): the decoration is gone at once.
+func _clear_tile_decoration(tile: Vector2i) -> void:
+	level.set_coastal_id(tile.x, tile.y, 0)
+	_decoration_field.refresh()
+
+
 func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
-	var damage := pack.get_coastal_damage(coastal_id)
-	var next_id := int(damage.get("destroyed_coastal", 0))
+	var e := pack.get_coastal_damage(coastal_id)
+	var flags := int(e.get("flags", 0))
+	var variation := 0
+	if flags & 4:
+		variation = randi() % 4
+	elif flags & 2:
+		variation = randi() % 2
+	var next_id := int(e.get("destroyed_coastal", 0))
+	var offset := int(e.get("destroyed_art_offset", 0))
+	var art := level.get_art_id(tile.x, tile.y)
 	if next_id == 0:
-		return
-	level.set_coastal_id(tile.x, tile.y, next_id)
-	level.set_art_id(tile.x, tile.y, int(pack.get_coastal_damage(next_id).get("base_art", 0)))
+		level.set_coastal_id(tile.x, tile.y, 0)
+		art = (offset + variation) & 0x7F
+	else:
+		var ne := pack.get_coastal_damage(next_id)
+		var base := int(ne.get("base_art", 255))
+		if base != 255:
+			art = base
+			if int(ne.get("flags", 0)) == 8:
+				art += level.get_variant(tile.x, tile.y)
+		level.set_coastal_id(tile.x, tile.y, next_id)
+		if offset != 0:
+			art = (offset + variation) & 0x7F
+	level.set_art_id(tile.x, tile.y, art)
 	_decoration_field.refresh()
 	_tile_renderer.queue_redraw()
 	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE

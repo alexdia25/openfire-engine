@@ -46,11 +46,16 @@ const MUZZLE_HEIGHT_PX := 7.0
 ## Hit points and armour, traced (document 47): the Tank record's `+0x28` = 22.0 is its hit points
 ## and `+0x24` = 0.3 its armour; FUN_0040c460 ignores a hit whose damage does not exceed the armour
 ## and otherwise subtracts (damage - armour). At zero the original spawns a wreck object; here the
-## vehicle just stops (`alive = false`). HIT_RADIUS_PX is a PLACEHOLDER (the real collision shape is
-## untraced): half the Tank's 24-unit hull.
+## vehicle just stops (`alive = false`). Its collision shape is traced (document 53): a convex polygon
+## 15 wide and 22.5 long (+-7.5 x +-11.25 about the centre, turned with the heading), z 0 to 10,
+## layer 2, mask 0x27.
 const MAX_HP := 22.0
 const ARMOR := 0.3
-const HIT_RADIUS_PX := 12.0
+const HIT_HALF_WIDTH := 7.5
+const HIT_HALF_LENGTH := 11.25
+const HIT_Z := [0.0, 10.0]
+const HIT_LAYER := 2
+const HIT_MASK := 0x27
 
 signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
 signal destroyed(vehicle: Vehicle)
@@ -125,6 +130,19 @@ func take_damage(damage: float) -> bool:
 		alive = false
 		destroyed.emit(self)
 	return true
+
+
+## The collision polygon in world coordinates (the Tank's shape at 0x43e8f8).
+func hit_polygon() -> PackedVector2Array:
+	var rad := deg_to_rad(heading_deg)
+	var fwd := Vector2(cos(rad), sin(rad))
+	var right := Vector2(-fwd.y, fwd.x)
+	return PackedVector2Array([
+		position + fwd * -HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
+		position + fwd * -HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
+		position + fwd * HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
+		position + fwd * HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
+	])
 
 
 func respawn(at: Vector2) -> void:

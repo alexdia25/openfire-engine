@@ -20,12 +20,8 @@ extends Node
 ## pure extraction, not a rules change. See TargetPool's own docstring and document 26 for what
 ## these rules trace back to in RFIRE.BIN.
 
-## Phase 4 step 5 (first pass): how close a projectile must get to an active target's tile
-## centre to hit it. The hit-detection geometry is still a placeholder (not traced). Hit points
-## and damage ARE traced (document 45): a tile carries hit points from its coastal-table entry
-## (6 for a candidate building), each projectile subtracts its damage (whole units, min 1), and
-## the tile is destroyed once hit points <= the damage (FUN_0042e8c0).
-const TARGET_HIT_RADIUS_PX := 24.0
+## Projectile hits are the original's swept-shape tests (document 53, game/collision.gd); tile hit points and
+## damage are traced (document 45). No placeholder hit radius remains.
 
 ## Phase 4 step 7 (first pass): which marker.capture_flag.<colour> family a pool spawns from
 ## when it goes silent -- UNCONFIRMED which, if either, physical pool a real team's flag
@@ -44,6 +40,8 @@ signal flag_spawned(flag: FlagMarker, pool_id: String)
 ## Emitted whenever a pool's active target is destroyed (whether or not a replacement
 ## activates) -- game/debug_marker_renderer.gd's overlay uses this to know when to redraw.
 signal target_hit(pool_id: String, tile: Vector2i)
+## A tile that is not a pool's active target ran out of hit points (document 53).
+signal tile_destroyed(tile: Vector2i)
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
 
@@ -141,31 +139,39 @@ func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: Strin
 	p.team = team
 	p.heading_deg = heading_deg
 	p.global_position = muzzle_position
+	p.prev_checked = muzzle_position
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
 
 
 func _process(_delta: float) -> void:
 	_projectiles = _projectiles.filter(func(p): return is_instance_valid(p))
-	_check_target_hits()
-	_check_vehicle_hits()
-
-
-## A projectile within Vehicle.HIT_RADIUS_PX of a living vehicle other than its shooter damages
-## it (FUN_00414e60 -> FUN_0040c460, document 47) and is consumed.
-func _check_vehicle_hits() -> void:
-	var targets: Array = [vehicle] + enemy_vehicles
 	for p in _projectiles:
-		if not is_instance_valid(p) or p.is_queued_for_deletion():
+		if p.is_queued_for_deletion():
 			continue
-		for v in targets:
-			if v == null or not is_instance_valid(v) or not v.alive or v == p.shooter:
-				continue
-			if p.global_position.distance_to(v.position) <= Vehicle.HIT_RADIUS_PX:
-				v.take_damage(p.damage)
-				impact_effect.emit("0x444b68", p.global_position)  # surface 3, object hit
-				p.queue_free()
-				break
+		var from: Vector2 = p.prev_checked
+		var to: Vector2 = p.global_position
+		p.prev_checked = to
+		if _shell_hits_tile(p, from, to) or _shell_hits_vehicle(p, from, to):
+			p.queue_free()
+
+
+## Document 53: a shell is a swept point (z 7 +- 1.5); a living vehicle other than its shooter is hit when the
+## segment meets its collision polygon (FUN_00414e60 -> FUN_0040c460, document 47).
+func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
+	var targets: Array = [vehicle] + enemy_vehicles
+	for v in targets:
+		if v == null or not is_instance_valid(v) or not v.alive or v == p.shooter:
+			continue
+		if not Collision.shell_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK):
+			continue
+		if not Collision.shell_z_overlaps(Projectile.SHELL_Z, Vehicle.HIT_Z[0], Vehicle.HIT_Z[1]):
+			continue
+		if Collision.segment_hits_polygon(from, to, v.hit_polygon()):
+			v.take_damage(p.damage)
+			impact_effect.emit("0x444b68", to)  # surface 3, object hit
+			return true
+	return false
 
 
 ## No life system is traced yet (NEXT_STEPS): the player simply respawns at the start point.
@@ -173,52 +179,85 @@ func _on_player_destroyed(_v: Vehicle) -> void:
 	vehicle.respawn(_player_spawn_px)
 
 
-## Phase 4 step 5 (first pass): a projectile within TARGET_HIT_RADIUS_PX of a pool's active
-## target destroys it, triggering TargetPool's replacement-or-go-silent logic. No collision
-## with terrain or the vehicle itself yet -- just the one interaction step 5 needs to prove:
-## the candidate-pool mechanism actually drives what a projectile can destroy.
-func _check_target_hits() -> void:
-	var tile := pack.tile_size_px
-	var consumed := []  # queue_free() is deferred -- don't let one projectile hit two pools this frame
+## Document 53: the tile under the shell and its eight neighbours are tested (FUN_0042bd40 / FUN_0042bf30);
+## each coastal id's first descriptor carries collision shapes placed at the tile centre (plus the decoration
+## jitter and the shape's own offset). A hit ends the shell (FUN_00414dd0) and damages the tile
+## (FUN_0042e8c0), with no other test of what counts as a "target": every tile with a shape can be shot.
+func _shell_hits_tile(p: Projectile, from: Vector2, to: Vector2) -> bool:
+	var tsz := float(pack.tile_size_px)
+	var tx := int(floor(to.x / tsz))
+	var ty := int(floor(to.y / tsz))
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var t := Vector2i(tx + dx, ty + dy)
+			if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+				continue
+			var id := level.get_coastal_id(t.x, t.y)
+			if id == 0:
+				continue
+			var info := pack.get_coastal_shapes(id)
+			if info.is_empty():
+				continue
+			var centre := (Vector2(t) + Vector2(0.5, 0.5)) * tsz
+			if info.get("jitter", false):
+				centre += level.jitter_at(t.x, t.y)
+			for sh in info["shapes"]:
+				if not Collision.shell_collides_with(int(sh["layer"]), int(sh["mask"])):
+					continue
+				if not Collision.shell_z_overlaps(Projectile.SHELL_Z, float(sh["z"][0]), float(sh["z"][1])):
+					continue
+				var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
+				var hit := false
+				if int(sh["type"]) == 2:
+					hit = Collision.segment_hits_box(from, to, origin, sh["box"])
+				elif int(sh["type"]) == 3:
+					var poly := PackedVector2Array()
+					for pt in sh["poly"]:
+						poly.append(origin + Vector2(pt[0], pt[1]))
+					hit = Collision.segment_hits_polygon(from, to, poly)
+				if hit:
+					impact_effect.emit("0x444ac8", to)  # surface 4, tile hit
+					_damage_tile(t, id, p)
+					return true
+	return false
+
+
+## FUN_0042e8c0 with the coastal table's armour 0 and multiplier 0 (document 44): a tile with 0 hit points
+## is indestructible (the shell is still stopped); otherwise the hit removes max(1, whole damage) and the tile
+## is destroyed when its hit points are <= that. A pool's active target goes through TargetPool
+## (FUN_00432710); any other tile just changes state (the scene applies it).
+func _damage_tile(t: Vector2i, id: int, p: Projectile) -> void:
+	var hp: int = _tile_hp.get(t, _initial_tile_hp(t))
+	if hp <= 0:
+		return
+	var dmg := maxi(int(p.damage), 1)
+	if hp > dmg:
+		_tile_hp[t] = hp - dmg
+		return
+	_tile_hp.erase(t)
+	var tile_px := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
 	for pool_id in pools:
 		var pool: TargetPool = pools[pool_id]
 		var active_tile = pool.get_active_position()
-		if active_tile == null:
+		if active_tile == null or active_tile != t:
 			continue
-		var active_px: Vector2 = (Vector2(active_tile) + Vector2(0.5, 0.5)) * tile
-		for p in _projectiles:
-			if not is_instance_valid(p) or consumed.has(p):
-				continue
-			if p.global_position.distance_to(active_px) <= TARGET_HIT_RADIUS_PX:
-				consumed.append(p)
-				p.queue_free()
-				var hp: int = _tile_hp.get(active_tile, _initial_tile_hp(active_tile))
-				var dmg := maxi(int(p.damage), 1)  ## FUN_0042e8c0: whole units, at least 1
-				impact_effect.emit("0x444ac8", p.global_position)  # surface 4, tile hit
-				if hp > dmg:
-					_tile_hp[active_tile] = hp - dmg
-					break  # damaged, not destroyed
-				_tile_hp.erase(active_tile)
-				var reactivated := pool.destroy_active()
-				target_hit.emit(pool_id, active_tile)
-				if _debug_target_log:
-					print("frame=%d pool=%s destroyed tile=%s budget=%d new_active=%s" % [
-						Engine.get_process_frames(), pool_id, active_tile, pool.budget,
-						pool.get_active_position() if reactivated else "none (silent)"])
-				if not reactivated:
-					# Phase 4 step 7 (first pass): the pool just went silent for good --
-					# RFIRE.BIN's FUN_00432710 falls through to spawn its dedicated flag
-					# object in exactly this case (section 4 item 1). destroy_active() only
-					# ever returns false once per pool (it stays silent afterward), matching
-					# the real function's own guard against spawning a second flag while
-					# one's already tracked.
-					_spawn_flag(pool_id, active_px)
-				break  # this target is gone; don't test the same projectile against it again
+		var reactivated := pool.destroy_active()
+		target_hit.emit(pool_id, t)
+		if _debug_target_log:
+			print("frame=%d pool=%s destroyed tile=%s budget=%d new_active=%s" % [
+				Engine.get_process_frames(), pool_id, t, pool.budget,
+				pool.get_active_position() if reactivated else "none (silent)"])
+		if not reactivated:
+			# The pool went silent for good: FUN_00432710 falls through to spawn its flag object
+			# (section 4 item 1); destroy_active() only returns false once per pool.
+			_spawn_flag(pool_id, tile_px)
+		return
+	tile_destroyed.emit(t)
 
 
 func _initial_tile_hp(tile: Vector2i) -> int:
 	var d := pack.get_coastal_damage(level.get_coastal_id(tile.x, tile.y))
-	return maxi(int(d.get("hp", 1)), 1)
+	return maxi(int(d.get("hp", 0)), 0)
 
 
 ## Phase 4 step 7 (first pass): spawns the flag-marker fallthrough (see the call site's

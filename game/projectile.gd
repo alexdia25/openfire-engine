@@ -20,6 +20,8 @@ const SPEED := 3.0 * TICK_HZ           ## 0x30000/65536 units/tick = 187.5 px/s
 const LIFETIME_SEC := 80.0 / TICK_HZ   ## 0x50 ticks = 1.28 s (range 240 px = 7.5 tiles)
 var damage: float = 1.0                ## 0x10000 = 1.0 (projectile type 0)
 var shooter: Node2D = null             ## never hits its own shooter (FUN_00414e60)
+var prev_checked: Vector2 = Vector2.ZERO  ## where the collision test last saw it: the swept segment starts here
+const SHELL_Z := 7.0                   ## flies level at its muzzle height (document 52)
 const RADIUS_PX := 3.0
 
 const TEAM_COLOURS := {
