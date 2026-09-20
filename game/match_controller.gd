@@ -21,9 +21,10 @@ extends Node
 ## these rules trace back to in RFIRE.BIN.
 
 ## Phase 4 step 5 (first pass): how close a projectile must get to an active target's tile
-## centre to destroy it. RFIRE.BIN's real hit-detection geometry (and target hitpoints -- these
-## targets die in one hit here) haven't been traced (Phase 3 backlog: "Building and target
-## hitpoints, destruction rules") -- a placeholder, not a reverse-engineered value.
+## centre to hit it. The hit-detection geometry is still a placeholder (not traced). Hit points
+## and damage ARE traced (document 45): a tile carries hit points from its coastal-table entry
+## (6 for a candidate building), each projectile subtracts its damage (whole units, min 1), and
+## the tile is destroyed once hit points <= the damage (FUN_0042e8c0).
 const TARGET_HIT_RADIUS_PX := 24.0
 
 ## Phase 4 step 7 (first pass): which marker.capture_flag.<colour> family a pool spawns from
@@ -52,6 +53,7 @@ var vehicle: Vehicle
 var enemy_vehicles: Array = []   ## EnemyVehicle nodes
 var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
+var _tile_hp: Dictionary = {}    ## Vector2i -> remaining hit points of a damaged pool target
 
 var _debug_target_log: bool = OS.get_environment("RF_DEBUG_TARGET_LOG") == "1"
 
@@ -90,6 +92,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.team = "tan" if player_team == 0 else "green"
 	world.add_child(vehicle)
 	vehicle.setup(pack)
+	vehicle.level = level
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 	vehicle.fired.connect(_on_vehicle_fired)
 
@@ -101,6 +104,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		enemy.team = "tan" if int(other_sp.get("team", 0)) == 0 else "green"
 		world.add_child(enemy)
 		enemy.setup(pack)
+		enemy.level = level
 		enemy.position = (Vector2(float(other_sp.get("x", 0)), float(other_sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 		enemy.target = vehicle
 		enemy.fired.connect(_on_vehicle_fired)
@@ -159,6 +163,11 @@ func _check_target_hits() -> void:
 			if p.global_position.distance_to(active_px) <= TARGET_HIT_RADIUS_PX:
 				consumed.append(p)
 				p.queue_free()
+				var hp: int = _tile_hp.get(active_tile, _initial_tile_hp(active_tile))
+				if hp > p.damage_hp:
+					_tile_hp[active_tile] = hp - p.damage_hp
+					break  # damaged, not destroyed
+				_tile_hp.erase(active_tile)
 				var reactivated := pool.destroy_active()
 				target_hit.emit(pool_id, active_tile)
 				if _debug_target_log:
@@ -174,6 +183,11 @@ func _check_target_hits() -> void:
 					# one's already tracked.
 					_spawn_flag(pool_id, active_px)
 				break  # this target is gone; don't test the same projectile against it again
+
+
+func _initial_tile_hp(tile: Vector2i) -> int:
+	var d := pack.get_coastal_damage(level.get_coastal_id(tile.x, tile.y))
+	return maxi(int(d.get("hp", 1)), 1)
 
 
 ## Phase 4 step 7 (first pass): spawns the flag-marker fallthrough (see the call site's

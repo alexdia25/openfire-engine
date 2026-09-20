@@ -8,8 +8,9 @@ extends Node2D
 ## the number of ticks elapsed since the last frame, so this is frame-rate independent like the
 ## original. World units are 1/32 tile = 1 px here. Only the Tank's record is traced; Jeep/MSV/
 ## Heli values are in their own records and this class (shared by all ground vehicles) still uses
-## the Tank's. Not modelled yet: the 1.2x road speed bonus and 0.25/0.75x water penalty
-## (FUN_0040c390), auto-steer toward a target heading.
+## the Tank's. The 1.2x road speed cap (FUN_0040c390: tile art ids 0x49-0x59, the pavement
+## cels) is applied when `level` is set. Not modelled yet: the 0.25/0.75x cap for vehicles whose
+## state +0x70 is set (looks like "in water"; what sets it is untraced), auto-steer.
 ##
 ## Phase 4 step 6: also the base class for game/enemy_vehicle.gd's EnemyVehicle --
 ## _get_controls()/_wants_to_fire() are the seam a non-player controller overrides,
@@ -29,13 +30,13 @@ const BRAKE := ACCEL
 const REVERSE_MAX_SPEED := 0.4 * TICK_HZ    ## 0xffff999a = -0.4 units/tick
 const FRICTION := 0.025 * TICK_HZ * TICK_HZ ## 0x0666/65536 units/tick^2 when no throttle
 ## Heading is 22-bit: 0x400000 = 360 deg = 64 steps of 5.625 deg; the Tank turns 0.25 step/tick.
+const ROAD_SPEED_SCALE := 1.2  ## 0x13333/65536
 const TURN_RATE_DEG := 0.25 * 5.625 * TICK_HZ  ## 87.9 deg/s
 
-## Phase 4 step 4 (first pass): firing, not yet authentic either. RFIRE.BIN's real
-## weapon damage/rate-of-fire/projectile-speed constants haven't been traced (Phase 3
-## backlog: "Extract gameplay constants" -> weapons) -- FIRE_COOLDOWN and MUZZLE_OFFSET
-## are reasonable placeholders, flagged the same way the movement constants above are.
-const FIRE_COOLDOWN_SEC := 0.25
+## Phase 4 step 4: firing. The Tank's cooldown is traced (weapon slot at record +0x194, +0x10 =
+## 20 ticks = 0.32 s; FUN_0040d240 -- document 45). Ammo (150 rounds, refilled on rearm tiles)
+## and the muzzle offset are not modelled: MUZZLE_OFFSET_PX is still a placeholder.
+const FIRE_COOLDOWN_SEC := 20.0 / TICK_HZ
 const MUZZLE_OFFSET_PX := 20.0
 
 signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
@@ -44,6 +45,7 @@ signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
 @export var team: String = "tan"  ## "tan" or "green" -- section 4 item 5
 
 var pack: Pack
+var level: LevelData  ## optional: enables the terrain speed scale
 var _frames: Array[String] = []
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
@@ -112,10 +114,11 @@ func _process(delta: float) -> void:
 	heading_deg = fposmod(heading_deg + turn * TURN_RATE_DEG * delta, 360.0)
 
 	var thrust := controls.y
+	var terrain_scale := _terrain_speed_scale()
 	if thrust > 0.0:
-		speed = minf(speed + ACCEL * delta, MAX_SPEED)
+		speed = minf(speed + ACCEL * delta, MAX_SPEED * terrain_scale)
 	elif thrust < 0.0:
-		speed = maxf(speed - BRAKE * delta, -REVERSE_MAX_SPEED)
+		speed = maxf(speed - BRAKE * delta, -REVERSE_MAX_SPEED * terrain_scale)
 	else:
 		speed = move_toward(speed, 0.0, FRICTION * delta)
 
@@ -132,6 +135,18 @@ func _process(delta: float) -> void:
 			print("frame=%d fired heading=%.1f muzzle_pos=%s" % [Engine.get_process_frames(), heading_deg, muzzle_pos])
 
 	queue_redraw()
+
+
+## FUN_0040c390: the tile under the vehicle scales its speed caps -- 1.2x on pavement (art ids
+## 0x49-0x59 exclusive of both ends' neighbours, i.e. 73..89), else 1.0.
+func _terrain_speed_scale() -> float:
+	if level == null or pack == null:
+		return 1.0
+	var t := Vector2i((position / pack.tile_size_px).floor())
+	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+		return 1.0
+	var art := level.get_art_id(t.x, t.y)
+	return ROAD_SPEED_SCALE if art > 0x48 and art < 0x5a else 1.0
 
 
 ## Folds any heading into the one real quarter-turn (0-90 deg) this vehicle has actual

@@ -1,10 +1,8 @@
 class_name Projectile
 extends Node2D
-## Phase 4 step 4 (first pass): a fired projectile, playable but not yet authentic --
-## same honesty flag as vehicle.gd's movement. RFIRE.BIN's real weapon damage/rate-of-
-## fire/projectile-speed constants haven't been traced (Phase 3 backlog: "Extract
-## gameplay constants" -> weapons), so SPEED and LIFETIME_SEC below are reasonable
-## placeholders, not reverse-engineered ones.
+## Phase 4 step 4: a fired projectile. Speed, lifetime and damage are the ORIGINAL's Tank shell
+## (projectile type 0 in the table at 0x4489a0, document 45): 3.0 units/tick, alive 80 ticks,
+## 1.0 damage to a tile (FUN_00414dd0 -> FUN_0042e8c0). A tick is 16 ms (62.5 Hz).
 ##
 ## Visual is also a placeholder. No confirmed real "projectile in flight" cel has turned
 ## up in the asset registry yet -- packs/registry/asset_ids.json has mounted missile-pod/
@@ -17,8 +15,10 @@ extends Node2D
 ## terrain or vehicles yet (destructible targets/buildings are Phase 4 step 5, not this
 ## one). Just proves fire input -> a moving, visible, self-expiring projectile.
 
-const SPEED := 420.0
-const LIFETIME_SEC := 1.2
+const TICK_HZ := 62.5
+const SPEED := 3.0 * TICK_HZ           ## 0x30000/65536 units/tick = 187.5 px/s
+const LIFETIME_SEC := 80.0 / TICK_HZ   ## 0x50 ticks = 1.28 s (range 240 px = 7.5 tiles)
+var damage_hp: int = 1                 ## 0x10000 >> 16
 const RADIUS_PX := 3.0
 
 const TEAM_COLOURS := {
