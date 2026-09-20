@@ -196,6 +196,7 @@ func _spawn_match() -> void:
 	controller.projectile_spawned.connect(_on_projectile_spawned)
 	controller.flag_spawned.connect(_on_flag_spawned)
 	controller.target_hit.connect(_on_target_hit)
+	controller.impact_effect.connect(_on_impact_effect)
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
@@ -256,7 +257,21 @@ func _on_projectile_spawned(projectile: Projectile) -> void:
 ## ground art underneath is re-baked. One hit is enough (the weapon-damage-vs-hit-points model,
 ## and the second stage 62 -> 63, are not traced yet).
 func _on_target_hit(_pool_id: String, tile: Vector2i) -> void:
-	var damage := pack.get_coastal_damage(level.get_coastal_id(tile.x, tile.y))
+	# The explosion the tile's coastal entry names (document 50: field +0x2c) plays where the tile stood,
+	# and the tile only changes state when its script reaches TILE_STATE (FUN_0042e6a0 returns at once
+	# when it spawned one, FUN_0042e600 does the change); the tile's own offset callback (jitter) is not
+	# applied. A coastal id without an effect changes immediately.
+	var coastal_id := level.get_coastal_id(tile.x, tile.y)
+	var centre := (Vector2(tile) + Vector2(0.5, 0.5)) * pack.tile_size_px
+	var fx := ExplosionEffect3D.spawn(self, pack, pack.get_destroy_effect(coastal_id), centre)
+	if fx == null:
+		_apply_tile_destroyed(tile, coastal_id)
+	else:
+		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
+
+
+func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
+	var damage := pack.get_coastal_damage(coastal_id)
 	var next_id := int(damage.get("destroyed_coastal", 0))
 	if next_id == 0:
 		return
@@ -265,6 +280,12 @@ func _on_target_hit(_pool_id: String, tile: Vector2i) -> void:
 	_decoration_field.refresh()
 	_tile_renderer.queue_redraw()
 	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+
+
+## A projectile hit something (document 50: surface 3 = an object, 4 = a tile): its type's impact table
+## names the record -- `0x444b68` / `0x444ac8` for every type -- played where the shot ended.
+func _on_impact_effect(record_addr: String, at: Vector2) -> void:
+	ExplosionEffect3D.spawn(self, pack, pack.get_explosion(record_addr), at)
 
 
 func _on_flag_spawned(flag: FlagMarker, _pool_id: String) -> void:

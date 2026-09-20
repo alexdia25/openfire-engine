@@ -44,6 +44,8 @@ signal flag_spawned(flag: FlagMarker, pool_id: String)
 ## Emitted whenever a pool's active target is destroyed (whether or not a replacement
 ## activates) -- game/debug_marker_renderer.gd's overlay uses this to know when to redraw.
 signal target_hit(pool_id: String, tile: Vector2i)
+## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
+signal impact_effect(record_addr: String, position: Vector2)
 
 var pack: Pack
 var pack_path: String = ""       ## re-passed to each spawned Vehicle/EnemyVehicle, see below
@@ -161,6 +163,7 @@ func _check_vehicle_hits() -> void:
 				continue
 			if p.global_position.distance_to(v.position) <= Vehicle.HIT_RADIUS_PX:
 				v.take_damage(p.damage)
+				impact_effect.emit("0x444b68", p.global_position)  # surface 3, object hit
 				p.queue_free()
 				break
 
@@ -191,6 +194,7 @@ func _check_target_hits() -> void:
 				p.queue_free()
 				var hp: int = _tile_hp.get(active_tile, _initial_tile_hp(active_tile))
 				var dmg := maxi(int(p.damage), 1)  ## FUN_0042e8c0: whole units, at least 1
+				impact_effect.emit("0x444ac8", p.global_position)  # surface 4, tile hit
 				if hp > dmg:
 					_tile_hp[active_tile] = hp - dmg
 					break  # damaged, not destroyed

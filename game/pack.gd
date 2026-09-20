@@ -10,6 +10,7 @@ var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x
 var atlas_textures: Array[Texture2D] = []
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
+var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
 var tile_size_px: int = 32
 
@@ -69,7 +70,24 @@ func load_from(dir: String) -> bool:
 		if cdoc is Dictionary:
 			coastal_damage = cdoc.get("coastal", {})
 
+	var expl_path := dir.path_join("effects/explosions.json")
+	if FileAccess.file_exists(expl_path):
+		var edoc: Variant = _read_json(expl_path)
+		if edoc is Dictionary:
+			explosions = edoc
+
 	return true
+
+
+## The explosion record ("0x443f30") a destroyed tile of this coastal id spawns, or {} (document 50).
+func get_destroy_effect(coastal_id: int) -> Dictionary:
+	var addr: String = explosions.get("coastal_destroy_effect", {}).get(str(coastal_id), "")
+	return explosions.get("records", {}).get(addr, {})
+
+
+## An explosion record by address string ("0x444b68"), or {}.
+func get_explosion(addr: String) -> Dictionary:
+	return explosions.get("records", {}).get(addr, {})
 
 
 func get_sprite(sprite_id: String) -> Dictionary:
