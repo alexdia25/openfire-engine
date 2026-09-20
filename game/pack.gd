@@ -11,6 +11,7 @@ var atlas_textures: Array[Texture2D] = []
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
+var coastal_shapes: Dictionary = {}      ## "<coastal_id>" -> {jitter, shapes[]} (document 53)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
 var tile_size_px: int = 32
 
@@ -70,6 +71,12 @@ func load_from(dir: String) -> bool:
 		if cdoc is Dictionary:
 			coastal_damage = cdoc.get("coastal", {})
 
+	var shapes_path := dir.path_join("terrain/coastal_shapes.json")
+	if FileAccess.file_exists(shapes_path):
+		var sdoc: Variant = _read_json(shapes_path)
+		if sdoc is Dictionary:
+			coastal_shapes = sdoc.get("coastal", {})
+
 	var expl_path := dir.path_join("effects/explosions.json")
 	if FileAccess.file_exists(expl_path):
 		var edoc: Variant = _read_json(expl_path)
@@ -77,6 +84,12 @@ func load_from(dir: String) -> bool:
 			explosions = edoc
 
 	return true
+
+
+## {jitter: bool, shapes: [{type, layer, mask, z, off, box, poly?}]} for a coastal id's tile, or {} if the
+## tile has no collision shape (document 53).
+func get_coastal_shapes(coastal_id: int) -> Dictionary:
+	return coastal_shapes.get(str(coastal_id), {})
 
 
 ## The explosion record ("0x443f30") a destroyed tile of this coastal id spawns, or {} (document 50).

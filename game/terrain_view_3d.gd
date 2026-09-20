@@ -240,10 +240,11 @@ func _spawn_vehicle_render(v: Vehicle) -> Node3D:
 
 
 ## The Tank's muzzle flash (document 52): record 0x445138, spawned by the fire handler FUN_0040d240 attached
-## to the vehicle at the muzzle (12 units ahead, 7 up) and following it while it plays.
+## to the vehicle at the muzzle (12 units ahead, 7 up -- plus the box render's own ground clearance, so it
+## sits on the barrel's drawn tip) and following it while it plays.
 func _on_muzzle_flash(_muzzle: Vector2, _heading: float, _team: String, v: Vehicle) -> void:
 	ExplosionEffect3D.spawn_attached(self, pack, pack.get_explosion("0x445138"), v,
-			Vector3(0.0, Vehicle.MUZZLE_OFFSET_PX, Vehicle.MUZZLE_HEIGHT_PX))
+			Vector3(0.0, Vehicle.MUZZLE_OFFSET_PX, Vehicle.MUZZLE_HEIGHT_PX + VehicleBoxRender3D.GROUND_CLEARANCE_PX))
 
 
 ## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, document 48) where it died.

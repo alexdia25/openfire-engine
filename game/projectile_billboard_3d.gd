@@ -14,7 +14,7 @@ const SHADOW_ALPHA := 5.0 / 32.0
 const HEIGHT_PX := 10.0  ## fallback sphere only (placeholder)
 ## The Tank shell leaves the muzzle 7 units up and flies level (pitch 0: the velocity is (0, -speed, 0)
 ## turned by the heading only, FUN_004148f0/FUN_00414b10), so it keeps that height (document 52).
-const SHELL_HEIGHT_PX := 7.0
+const SHELL_HEIGHT_PX := 7.0 + VehicleBoxRender3D.GROUND_CLEARANCE_PX  # 7 traced + the vehicle box's clearance
 const RADIUS_PX := 3.0   ## matches Projectile.RADIUS_PX
 
 const TEAM_COLOURS := {
