@@ -31,6 +31,12 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 	projectile = shared_projectile
 	projectile.visible = false  # logic only -- see file header
 
+	if pack != null and projectile.type_id != 0 and _add_descriptor_parts(pack):
+		_height = projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX
+		_follow()
+		projectile.tree_exited.connect(queue_free)
+		return
+
 	if pack != null and not pack.get_sprite(SHELL_ID).is_empty():
 		_add_quad(pack, SHADOW_ID, -SHELL_HEIGHT_PX + 0.5, true)
 		_add_quad(pack, SHELL_ID, 0.0, false)
@@ -60,7 +66,67 @@ func _process(_delta: float) -> void:
 	if not is_instance_valid(projectile):
 		queue_free()
 		return
+	_follow()
+
+
+func _follow() -> void:
 	global_position = Vector3(projectile.position.x, _height, projectile.position.y)
+	if projectile.type_id != 0:
+		rotation_degrees.y = -90.0 - projectile.heading_deg
+
+
+## Types other than the shell draw straight from their body and shadow descriptors (documents 46, 58): parts of
+## (cel, flags, four corners with x lateral, y = -forward, z up); flag 8 adds the team variant, flag 16 marks the
+## flat shadow parts (drawn on the ground, translucent).
+func _add_descriptor_parts(pack: Pack) -> bool:
+	if projectile.type_id >= pack.projectile_types.size():
+		return false
+	var t: Dictionary = pack.projectile_types[projectile.type_id]
+	var drew := false
+	for key in ["shadow_descriptor", "body_descriptor"]:
+		var shadow: bool = key == "shadow_descriptor"
+		for part in pack.projectile_descriptors.get(String(t[key]), []):
+			var ids: Array = part["sprite_ids"]
+			var variant := 1 if projectile.team == "green" else 0
+			var sp := pack.get_sprite(ids[clampi(variant, 0, ids.size() - 1)])
+			if sp.is_empty():
+				continue
+			var tex := pack.get_texture(int(sp.get("page", 0)))
+			var tw := float(tex.get_width())
+			var th := float(tex.get_height())
+			var c: Array[Vector3] = []
+			for q in part["corners"]:
+				var y: float = float(q[2])
+				if shadow:
+					y = -(projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX) + 0.5
+				c.append(Vector3(q[0], y, q[1]))
+			var sx := float(sp["x"])
+			var sy := float(sp["y"])
+			var sw := float(sp["w"])
+			var sh := float(sp["h"])
+			var uv := [Vector2(sx / tw, sy / th), Vector2((sx + sw) / tw, sy / th),
+					Vector2((sx + sw) / tw, (sy + sh) / th), Vector2(sx / tw, (sy + sh) / th)]
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for i in [0, 1, 2, 0, 2, 3]:
+				st.set_uv(uv[i])
+				st.add_vertex(c[i])
+			var mi := MeshInstance3D.new()
+			mi.mesh = st.commit()
+			var mat := StandardMaterial3D.new()
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mat.albedo_texture = tex
+			if shadow:
+				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				mat.albedo_color = Color(0.0, 0.0, 0.0, SHADOW_ALPHA)
+			else:
+				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			mi.material_override = mat
+			add_child(mi)
+			drew = true
+	return drew
 
 
 func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool) -> void:

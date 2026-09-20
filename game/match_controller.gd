@@ -108,7 +108,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.level = level
 	vehicle.blocked_test = vehicle_blocked
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
-	vehicle.fired.connect(_on_vehicle_fired.bind(vehicle))
+	vehicle.shot.connect(_on_vehicle_shot.bind(vehicle))
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 
@@ -124,7 +124,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		enemy.blocked_test = vehicle_blocked
 		enemy.position = (Vector2(float(other_sp.get("x", 0)), float(other_sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 		enemy.target = vehicle
-		enemy.fired.connect(_on_vehicle_fired.bind(enemy))
+		enemy.shot.connect(_on_vehicle_shot.bind(enemy))
 		enemy_vehicles.append(enemy)
 
 
@@ -146,14 +146,16 @@ func _setup_target_pools() -> void:
 ## Phase 4 step 4 (first pass): spawn a projectile as a sibling of the firing vehicle in
 ## `world` -- not a child of it -- so its transform is independent of the vehicle's own
 ## position/rotation once launched.
-func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: String, shooter: Vehicle) -> void:
+func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 	var p := Projectile.new()
 	p.shooter = shooter
 	world.add_child(p)
-	p.team = team
-	p.heading_deg = heading_deg
-	p.global_position = muzzle_position
-	p.prev_checked = muzzle_position
+	p.configure(pack, int(spec["type"]))
+	p.z = float(spec["z"])
+	p.team = spec["team"]
+	p.heading_deg = float(spec["heading"])
+	p.global_position = spec["position"]
+	p.prev_checked = spec["position"]
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
 
@@ -188,7 +190,7 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 			continue
 		if not Collision.shell_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK):
 			continue
-		if not Collision.shell_z_overlaps(Projectile.SHELL_Z, v.hit_z[0], v.hit_z[1]):
+		if not Collision.shell_z_overlaps(p.z, v.hit_z[0], v.hit_z[1]):
 			continue
 		if Collision.segment_hits_polygon(from, to, v.hit_polygon()):
 			v.take_damage(p.damage)
@@ -381,7 +383,7 @@ func _shell_hits_tile(p: Projectile, from: Vector2, to: Vector2) -> bool:
 		var g: Gate = gates[gt]
 		if to.distance_to(g.centre) > 64.0:
 			continue
-		if not Collision.shell_z_overlaps(Projectile.SHELL_Z, 0.0, 16.0):
+		if not Collision.shell_z_overlaps(p.z, 0.0, 16.0):
 			continue
 		for b in g.bars():
 			if Collision.segment_hits_box(from, to, b["origin"], b["box"]):
@@ -408,7 +410,7 @@ func _shell_hits_tile(p: Projectile, from: Vector2, to: Vector2) -> bool:
 			for sh in info["shapes"]:
 				if not Collision.shell_collides_with(int(sh["layer"]), int(sh["mask"])):
 					continue
-				if not Collision.shell_z_overlaps(Projectile.SHELL_Z, float(sh["z"][0]), float(sh["z"][1])):
+				if not Collision.shell_z_overlaps(p.z, float(sh["z"][0]), float(sh["z"][1])):
 					continue
 				var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
 				var hit := false
@@ -598,7 +600,7 @@ func switch_player_vehicle() -> void:
 	var t := Vector2i(int(floor(vehicle.position.x / pack.tile_size_px)), int(floor(vehicle.position.y / pack.tile_size_px)))
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
 		return
-	vehicle.set_vehicle_type(1 if vehicle.vehicle_type == 0 else 0)
+	vehicle.set_vehicle_type((vehicle.vehicle_type + 1) % 3)  # Tank, Jeep, MSV (the Heli needs flight)
 
 
 func _unhandled_input(event: InputEvent) -> void:

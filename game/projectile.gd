@@ -16,12 +16,26 @@ extends Node2D
 ## one). Just proves fire input -> a moving, visible, self-expiring projectile.
 
 const TICK_HZ := 62.5
-const SPEED := 3.0 * TICK_HZ           ## 0x30000/65536 units/tick = 187.5 px/s
-const LIFETIME_SEC := 80.0 / TICK_HZ   ## 0x50 ticks = 1.28 s (range 240 px = 7.5 tiles)
+## Defaults are the Tank shell (type 0); `configure()` loads any type from the pack's projectile table.
+var type_id := 0
+var speed := 3.0 * TICK_HZ           ## 0x30000/65536 units/tick = 187.5 px/s
+var lifetime_sec := 80.0 / TICK_HZ   ## 0x50 ticks = 1.28 s (range 240 px = 7.5 tiles)
 var damage: float = 1.0                ## 0x10000 = 1.0 (projectile type 0)
 var shooter: Node2D = null             ## never hits its own shooter (FUN_00414e60)
 var prev_checked: Vector2 = Vector2.ZERO  ## where the collision test last saw it: the swept segment starts here
-const SHELL_Z := 7.0                   ## flies level at its muzzle height (document 52)
+## Height above the ground (original units). Every shot the port fires leaves the muzzle level (the pitch index of
+## the Tank's and the MSV's level fire is 0) and flies at that height (document 52).
+var z := 7.0
+const SHELL_Z := 7.0
+
+
+func configure(pack: Pack, type: int) -> void:
+	type_id = type
+	if type < pack.projectile_types.size():
+		var t: Dictionary = pack.projectile_types[type]
+		speed = float(t["speed_units_per_tick"]) * TICK_HZ
+		damage = float(t["damage"])
+		lifetime_sec = float(t["lifetime_ticks"]) / TICK_HZ
 const RADIUS_PX := 3.0
 
 const TEAM_COLOURS := {
@@ -36,9 +50,9 @@ var _age_sec: float = 0.0
 
 func _process(delta: float) -> void:
 	var rad := deg_to_rad(heading_deg)
-	position += Vector2(cos(rad), sin(rad)) * SPEED * delta
+	position += Vector2(cos(rad), sin(rad)) * speed * delta
 	_age_sec += delta
-	if _age_sec >= LIFETIME_SEC:
+	if _age_sec >= lifetime_sec:
 		queue_free()
 		return
 	queue_redraw()

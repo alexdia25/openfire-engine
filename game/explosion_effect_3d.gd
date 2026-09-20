@@ -99,7 +99,8 @@ func _follow() -> void:
 		return
 	var rad := deg_to_rad(follow.heading_deg)
 	var fwd := Vector2(cos(rad), sin(rad))
-	var p := follow.position + fwd * follow_offset.y
+	var right := Vector2(-fwd.y, fwd.x)
+	var p := follow.position + fwd * follow_offset.y + right * follow_offset.x
 	position = Vector3(p.x, follow_offset.z, p.y)
 	# corners are (x right, y = -forward, z up): the same yaw the vehicle box uses
 	rotation_degrees.y = -90.0 - follow.heading_deg

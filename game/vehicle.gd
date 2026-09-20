@@ -57,7 +57,9 @@ const HIT_Z := [0.0, 10.0]
 const HIT_LAYER := 2
 const HIT_MASK := 0x27
 
-signal fired(muzzle_position: Vector2, heading_deg: float, team: String)
+## One shot leaving a weapon: {type: projectile type, position: Vector2 (world, xy), z: height, heading: degrees,
+## team: String, flash: {record: String, offset: Vector3 (x right, y forward, z up, world units)}}.
+signal shot(spec: Dictionary)
 signal destroyed(vehicle: Vehicle)
 signal type_changed(vehicle: Vehicle)
 
@@ -70,6 +72,9 @@ var _frames: Array[String] = []
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
+const MSV_SALVO_X := [-1.5, 0.0, 1.5]
+var _salvo_index := 0
+var _salvo_reload := 0.0
 var hp: float = MAX_HP
 ## Per-type values, from tools/data/vehicle_types.json (document 57); the constants above are the Tank's and
 ## remain the defaults when no pack data exists.
@@ -182,7 +187,41 @@ func _apply_type() -> void:
 ## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
 ## FUN_00415b00) is not, so only the Tank fires.
 func fire_enabled() -> bool:
-	return vehicle_type == 0
+	return vehicle_type == 0 or vehicle_type == 2
+
+
+## One trigger pull. Tank: FUN_0040d240 (documents 45, 52). MSV: FUN_0040d520 in level fire (document 58): rockets
+## (projectile type 8) leave three launcher positions in turn from (x, -8.96, 10.54) in its own frame, 30 ticks
+## apart, with a back-blast at (x, +7.53, 11.05); after the third the launcher reloads for 6.0 / 0.15 = 40 ticks
+## (FUN_0040d790). The elevated variant (type 9) needs the gun-raise state and is not modelled.
+func _fire() -> void:
+	var rad := deg_to_rad(heading_deg)
+	var fwd := Vector2(cos(rad), sin(rad))
+	var right := Vector2(-fwd.y, fwd.x)
+	var spec := {"team": team, "heading": heading_deg}
+	if vehicle_type == 0:
+		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
+		spec["type"] = 0
+		spec["position"] = position + fwd * MUZZLE_OFFSET_PX
+		spec["z"] = MUZZLE_HEIGHT_PX
+		spec["flash"] = {"record": "0x445138", "offset": Vector3(0.0, MUZZLE_OFFSET_PX, MUZZLE_HEIGHT_PX)}
+	elif vehicle_type == 2:
+		if _salvo_reload > 0.0:
+			return
+		var x: float = MSV_SALVO_X[_salvo_index]
+		_fire_cooldown_remaining = 30.0 / TICK_HZ
+		spec["type"] = 8
+		spec["position"] = position + fwd * 8.96 + right * x
+		spec["z"] = 10.54
+		spec["flash"] = {"record": "0x4450d8", "offset": Vector3(x, -7.53, 11.05)}
+		_salvo_index += 1
+		if _salvo_index >= 3:
+			_salvo_index = 0
+			_salvo_reload = 40.0
+	shot.emit(spec)
+	if _debug_fire:
+		print("frame=%d shot %s" % [Engine.get_process_frames(), spec])
+
 
 
 ## FUN_0040b980's movement step (document 54). The turn is already applied to `heading_deg` and the speed
@@ -314,14 +353,9 @@ func _process(delta: float) -> void:
 	_move(turn_before, delta)
 
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
+	_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
 	if fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
-		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
-		var rad := deg_to_rad(heading_deg)
-		var dir := Vector2(cos(rad), sin(rad))
-		var muzzle_pos := position + dir * MUZZLE_OFFSET_PX
-		fired.emit(muzzle_pos, heading_deg, team)
-		if _debug_fire:
-			print("frame=%d fired heading=%.1f muzzle_pos=%s" % [Engine.get_process_frames(), heading_deg, muzzle_pos])
+		_fire()
 
 	queue_redraw()
 
