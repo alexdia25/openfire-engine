@@ -61,6 +61,7 @@ var pack: Pack
 var level: LevelData
 var camera: Camera3D
 var controller: MatchController
+var _gate_views: Dictionary = {}  ## Vector2i -> GateView3D
 var billboard: Node3D                         ## player vehicle's 3D presentation -- VehicleBoxRender3D by default, VehicleBillboard3D if RF_DEBUG_VEHICLE_RENDER=billboard
 var _enemy_billboards: Array = []             ## one per controller.enemy_vehicles, same type as billboard
 var _map_size_px: Vector2 = Vector2.ZERO
@@ -108,6 +109,11 @@ func _ready() -> void:
 	if destroy_env != "":
 		var dp := destroy_env.split(",")
 		_on_target_hit("debug", Vector2i(int(dp[0]), int(dp[1])))
+
+	var gate_env := OS.get_environment("RF_DEBUG_GATE")
+	if gate_env != "" and controller != null:
+		var gp := gate_env.split(",")
+		controller.debug_open_gate(Vector2i(int(gp[0]), int(gp[1])))
 
 	var screenshot_path := OS.get_environment("RF_DEBUG_SCREENSHOT")
 	if screenshot_path != "":
@@ -198,6 +204,8 @@ func _spawn_match() -> void:
 	controller.target_hit.connect(_on_target_hit)
 	controller.tile_destroyed.connect(_on_tile_destroyed)
 	controller.tile_crushed.connect(_on_tile_crushed)
+	controller.gate_created.connect(_on_gate_created)
+	controller.gate_removed.connect(_on_gate_removed)
 	controller.impact_effect.connect(_on_impact_effect)
 
 	if controller.vehicle != null:
@@ -299,6 +307,23 @@ func _on_tile_crushed(tile: Vector2i) -> void:
 	else:
 		fx.tile_cleared.connect(_clear_tile_decoration.bind(tile))
 		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
+
+
+## A team gate (document 56): the tile's decoration is gone while the gate object draws itself and slides.
+func _on_gate_created(g: Gate) -> void:
+	var view := GateView3D.new()
+	add_child(view)
+	view.setup(pack, g)
+	_gate_views[g.tile] = view
+	_decoration_field.refresh()
+
+
+func _on_gate_removed(g: Gate) -> void:
+	var view: Node = _gate_views.get(g.tile)
+	if view != null:
+		view.queue_free()
+		_gate_views.erase(g.tile)
+	_decoration_field.refresh()
 
 
 func _on_tile_destroyed(tile: Vector2i) -> void:

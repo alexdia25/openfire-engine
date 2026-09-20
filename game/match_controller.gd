@@ -44,6 +44,9 @@ signal target_hit(pool_id: String, tile: Vector2i)
 signal tile_destroyed(tile: Vector2i)
 ## A vehicle drove over a crushable tile fast enough to flatten it (document 54).
 signal tile_crushed(tile: Vector2i)
+## A team gate object took over a tile / gave it back (document 56).
+signal gate_created(gate: Gate)
+signal gate_removed(gate: Gate)
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
 
@@ -56,6 +59,7 @@ var enemy_vehicles: Array = []   ## EnemyVehicle nodes
 var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
 var _player_spawn_px := Vector2.ZERO
+var gates: Dictionary = {}       ## Vector2i -> Gate
 var _crushing: Dictionary = {}   ## tiles already flattened and waiting for their state change
 var _tile_hp: Dictionary = {}    ## Vector2i -> remaining hit points of a damaged pool target
 
@@ -153,6 +157,11 @@ func _process(delta: float) -> void:
 	for v in [vehicle] + enemy_vehicles:
 		if v != null and is_instance_valid(v) and v.alive:
 			_update_zone(v, delta)
+	for t in gates.keys():
+		var g: Gate = gates[t]
+		g.tick(delta, _vehicle_in_bars)
+		if g.finished:
+			_remove_gate(g)
 	_projectiles = _projectiles.filter(func(p): return is_instance_valid(p))
 	for p in _projectiles:
 		if p.is_queued_for_deletion():
@@ -187,6 +196,12 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 ## the fuel rises by 0.5 per tick up to the tank's maximum. (Rearm, kind 2, would refill ammo: not modelled.
 ## Pick-up, kind 3, spawns a carried object: not modelled.) While moving nothing happens and the zone stays.
 func _update_zone(v: Vehicle, delta: float) -> void:
+	if v.zone_kind == 3:
+		# Kind 3 (FUN_00432550, run whatever the vehicle is doing): a tile of the vehicle's own team turns into
+		# a live gate object and the zone is forgotten.
+		v.zone_kind = 0
+		_create_gate(v)
+		return
 	if v.zone_kind == 0 or v.moving:
 		return
 	if not Collision.polygon_hits_box(v.hit_polygon(), v.zone_origin, v.zone_box):
@@ -194,6 +209,54 @@ func _update_zone(v: Vehicle, delta: float) -> void:
 		return
 	if v.zone_kind == 1:
 		v.fuel = minf(Vehicle.FUEL_MAX, v.fuel + Vehicle.REFUEL_PER_TICK * delta * Vehicle.TICK_HZ)
+
+
+## FUN_00432550: only if the tile still has hit points and its variant bits equal the player index; the
+## decoration is cleared (the gate object carries the id) and the vehicle is attached as the one that opens it.
+func _create_gate(v: Vehicle) -> void:
+	var t: Vector2i = v.zone_tile
+	if gates.has(t):
+		return
+	var id := level.get_coastal_id(t.x, t.y)
+	var gd: Dictionary = pack.gates.get(str(id), {})
+	if gd.is_empty() or level.get_variant(t.x, t.y) != v.player_index() or _initial_tile_hp(t) <= 0:
+		return
+	var g := Gate.new()
+	g.setup(t, id, gd, level.get_variant(t.x, t.y), float(pack.tile_size_px), v)
+	gates[t] = g
+	level.set_coastal_id(t.x, t.y, 0)
+	gate_created.emit(g)
+
+
+## Debug-only (RF_DEBUG_GATE="x,y"): wake the gate on that tile for the player regardless of team.
+func debug_open_gate(t: Vector2i) -> void:
+	vehicle.zone_tile = t
+	var id := level.get_coastal_id(t.x, t.y)
+	var gd: Dictionary = pack.gates.get(str(id), {})
+	if gd.is_empty() or gates.has(t):
+		return
+	var g := Gate.new()
+	g.setup(t, id, gd, level.get_variant(t.x, t.y), float(pack.tile_size_px), vehicle)
+	gates[t] = g
+	level.set_coastal_id(t.x, t.y, 0)
+	gate_created.emit(g)
+
+
+func _remove_gate(g: Gate) -> void:
+	gates.erase(g.tile)
+	level.set_coastal_id(g.tile.x, g.tile.y, g.coastal_id)
+	gate_removed.emit(g)
+
+
+## A vehicle overlapping any of these bars (FUN_0042bd40 on the gate while it closes).
+func _vehicle_in_bars(bars: Array) -> bool:
+	for other in [vehicle] + enemy_vehicles:
+		if other == null or not is_instance_valid(other) or not other.alive:
+			continue
+		for b in bars:
+			if Collision.polygon_hits_box(other.hit_polygon(), b["origin"], b["box"]):
+				return true
+	return false
 
 
 ## Document 54 (FUN_0042c830 -> FUN_0042bd40 -> FUN_0042bb10): would this vehicle's shape overlap a tile shape
@@ -237,6 +300,13 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 					hit = Collision.polygons_hit(poly, tp)
 				if hit and _tile_blocks_vehicle(v, t, id, info, sh):
 					return true
+	for gt in gates:
+		var g: Gate = gates[gt]
+		if at.distance_to(g.centre) > 64.0:
+			continue
+		for b in g.bars():
+			if Collision.polygon_hits_box(poly, b["origin"], b["box"]):
+				return true
 	for other in [vehicle] + enemy_vehicles:
 		if other == null or other == v or not is_instance_valid(other) or not other.alive:
 			continue
@@ -269,6 +339,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 			# it (state +0x68 tile, +0x6c shape) and byte +9 says what it is (1 refuel, 2 rearm, 3 pick-up)
 			if (int(sh.get("b8", 0)) & 2) != 0:
 				v.zone_kind = int(sh.get("b9", 0))
+				v.zone_tile = t
 				v.zone_origin = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px + Vector2(sh["off"][0], sh["off"][1])
 				v.zone_box = sh["box"]
 				return false
@@ -300,6 +371,17 @@ func _on_player_destroyed(_v: Vehicle) -> void:
 ## jitter and the shape's own offset). A hit ends the shell (FUN_00414dd0) and damages the tile
 ## (FUN_0042e8c0), with no other test of what counts as a "target": every tile with a shape can be shot.
 func _shell_hits_tile(p: Projectile, from: Vector2, to: Vector2) -> bool:
+	for gt in gates:
+		var g: Gate = gates[gt]
+		if to.distance_to(g.centre) > 64.0:
+			continue
+		if not Collision.shell_z_overlaps(Projectile.SHELL_Z, 0.0, 16.0):
+			continue
+		for b in g.bars():
+			if Collision.segment_hits_box(from, to, b["origin"], b["box"]):
+				impact_effect.emit("0x444ac8", to)
+				_damage_tile(g.tile, g.coastal_id, p)
+				return true
 	var tsz := float(pack.tile_size_px)
 	var tx := int(floor(to.x / tsz))
 	var ty := int(floor(to.y / tsz))
@@ -351,6 +433,8 @@ func _damage_tile(t: Vector2i, id: int, p: Projectile) -> void:
 		_tile_hp[t] = hp - dmg
 		return
 	_tile_hp.erase(t)
+	if gates.has(t):
+		_remove_gate(gates[t])  # FUN_00432460: the decoration returns, then the tile is destroyed as usual
 	var tile_px := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
 	for pool_id in pools:
 		var pool: TargetPool = pools[pool_id]
@@ -378,7 +462,10 @@ func tile_state_applied(t: Vector2i) -> void:
 
 
 func _initial_tile_hp(tile: Vector2i) -> int:
-	var d := pack.get_coastal_damage(level.get_coastal_id(tile.x, tile.y))
+	var id := level.get_coastal_id(tile.x, tile.y)
+	if gates.has(tile):
+		id = (gates[tile] as Gate).coastal_id
+	var d := pack.get_coastal_damage(id)
 	return maxi(int(d.get("hp", 0)), 0)
 
 

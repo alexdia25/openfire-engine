@@ -12,6 +12,7 @@ var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
 var coastal_shapes: Dictionary = {}      ## "<coastal_id>" -> {jitter, shapes[]} (document 53)
+var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
 var tile_size_px: int = 32
 
@@ -76,6 +77,12 @@ func load_from(dir: String) -> bool:
 		var sdoc: Variant = _read_json(shapes_path)
 		if sdoc is Dictionary:
 			coastal_shapes = sdoc.get("coastal", {})
+
+	var gates_path := dir.path_join("terrain/gates.json")
+	if FileAccess.file_exists(gates_path):
+		var gdoc: Variant = _read_json(gates_path)
+		if gdoc is Dictionary:
+			gates = gdoc.get("gates", {})
 
 	var expl_path := dir.path_join("effects/explosions.json")
 	if FileAccess.file_exists(expl_path):

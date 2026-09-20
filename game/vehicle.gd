@@ -82,6 +82,7 @@ var fuel: float = FUEL_MAX
 var moving := false  ## FUN_0040b980's flag: speed != 0 or the heading changed this tick
 var zone_kind := 0   ## kind (b9) of the zone shape the last collision test entered: 1 refuel, 2 rearm, 3 pick-up
 var zone_origin := Vector2.ZERO
+var zone_tile := Vector2i.ZERO
 var zone_box: Array = []
 ## Set by the match: Callable(vehicle, position, heading_deg) -> bool, true when the vehicle's shape would
 ## overlap something solid there (document 54). Null = no collision.
@@ -198,6 +199,11 @@ static func polygon_at(at: Vector2, heading: float) -> PackedVector2Array:
 		at + fwd * HIT_HALF_LENGTH + right * HIT_HALF_WIDTH,
 		at + fwd * HIT_HALF_LENGTH + right * -HIT_HALF_WIDTH,
 	])
+
+
+## The player index of the original (0 tan, 1 green): compared with a tile's variant bits by pick-ups.
+func player_index() -> int:
+	return 0 if team == "tan" else 1
 
 
 func respawn(at: Vector2) -> void:
