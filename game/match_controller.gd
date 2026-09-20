@@ -149,7 +149,10 @@ func _on_vehicle_fired(muzzle_position: Vector2, heading_deg: float, team: Strin
 	projectile_spawned.emit(p)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	for v in [vehicle] + enemy_vehicles:
+		if v != null and is_instance_valid(v) and v.alive:
+			_update_zone(v, delta)
 	_projectiles = _projectiles.filter(func(p): return is_instance_valid(p))
 	for p in _projectiles:
 		if p.is_queued_for_deletion():
@@ -177,6 +180,20 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 			impact_effect.emit("0x444b68", to)  # surface 3, object hit
 			return true
 	return false
+
+
+## FUN_0040c540 (document 55): while a vehicle stands still (`moving` false) it stays in the zone it entered as
+## long as its shape still overlaps that zone's box, else the zone is forgotten; over a refuel zone (kind 1)
+## the fuel rises by 0.5 per tick up to the tank's maximum. (Rearm, kind 2, would refill ammo: not modelled.
+## Pick-up, kind 3, spawns a carried object: not modelled.) While moving nothing happens and the zone stays.
+func _update_zone(v: Vehicle, delta: float) -> void:
+	if v.zone_kind == 0 or v.moving:
+		return
+	if not Collision.polygon_hits_box(v.hit_polygon(), v.zone_origin, v.zone_box):
+		v.zone_kind = 0
+		return
+	if v.zone_kind == 1:
+		v.fuel = minf(Vehicle.FUEL_MAX, v.fuel + Vehicle.REFUEL_PER_TICK * delta * Vehicle.TICK_HZ)
 
 
 ## Document 54 (FUN_0042c830 -> FUN_0042bd40 -> FUN_0042bb10): would this vehicle's shape overlap a tile shape
@@ -248,7 +265,14 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 		"0x436610":
 			return v.vehicle_type == 1
 		"0x4366f0":
-			return (int(sh.get("flags", 0)) & 2) == 0
+			# FUN_004366f0: a shape whose byte +8 has bit 1 is a zone a vehicle may enter; the vehicle remembers
+			# it (state +0x68 tile, +0x6c shape) and byte +9 says what it is (1 refuel, 2 rearm, 3 pick-up)
+			if (int(sh.get("b8", 0)) & 2) != 0:
+				v.zone_kind = int(sh.get("b9", 0))
+				v.zone_origin = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px + Vector2(sh["off"][0], sh["off"][1])
+				v.zone_box = sh["box"]
+				return false
+			return true
 		"0x436a50":
 			if v.speed > crush_speed:
 				_crush_tile(t, id)

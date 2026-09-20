@@ -73,6 +73,16 @@ var hp: float = MAX_HP
 ## Vehicle type index in the original's table (0 Tank, 1 Jeep, 2 MSV, 3 Heli): tile callbacks treat the Jeep
 ## differently (document 54). Only the Tank is played here.
 var vehicle_type := 0
+## Fuel, traced (document 55): the Tank starts with 400 (record +0x210) and burns |speed| x dt / 32 each tick it
+## moves (one unit per 32 world units driven, even when blocked); at 0 it is destroyed like at 0 hit points.
+## It is refilled 0.5 per tick while the vehicle stands still over a refuel zone.
+const FUEL_MAX := 400.0
+const REFUEL_PER_TICK := 0.5
+var fuel: float = FUEL_MAX
+var moving := false  ## FUN_0040b980's flag: speed != 0 or the heading changed this tick
+var zone_kind := 0   ## kind (b9) of the zone shape the last collision test entered: 1 refuel, 2 rearm, 3 pick-up
+var zone_origin := Vector2.ZERO
+var zone_box: Array = []
 ## Set by the match: Callable(vehicle, position, heading_deg) -> bool, true when the vehicle's shape would
 ## overlap something solid there (document 54). Null = no collision.
 var blocked_test: Callable = Callable()
@@ -132,6 +142,15 @@ func _wants_to_fire() -> bool:
 ## is undone. Moving, if the new place overlaps: undo the turn and try the same displacement with the old
 ## heading; if that also overlaps, do not move and bounce back at a quarter of the speed (-speed >> 2).
 func _move(heading_before: float, delta: float) -> void:
+	moving = speed != 0.0 or heading_deg != heading_before
+	if speed != 0.0:
+		fuel -= absf(speed) * delta / 32.0
+		if fuel <= 0.0:
+			fuel = 0.0
+			if alive:
+				alive = false
+				destroyed.emit(self)
+			return
 	var rad := deg_to_rad(heading_deg)
 	var step := Vector2(cos(rad), sin(rad)) * speed * delta
 	var target := position + step
@@ -184,6 +203,8 @@ static func polygon_at(at: Vector2, heading: float) -> PackedVector2Array:
 func respawn(at: Vector2) -> void:
 	position = at
 	hp = MAX_HP
+	fuel = FUEL_MAX
+	zone_kind = 0
 	speed = 0.0
 	alive = true
 
