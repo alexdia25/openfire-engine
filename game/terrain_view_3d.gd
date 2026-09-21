@@ -268,7 +268,8 @@ func _spawn_vehicle_render(v: Vehicle) -> Node3D:
 		add_child(gen)
 		gen.setup(v, pack)
 		return gen
-	v.shot.connect(_on_muzzle_flash.bind(v))
+	if not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
+		v.shot.connect(_on_muzzle_flash.bind(v))
 	if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
 		var b := VehicleBillboard3D.new()
 		add_child(b)
@@ -497,6 +498,13 @@ func _camera_target_position(look_at_px: Vector2) -> Vector3:
 func _process(delta: float) -> void:
 	if camera == null:
 		return
+	# Debug-only: RF_DEBUG_SWAP="frame:type,frame:type" swaps the player's vehicle at those frames (with
+	# RF_DEBUG_DRIVE=1 this swaps while moving).
+	if OS.get_environment("RF_DEBUG_SWAP") != "" and controller != null:
+		for pair in OS.get_environment("RF_DEBUG_SWAP").split(","):
+			var fp := pair.split(":")
+			if int(fp[0]) == Engine.get_process_frames():
+				controller.debug_swap_vehicle(int(fp[1]))
 
 	# Vehicle drives its own movement/input/firing entirely (its _process() runs
 	# independently, same as in the flat 2D scene) -- this scene only needs to read the

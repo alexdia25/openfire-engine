@@ -12,6 +12,7 @@ const GROUND_CLEARANCE_PX := 2.0  ## same as VehicleBoxRender3D
 var vehicle: Vehicle
 var _pack: Pack
 var _parts: Array = []          ## per part: {mesh: MeshInstance3D, data: Dictionary, sprite_id: String}
+var _type := 0                  ## the type this renderer was built for; the vehicle may be swapped under it
 var _flash := false               ## drawn in variant 2 (the hit flash)
 var _anim_key: Variant = null   ## last animation state drawn (rebuild the animated parts only when it changes)
 
@@ -19,6 +20,7 @@ var _anim_key: Variant = null   ## last animation state drawn (rebuild the anima
 func setup(v: Vehicle, pack: Pack) -> void:
 	vehicle = v
 	_pack = pack
+	_type = v.vehicle_type
 	v.visible = false  # logic only, like the box renderer
 	var t: Dictionary = pack.vehicle_types.get(str(v.vehicle_type), {})
 	var variant := v.player_index()
@@ -51,8 +53,8 @@ func _process(_delta: float) -> void:
 ## Per-tick part animation, read from the type's draw callbacks (document 59). Only what the callbacks do to the
 ## part list is reproduced; parts not named here are static.
 func _animate() -> void:
-	if vehicle == null or not is_instance_valid(vehicle):
-		return
+	if vehicle == null or not is_instance_valid(vehicle) or vehicle.vehicle_type != _type:
+		return  # a type swap frees this renderer (terrain_view_3d._on_player_type_changed) a frame later
 	if vehicle.flashing() != _flash:
 		_flash = vehicle.flashing()
 		_redraw_team_parts()
