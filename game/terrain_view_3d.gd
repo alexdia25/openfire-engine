@@ -229,6 +229,12 @@ func _spawn_match() -> void:
 		if OS.get_environment("RF_DEBUG_ELEV") != "":
 			controller.vehicle.gun_elev_deg = float(OS.get_environment("RF_DEBUG_ELEV"))
 			controller.vehicle._gun_target = controller.vehicle.gun_elev_deg
+	# Debug-only: RF_DEBUG_FLAG=ground|carry spawns a flag next to the player (for screenshots); `carry` also hangs it on the player.
+	if OS.get_environment("RF_DEBUG_FLAG") != "" and controller.vehicle != null:
+		controller._spawn_flag("b", controller.vehicle.position + Vector2(60.0, 0.0))
+		if OS.get_environment("RF_DEBUG_FLAG") == "carry":
+			controller.flags[1].position = controller.vehicle.position
+			controller._attach_flag(controller.flags[1], controller.vehicle)
 	# Debug-only: RF_DEBUG_FLASH=1 holds the player in the hit-flash variant for screenshots.
 	if OS.get_environment("RF_DEBUG_FLASH") == "1" and controller.vehicle != null:
 		controller.vehicle.hit_flash_remaining = 99.0

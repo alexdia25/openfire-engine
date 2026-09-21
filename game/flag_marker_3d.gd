@@ -1,66 +1,88 @@
 class_name FlagMarker3D
 extends Node3D
-## Phase 4 of the rendering-migration plan (PORTING_PLAN.md section 2.2, section 4 item 13):
-## pairs a real, unmodified, invisible FlagMarker (game/flag_marker.gd -- frame-cycling
-## animation logic only) with a 3D ground-decal presentation, reusing document 32's winning
-## technique for the vehicle (game/vehicle_billboard_3d.gd's GROUND_DECAL mode): a flat,
-## unbillboarded quad lying in the ground plane. Unlike the vehicle, the flag never turns
-## (FlagMarker's own docstring: "this one doesn't move at all") and never moves after it
-## spawns, so unlike VehicleBillboard3D/ProjectileBillboard3D there is no per-frame position or
-## rotation to maintain here -- only which of FlagMarker's cycling frames to show changes over
-## time, exactly like the flat 2D scene's own _draw() re-reading FlagMarker's current frame.
-##
-## Reaches into FlagMarker's underscore-prefixed `_frames`/`_frame_index` directly rather than
-## adding a new public accessor -- the same precedent VehicleBillboard3D already set by calling
-## Vehicle._frame_for_heading() across this exact "logic node paired with a 3D presentation"
-## seam.
-
-const HEIGHT_PX := 2.0  ## just above the ground plane -- a flat decal, not a standing sprite
+## Draws a FlagMarker (game/flag_marker.gd) the way the original does (document 65): on the ground, a small base plate (cel 1881)
+## and the cloth with its pole (cel 1829 + frame, a 20 x 16 quad leaning 4 units, descriptor 0x440448); carried, two quads
+## (descriptor 0x440318): the cloth seen from above (cel 1855 + frame) at height 10.5 and from the side (cel 1803 + frame) at 4.5-12.5,
+## trailing behind the pole. Both turn with the flag's own heading (clockwise from north, node yaw = -heading). The original also
+## tilts the ground cloth toward the camera by a value read from its camera record (`(cam+0x24 + 0xffe70000) >> 3`); that
+## camera-specific tilt is NOT reproduced (untraced against this project's 3D camera).
 
 var flag: FlagMarker
 var pack: Pack
-var sprite: Sprite3D
+var _parts: Dictionary = {}   ## "plate" / "cloth" / "top" / "side" -> {mesh, mat, shown}
 
 
 func setup(shared_flag: FlagMarker, shared_pack: Pack) -> void:
 	flag = shared_flag
 	pack = shared_pack
-	flag.visible = false  # logic only -- see file header
-
-	sprite = Sprite3D.new()
-	sprite.shaded = false
-	sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	sprite.pixel_size = 1.0
-	sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	sprite.rotation_degrees.x = -90.0
-	add_child(sprite)
-
-	global_position = Vector3(flag.position.x, HEIGHT_PX, flag.position.y)
-	_refresh()
-	# FlagMarker is never freed by anything in this project yet (it's a fire-and-forget spawn,
-	# per its own docstring) -- this connection is here defensively, matching the same pattern
-	# ProjectileBillboard3D needs for real, in case that ever changes.
+	flag.visible = false  # logic only
+	for key in ["plate", "cloth", "top", "side"]:
+		var mi := MeshInstance3D.new()
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mi.material_override = mat
+		add_child(mi)
+		_parts[key] = {"mesh": mi, "mat": mat, "shown": -1}
 	flag.tree_exited.connect(queue_free)
+	_refresh()
 
 
 func _process(_delta: float) -> void:
 	if not is_instance_valid(flag):
 		queue_free()
 		return
-	global_position = Vector3(flag.position.x, HEIGHT_PX + (6.0 if flag.carrier != null else 0.0), flag.position.y)
 	_refresh()
 
 
 func _refresh() -> void:
-	if flag._frames.is_empty():
+	var carried := flag.carrier != null and is_instance_valid(flag.carrier)
+	# the flag's origin is the carrier's origin turned by its heading plus (3.75, 6.75, -2): its height is the vehicle's minus 2
+	# (vehicles are drawn 2 above the ground plane, so a carried flag's origin is on the plane)
+	var y := 0.0
+	if carried:
+		y = flag.carrier.z
+	position = Vector3(flag.position.x, y + 0.05, flag.position.y)
+	rotation_degrees.y = -flag.heading_deg
+	var f := flag.cloth_frame()
+	var g: Dictionary = pack.flag_data.get("ground", {})
+	var c: Dictionary = pack.flag_data.get("carried", {})
+	_show("plate", not carried, g.get("plate", {}), 0)
+	_show("cloth", not carried, g.get("cloth", {}), f)
+	_show("top", carried, c.get("top", {}), f)
+	_show("side", carried, c.get("side", {}), f)
+
+
+func _show(key: String, visible_now: bool, part: Dictionary, frame: int) -> void:
+	var p: Dictionary = _parts[key]
+	var mi: MeshInstance3D = p["mesh"]
+	mi.visible = visible_now
+	if not visible_now or part.is_empty() or p["shown"] == frame:
 		return
-	var sprite_id: String = flag._frames[flag._frame_index]
-	var s := pack.get_sprite(sprite_id)
+	p["shown"] = frame
+	var ids: Array = part["sprite_ids"]
+	var s := pack.get_sprite(String(ids[clampi(frame, 0, ids.size() - 1)]))
 	if s.is_empty():
 		return
 	var tex := pack.get_texture(int(s.get("page", 0)))
-	if tex == null:
-		return
-	sprite.texture = tex
-	sprite.region_enabled = true
-	sprite.region_rect = Rect2(s.get("x", 0), s.get("y", 0), s.get("w", 0), s.get("h", 0))
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var corners: Array = part["corners"]
+	var c: Array[Vector3] = []
+	for q in corners:
+		c.append(Vector3(q[0], q[2], q[1]))
+	var sx := float(s["x"])
+	var sy := float(s["y"])
+	var sw := float(s["w"])
+	var sh := float(s["h"])
+	var uv := [Vector2(sx / tw, sy / th), Vector2((sx + sw) / tw, sy / th),
+			Vector2((sx + sw) / tw, (sy + sh) / th), Vector2(sx / tw, (sy + sh) / th)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in [0, 1, 2, 0, 2, 3]:
+		st.set_uv(uv[i])
+		st.add_vertex(c[i])
+	mi.mesh = st.commit()
+	p["mat"].albedo_texture = tex

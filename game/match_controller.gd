@@ -23,15 +23,6 @@ extends Node
 ## Projectile hits are the original's swept-shape tests (document 53, game/collision.gd); tile hit points and
 ## damage are traced (document 45). No placeholder hit radius remains.
 
-## Phase 4 step 7 (first pass): which marker.capture_flag.<colour> family a pool spawns from
-## when it goes silent -- UNCONFIRMED which, if either, physical pool a real team's flag
-## actually belongs to (game/flag_marker.gd's docstring); an arbitrary but fixed choice so the
-## two pools in a level render visibly differently.
-const POOL_FLAG_COLOURS := {
-	"a": "red",
-	"b": "green",
-}
-
 ## Emitted right after a new Projectile is added as a child of `world` -- a scene wanting a
 ## non-default visual presentation (3D billboard, etc) connects here instead of polling.
 signal projectile_spawned(projectile: Projectile)
@@ -689,8 +680,9 @@ func _spawn_flag(pool_id: String, at_position: Vector2) -> void:
 	flag.owner_idx = idx
 	flags[idx] = flag
 	world.add_child(flag)
-	flag.setup(pack, POOL_FLAG_COLOURS.get(pool_id, "red"))
+	flag.setup(pack)
 	flag.position = at_position
+	flag.last_safe = at_position  # DAT_00459a20: the spawn position is the first "last safe position"
 	flag_spawned.emit(flag, pool_id)
 	if _debug_target_log:
 		print("frame=%d pool=%s FLAG SPAWNED at=%s" % [
@@ -727,7 +719,18 @@ func _attach_flag(flag: FlagMarker, v: Vehicle) -> void:
 	flag.dropper = null
 
 
-func _update_flags(_delta: float) -> void:
+## FUN_0042f730 answers 0 ("land") for terrain art 0 or 3 and everything above 0x33; the flag records its position on such
+## tiles as its last safe position.
+func _land_tile_at(p: Vector2) -> bool:
+	var tx := int(floor(p.x / pack.tile_size_px))
+	var ty := int(floor(p.y / pack.tile_size_px))
+	if tx < 0 or ty < 0 or tx >= level.width or ty >= level.height:
+		return false
+	var art := level.get_art_id(tx, ty) & 0x7F
+	return art == 0 or art == 3 or art > 0x33
+
+
+func _update_flags(delta: float) -> void:
 	if match_finished:
 		return
 	for idx in flags.keys():
@@ -741,7 +744,26 @@ func _update_flags(_delta: float) -> void:
 			var fwd := Vector2(cos(rad), sin(rad))
 			var right := Vector2(-fwd.y, fwd.x)
 			flag.position = c.position + right * FLAG_CARRY_OFFSET.x + fwd * -FLAG_CARRY_OFFSET.y
+			if _land_tile_at(flag.position):
+				flag.last_safe = flag.position
+			flag.advance_frames(c.speed > 0.0, delta)
+			flag.advance_heading(delta)
 			continue
+		# dropped: on land it stays and records the spot, in water it drifts back toward the last safe position
+		if Water.class_at(level, pack, flag.position) == 0:
+			flag.drift_speed = 0.0
+			if _land_tile_at(flag.position):
+				flag.last_safe = flag.position
+		else:
+			var ticks := delta * Vehicle.TICK_HZ
+			flag.drift_speed = move_toward(flag.drift_speed, FlagMarker.DRIFT_MAX, FlagMarker.DRIFT_ACCEL * ticks)
+			var to := flag.last_safe - flag.position
+			if to.length() > 0.001:
+				var step_idx := floori(fposmod(rad_to_deg(to.angle()) + 90.0, 360.0) / 5.625)  # a 64-step heading, rounded down
+				var h := deg_to_rad(step_idx * 5.625 - 90.0)
+				flag.position += Vector2(cos(h), sin(h)) * flag.drift_speed * ticks
+		flag.advance_frames(true, delta)
+		flag.advance_heading(delta)
 		if flag.dropper != null and (not is_instance_valid(flag.dropper) or not _flag_touching(flag, flag.dropper)):
 			flag.dropper = null
 		for v in [vehicle] + enemy_vehicles:

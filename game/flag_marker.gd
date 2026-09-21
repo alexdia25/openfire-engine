@@ -1,74 +1,73 @@
 class_name FlagMarker
 extends Node2D
-## Phase 4 step 7 (first pass): makes PORTING_PLAN.md section 4 item 1's traced flag-spawn
-## condition into real, visible behaviour. RFIRE.BIN's FUN_00432710 -- the exact function
-## TargetPool already reimplements (document 22) -- reads DAT_00442b00 (a hidden debug-menu
-## value confirmed to have NO write site anywhere in the binary except that debug menu itself,
-## so it stays 0 in every real, non-debug game) and, when 0 (the only value real play ever
-## sees), only takes its normal "replace the destroyed target" path if a replacement is
-## actually available. When it isn't -- budget exhausted, or no intact candidate left --
-## the real function falls through to spawn a dedicated, single-cross-reference object
-## instead (`FUN_0042c290(0x44e3c0, ...)`). That's exactly the case `TargetPool.destroy_active()`
-## already returns `false` for. This node is that fallthrough made visible: spawned once, when
-## a pool goes silent, using the real, confirmed `marker.capture_flag.<team>` art (document 24)
-## instead of a placeholder shape.
+## The capture flag (object class 12, 0x44e3c0; documents 24, 26, 57, 65). Logic only: the view is game/flag_marker_3d.gd.
+## `owner_idx` is its pool and its team (0 tan, 1 green: the cel variant). It is spawned where a pool's last target fell
+## (FUN_00432710, document 26) and moved / animated every tick by FUN_00432920, which this file reproduces (document 65):
 ##
-## Since document 57 the flag can be taken: only a Jeep (vehicle type 1) can pick it up, it hangs from the
-## carrier, the Jeep's action key drops or takes it, and carrying the other pool's flag onto the home tile
-## ends the match (all in game/match_controller.gd). This node is still the flat, cycling-frame placeholder
-## presentation of the flag: its real drawing (a plate and a leaning banner, a flutter child sprite) is not
-## reproduced.
-##
-## Team-colour choice per pool is UNCONFIRMED. Section 1.5 never established whether either
-## physical pool (tile 0xB4 "pool A" vs 0xDC "pool B") belongs to a specific team, or whether
-## pool membership and team are related at all -- this picks a fixed, arbitrary mapping
-## (pool "a" -> red, anything else -> green) purely so two pools in the same level render
-## visibly differently. Treat the colour as a placeholder, not a finding.
+##  - `frame_counter` (obj+0x5c) picks the cloth frame, whole(counter) + 13 for the green team, out of 13 frames. It grows by
+##    0x2aaa a tick (1/6 frame). While the flag "waves" (a dropped flag always; a carried one only while its carrier's
+##    speed is above 0) it runs from 0 up to 10 and then loops in [4, 10); when the wave stops it runs on to 13 and rests at 0.
+##  - `heading_deg` (obj+0x4c, 22-bit in the original; here degrees clockwise from north, the vehicle heading + 90) starts at
+##    90 degrees. It eases at 0x4ccc a tick (1.69 degrees) toward `target_heading()`: 0 on the ground, and while carried the
+##    carrier's heading pushed out of the two 50-degree wedges around north and south (kept in 25-155 and 205-335).
+##  - a dropped flag on land falls to the ground; in water it drifts toward its "last safe position" (recorded whenever it
+##    is on a land tile, per team) at up to 0.1 units a tick, accelerating 0x36 per tick (FUN_0042f280 / FUN_0042f730 /
+##    FUN_00422e70). A flag whose carrier is destroyed is dropped where it hangs (document 57).
+## The radar blip of its child object (descriptors 0x4404b0 / 0x4404c0, swapped every 15 ticks) belongs to the interface.
 
-const FRAME_INTERVAL_SEC := 0.12  ## placeholder wave-animation speed, not traced from RFIRE.BIN
+const TICK_HZ := 62.5
+const FRAME_RATE := 10922.0 / 65536.0     ## 0x2aaa
+const HEADING_RATE_DEG := 0x4ccc / 65536.0 * 5.625
+const DRIFT_MAX := 0x1999 / 65536.0
+const DRIFT_ACCEL := 0x36 / 65536.0
 
 var pack: Pack
-## The flag object of document 57 (class 12, 0x44e3c0): `owner_idx` is its pool (0 = the pool whose buildings
-## carry variant 0, 1 = variant 1), `carrier` the vehicle it hangs from (or null), `dropper` the vehicle that
-## just let it go and cannot re-take it until it stops touching it (FUN_00432920's +0x70).
 var owner_idx := 0
 var carrier: Vehicle = null
 var dropper: Vehicle = null
-var _frames: Array[String] = []
-var _frame_index: int = 0
-var _timer: float = 0.0
+var frame_counter := 0.0
+var heading_deg := 90.0           ## clockwise from north
+var last_safe := Vector2.ZERO
+var drift_speed := 0.0
 
 
-func setup(shared_pack: Pack, flag_colour: String) -> void:
+func setup(shared_pack: Pack) -> void:
 	pack = shared_pack
-	var prefix := "marker.capture_flag.%s." % flag_colour
-	for id in pack.sprites.keys():
-		if id.begins_with(prefix):
-			_frames.append(id)
-	_frames.sort()
 
 
-func _process(delta: float) -> void:
-	if _frames.size() <= 1:
-		return
-	_timer += delta
-	if _timer >= FRAME_INTERVAL_SEC:
-		_timer -= FRAME_INTERVAL_SEC
-		_frame_index = (_frame_index + 1) % _frames.size()
-		queue_redraw()
+## The cloth frame to draw: whole(counter), plus 13 for the green team.
+func cloth_frame() -> int:
+	return int(floor(frame_counter)) + (13 if owner_idx != 0 else 0)
 
 
-func _draw() -> void:
-	if pack == null or _frames.is_empty():
-		return
-	var sprite_id: String = _frames[_frame_index]
-	var s := pack.get_sprite(sprite_id)
-	if s.is_empty():
-		return
-	var tex := pack.get_texture(int(s.get("page", 0)))
-	if tex == null:
-		return
-	var w: float = s.get("w", 0)
-	var h: float = s.get("h", 0)
-	var src := Rect2(s.get("x", 0), s.get("y", 0), w, h)
-	draw_texture_rect_region(tex, Rect2(-w * 0.5, -h * 0.5, w, h), src)
+## FUN_00432920's wave counter. `waving` is true for a dropped flag and for a carried one whose carrier moves forward.
+func advance_frames(waving: bool, delta: float) -> void:
+	var step := FRAME_RATE * delta * TICK_HZ
+	if waving:
+		if frame_counter < 10.0:
+			frame_counter += step
+			if frame_counter > 10.0 - 1.0 / 65536.0:
+				frame_counter -= 6.0 * floor((frame_counter - 4.0) / 6.0)
+	elif frame_counter != 0.0:
+		frame_counter += step
+		if frame_counter > 13.0 - 1.0 / 65536.0:
+			frame_counter = 0.0
+
+
+## Where the flag's heading is heading: 0 on the ground; carried, the carrier's heading clamped as the original does.
+func target_heading() -> float:
+	if carrier == null or not is_instance_valid(carrier):
+		return 0.0
+	var h := fposmod(carrier.heading_deg + 90.0, 360.0)
+	h = clampf(h, 25.0, 335.0)
+	if h < 180.0:
+		h = minf(h, 155.0)
+	else:
+		h = maxf(h, 205.0)
+	return h
+
+
+func advance_heading(delta: float) -> void:
+	var step := HEADING_RATE_DEG * delta * TICK_HZ
+	var d := wrapf(target_heading() - heading_deg, -180.0, 180.0)
+	heading_deg = fposmod(heading_deg + clampf(d, -step, step), 360.0)
