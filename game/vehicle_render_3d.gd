@@ -13,6 +13,8 @@ var vehicle: Vehicle
 var _pack: Pack
 var _parts: Array = []          ## per part: {mesh: MeshInstance3D, data: Dictionary, sprite_id: String}
 var _type := 0                  ## the type this renderer was built for; the vehicle may be swapped under it
+var _ring: MeshInstance3D            ## the Jeep's swim-mode wheels (part 11)
+var _ring_mat: StandardMaterial3D
 var _flash := false               ## drawn in variant 2 (the hit flash)
 var _anim_key: Variant = null   ## last animation state drawn (rebuild the animated parts only when it changes)
 
@@ -63,10 +65,23 @@ func _animate() -> void:
 		# obj+0x40 being the object's x position in 16.16: the frame is the integer x (world units) modulo 4, so
 		# the strip steps once per unit driven along x and (as coded) does not move for travel along y alone.
 		var frame := int(floorf(vehicle.position.x)) & 3
-		if frame != _anim_key:
-			_anim_key = frame
-			for i in [9, 10]:
-				_set_part_sprite(i, "vehicle.jeep.p457.frame_%02d" % (frame + 1), null)
+		# swim mode (document 62): the row of the table picked by whole(immersion * 8) reshapes the wheel strips, and
+		# from row 4 on a square of four wheels (part 11) shows underneath, its size following the immersion
+		var row := mini(int(floorf(vehicle.swim_amount * 8.0 + 0.0001)), 8)
+		var ring := maxf(vehicle.swim_amount, 0.25) if row > 3 else 0.0
+		var key := [frame, row, snappedf(ring, 0.01)]
+		if key != _anim_key:
+			_anim_key = key
+			var swim: Dictionary = _pack.vehicle_types.get("1", {}).get("swim", {})
+			var r: Array = swim.get("rows", [[4.5, 8.0, 4.5, 0.0]])[row]
+			var a: float = r[0]
+			var c: float = r[1]
+			var d: float = r[2]
+			var f: float = r[3]
+			var sid := "vehicle.jeep.p457.frame_%02d" % (frame + 1)
+			_set_part_sprite(9, sid, [[-a, -12.0, c], [-a, 12.0, c], [-d, 12.0, f], [-d, -12.0, f]])
+			_set_part_sprite(10, sid, [[a, 12.0, c], [a, -12.0, c], [d, -12.0, f], [d, 12.0, f]])
+			_update_ring(ring, swim)
 	elif vehicle.vehicle_type == 2:
 		# FUN_00402ec0: the canister part 13 is cel 326 minus the rockets fired in the current salvo (326, 325,
 		# 324: three, two, one canisters), and while the launcher reloads (state+0x58 runs -6.0 -> 0 at 0.15 per
@@ -96,6 +111,28 @@ func _redraw_team_parts() -> void:
 		var ids: Array = part["sprite_ids"]
 		var v := 2 if _flash else vehicle.player_index()
 		_set_part_sprite(i, String(ids[clampi(v, 0, ids.size() - 1)]), null)
+
+
+func _update_ring(scale: float, swim: Dictionary) -> void:
+	if _ring == null:
+		_ring = MeshInstance3D.new()
+		_ring_mat = StandardMaterial3D.new()
+		_ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_ring_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		_ring_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		_ring.material_override = _ring_mat
+		add_child(_ring)
+	_ring.visible = scale > 0.0
+	if scale <= 0.0:
+		return
+	var s := _pack.get_sprite(String(swim.get("ring_sprite", "")))
+	if s.is_empty():
+		return
+	var tex := _pack.get_texture(int(s.get("page", 0)))
+	var h: float = float(swim.get("ring_half", 12.0)) * scale
+	_ring.mesh = _quad([[h, -h, 0.0], [h, h, 0.0], [-h, h, 0.0], [-h, -h, 0.0]], s, tex)
+	_ring_mat.albedo_texture = tex
 
 
 func _set_part_sprite(index: int, sprite_id: String, corners: Variant) -> void:
