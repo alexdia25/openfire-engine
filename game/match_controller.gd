@@ -603,9 +603,22 @@ func switch_player_vehicle() -> void:
 	vehicle.set_vehicle_type((vehicle.vehicle_type + 1) % 3)  # Tank, Jeep, MSV (the Heli needs flight)
 
 
+## Debug convenience (not in the original): become vehicle type `t` (0 Tank, 1 Jeep, 2 MSV) anywhere, at once, with
+## fresh hit points and fuel. A flag carried by a non-Jeep is dropped, since only a Jeep can carry one (document 57).
+func debug_swap_vehicle(t: int) -> void:
+	if vehicle == null or match_finished or t == vehicle.vehicle_type:
+		return
+	for f in flags.values():
+		if f.carrier == vehicle and t != 1:
+			f.carrier = null
+	vehicle.set_vehicle_type(t)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and vehicle != null:
-		if event.keycode == KEY_V:
+		if event.keycode >= KEY_F1 and event.keycode <= KEY_F3:
+			debug_swap_vehicle(event.keycode - KEY_F1)
+		elif event.keycode == KEY_V:
 			switch_player_vehicle()
 		elif event.keycode == KEY_F:
 			flag_action(vehicle)

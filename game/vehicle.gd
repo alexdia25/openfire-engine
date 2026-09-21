@@ -345,6 +345,10 @@ func set_vehicle_type(t: int) -> void:
 	vehicle_type = t
 	_apply_type()
 	speed = 0.0
+	_salvo_index = 0
+	_salvo_reload = 0.0
+	_fire_cooldown_remaining = 0.0
+	hit_flash_remaining = 0.0
 	type_changed.emit(self)
 
 
