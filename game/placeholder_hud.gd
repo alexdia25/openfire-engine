@@ -11,6 +11,7 @@ const VEHICLE_NAMES := ["Tank", "Jeep", "MSV", "Helicopter"]
 var mc: MatchController
 var _status: Label
 var _objective: Label
+var _stock: Label
 var _keys: Label
 var _banner: Label
 var _finished := false
@@ -20,6 +21,7 @@ func setup(controller: MatchController) -> void:
 	mc = controller
 	_status = _label(Vector2(12, 8), 18)
 	_objective = _label(Vector2(12, 34), 16)
+	_stock = _label(Vector2(12, 58), 14)
 	_keys = _label(Vector2(12, 0), 13)
 	_keys.text = "arrows drive   space fire   V switch vehicle (standing on your base tile)   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun"
 	_keys.anchor_top = 1.0
@@ -37,6 +39,10 @@ func setup(controller: MatchController) -> void:
 	_banner.visible = false
 
 
+static func _n(k: int) -> String:
+	return "unlimited" if k == 255 else str(k)
+
+
 func _label(pos: Vector2, size: int) -> Label:
 	var l := Label.new()
 	l.position = pos
@@ -45,6 +51,13 @@ func _label(pos: Vector2, size: int) -> Label:
 	l.add_theme_constant_override("outline_size", 4)
 	add_child(l)
 	return l
+
+
+func show_lost() -> void:
+	_finished = true
+	_banner.text = "OUT OF VEHICLES  -  placeholder message
+press Enter to play again"
+	_banner.visible = true
 
 
 func show_win(winner_idx: int) -> void:
@@ -60,6 +73,7 @@ func _process(_delta: float) -> void:
 	_status.text = "%s   hp %d / %d%s" % [VEHICLE_NAMES[v.vehicle_type], int(ceil(v.hp)), int(v.max_hp),
 			"" if v.alive else "   (destroyed)"]  # the original shows no health readout (document 70): a debug aid
 	_objective.text = _objective_text(v)
+	_stock.text = "vehicles left (placeholder display): Tank %s  Jeep %s  MSV %s  Heli %s" % [_n(mc.vehicle_stock[0]), _n(mc.vehicle_stock[1]), _n(mc.vehicle_stock[2]), _n(mc.vehicle_stock[3])]
 
 
 func _objective_text(v: Vehicle) -> String:

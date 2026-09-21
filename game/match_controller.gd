@@ -40,6 +40,9 @@ signal gate_created(gate: Gate)
 signal gate_removed(gate: Gate)
 ## A vehicle carrying the other pool's flag stood on its home tile (document 57): the match is over.
 signal match_over(winner_idx: int)
+## The player has no vehicle left in stock and none alive (the original starts a game-over handler at 0x418390 when the last one is lost; what it shows is
+## untraced, so this only reports it; document 73).
+signal out_of_vehicles()
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
 ## A vehicle laid a mine / a mine went off (document 60); the explosion drawn is record 0x445058.
@@ -61,6 +64,11 @@ var _boxes: Array = []           ## live ExplosionBox damage boxes, each with th
 var _box_tick_acc := 0.0
 var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
+## Vehicles the player can still deploy, by type index (Tank, Jeep, MSV, Heli) = the level's T, J, A, H (default 3, 8, 3, 3; FUN_00413f00 stores them
+## at 0x443030..33; the per-player bytes are at 0x48c880 + player * 0xd0 + 0xb8 + type). 255 means unlimited. Creating a vehicle spends one
+## (FUN_0040b6xx: `if (stock != 0xff && stock != 0) stock--`), a vehicle that docks at its base returns one (0x42f1c3: `if (stock != 0xff) stock++`);
+## all four at 0 is the lost state. The port's use of these (V switching, respawn) is a PLACEHOLDER: the original's choice of vehicle at its base is untraced.
+var vehicle_stock: Array[int] = [3, 8, 3, 3]
 var winner_idx := -1
 var _crushing: Dictionary = {}   ## tiles already flattened and waiting for their state change
 var _tile_hp: Dictionary = {}    ## Vector2i -> remaining hit points of a damaged pool target
@@ -111,6 +119,9 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.drowned.connect(_on_player_destroyed)
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
+	var vp: Dictionary = level.vehicle_params
+	vehicle_stock = [int(vp.get("T", 3)), int(vp.get("J", 8)), int(vp.get("A", 3)), int(vp.get("H", 3))]
+	_take_stock(vehicle.vehicle_type)   # the first vehicle is created like any other
 
 	for other_sp in level.spawn_points:
 		if int(other_sp.get("team", 0)) == player_team:
@@ -577,7 +588,37 @@ func _drop_carried_flags(v: Vehicle) -> void:
 
 func _on_player_destroyed(v: Vehicle) -> void:
 	_drop_carried_flags(v)
+	# PLACEHOLDER (untraced): the replacement is the same type when the stock allows, else the first type in stock; none left = lost
+	var t := vehicle.vehicle_type
+	if not _take_stock(t):
+		t = -1
+		for i in 4:
+			if _take_stock(i):
+				t = i
+				break
+		if t < 0:
+			match_finished = true
+			winner_idx = -2
+			vehicle.frozen = true
+			out_of_vehicles.emit()
+			return
+		vehicle.set_vehicle_type(t)
 	vehicle.respawn(_player_spawn_px)
+
+
+## Spends one vehicle of type `t` (false when none is left; 255 is unlimited and never counts down).
+func _take_stock(t: int) -> bool:
+	if vehicle_stock[t] == 255:
+		return true
+	if vehicle_stock[t] <= 0:
+		return false
+	vehicle_stock[t] -= 1
+	return true
+
+
+func _return_stock(t: int) -> void:
+	if vehicle_stock[t] != 255:
+		vehicle_stock[t] = mini(vehicle_stock[t] + 1, 254)
 
 
 ## Document 53: the tile under the shell and its eight neighbours are tested (FUN_0042bd40 / FUN_0042bf30);
@@ -872,7 +913,14 @@ func switch_player_vehicle() -> void:
 	var t := Vector2i(int(floor(vehicle.position.x / pack.tile_size_px)), int(floor(vehicle.position.y / pack.tile_size_px)))
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
 		return
-	vehicle.set_vehicle_type((vehicle.vehicle_type + 1) % 4)  # Tank, Jeep, MSV, Heli
+	# PLACEHOLDER (untraced): the next type in the cycle that is in stock; the vehicle being left goes back to stock
+	for step in range(1, 4):
+		var nt := (vehicle.vehicle_type + step) % 4
+		if vehicle_stock[nt] != 0:
+			_return_stock(vehicle.vehicle_type)
+			_take_stock(nt)
+			vehicle.set_vehicle_type(nt)  # Tank, Jeep, MSV, Heli
+			return
 
 
 ## Debug convenience (not in the original): become vehicle type `t` (0 Tank, 1 Jeep, 2 MSV, 3 Heli) anywhere, at once, with

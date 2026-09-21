@@ -218,6 +218,7 @@ func _spawn_match() -> void:
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
 	controller.match_over.connect(_on_match_over)
+	controller.out_of_vehicles.connect(func(): if _hud != null: _hud.show_lost())
 	if controller.vehicle != null:
 		_hud = PlaceholderHud.new()
 		add_child(_hud)
