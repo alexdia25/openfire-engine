@@ -62,6 +62,8 @@ const HIT_MASK := 0x27
 signal shot(spec: Dictionary)
 ## The MSV lays a mine at this world position (document 60).
 signal mine_dropped(position: Vector2)
+## A trigger pull with the weapon slot empty (FUN_004232d0 with sound 0x44b988, "the empty click"; documents 61, 63, 72): no sound is played yet.
+signal empty_click()
 signal destroyed(vehicle: Vehicle)
 signal type_changed(vehicle: Vehicle)
 
@@ -92,6 +94,14 @@ var turn_rate_deg := TURN_RATE_DEG
 var max_hp := MAX_HP
 var armor := ARMOR
 var fuel_max := FUEL_MAX
+## Ammunition of the two weapon slots (state +0x30 and +0x40, document 72) and what each starts with (record +0x1a8 / +0x1dc): Tank 150 / 0,
+## Jeep 16 / 0, MSV 100 rockets / 10 mines, Heli 100 / 50. One is spent per shot; the rearm zone refills it (`rearm`).
+var ammo: Array[int] = [0, 0]
+var ammo_max: Array[int] = [0, 0]
+var weapon_cooldown_ticks: Array[int] = [20, 0]
+## PLACEHOLDER (not traced): the enemy placeholder vehicles fire without limit, since nothing rearms them.
+var infinite_ammo := false
+var _rearm_acc := 0.0
 var hit_half_width := HIT_HALF_WIDTH
 var hit_half_length := HIT_HALF_LENGTH
 var hit_z: Array = HIT_Z
@@ -177,6 +187,10 @@ func _drop_mine() -> void:
 	# FUN_0040d820 / FUN_00409e30: no mine while the vehicle's water state or the drop point is deep water (2)
 	if water_class == 2 or (level != null and pack != null and Water.class_at(level, pack, at) == 2):
 		return
+	if ammo[1] < 1 and not infinite_ammo:   # FUN_0040d820: `st[+0xc] > 0` is a condition, there is no click
+		return
+	if not infinite_ammo:
+		ammo[1] -= 1
 	_mine_cooldown_remaining = MINE_COOLDOWN_SEC
 	mine_dropped.emit(at)
 
@@ -207,6 +221,39 @@ func _apply_type() -> void:
 		hit_poly_local.append(Vector2(pt[0], pt[1]))
 	hp = max_hp
 	fuel = fuel_max
+	var am: Array = t.get("ammo", [0, 0])
+	var cd: Array = t.get("weapon_cooldown_ticks", [20, 0])
+	for i in 2:
+		ammo_max[i] = int(am[i])
+		ammo[i] = ammo_max[i]
+		weapon_cooldown_ticks[i] = int(cd[i])
+
+
+## Spends one round of `slot` (the handlers' `ammo -= 1`). False, with the empty click and the slot's cooldown, when it is empty
+## (`if (ammo < 1) { click; ready = now + cooldown; return }`, FUN_0040d240 / 0040d520 / 0040df00 / 0040e600).
+func _spend_ammo(slot: int) -> bool:
+	if infinite_ammo:
+		return true
+	if ammo[slot] < 1:
+		empty_click.emit()
+		return false
+	ammo[slot] -= 1
+	return true
+
+
+## FUN_0040c540, kind 2 (document 55, 72): one call per tick over a rearm zone. Each weapon slot in turn gains `max(1, dt / 2)` (dt = whole ticks
+## since the last call, 1 here) up to its cap; a slot that reaches its cap passes the same tick's gain on to the next one.
+func rearm(delta: float) -> void:
+	_rearm_acc += delta * TICK_HZ
+	while _rearm_acc >= 1.0:
+		_rearm_acc -= 1.0
+		for i in 2:
+			if ammo_max[i] <= 0:
+				break
+			ammo[i] += 1
+			if ammo[i] < ammo_max[i]:
+				break
+			ammo[i] = ammo_max[i]
 
 
 ## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
@@ -319,6 +366,11 @@ func _fire() -> void:
 	var fwd := Vector2(cos(rad), sin(rad))
 	var right := Vector2(-fwd.y, fwd.x)
 	var spec := {"team": team, "heading": heading_deg}
+	if vehicle_type == 2 and _salvo_reload > 0.0:
+		return
+	if not _spend_ammo(0):
+		_fire_cooldown_remaining = float(weapon_cooldown_ticks[0]) / TICK_HZ   # ready = now + the slot's cooldown
+		return
 	if vehicle_type == 0:
 		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
 		# FUN_0040d240 (document 64): the shot goes along the hull heading plus the turret angle (state +0x58). The muzzle is
@@ -341,8 +393,6 @@ func _fire() -> void:
 		spec["flash"] = {"record": "0x445138", "yaw": turret_deg,
 				"offset": Vector3(reach * sin(deg_to_rad(turret_deg)), reach * cos(deg_to_rad(turret_deg)), height + z)}
 	elif vehicle_type == 2:
-		if _salvo_reload > 0.0:
-			return
 		var x: float = MSV_SALVO_X[_salvo_index]
 		_fire_cooldown_remaining = 30.0 / TICK_HZ
 		# FUN_0040d520 (document 64): the two points (0, -15, -1) (rocket) and (0, 1.5, -1) (back-blast) are turned by the
@@ -365,7 +415,7 @@ func _fire() -> void:
 		spec["z"] = launch_z + z
 		spec["flash"] = {"record": "0x4450d8", "offset": Vector3(x, -p1.y, p1.z + z)}
 		_salvo_index += 1
-		if _salvo_index >= 3:
+		if _salvo_index >= 3 or ammo[0] < 1:   # the last rocket of the stock also starts the reload (FUN_0040d520)
 			_salvo_index = 0
 			_salvo_reload = 40.0
 	elif vehicle_type == 1:
@@ -543,6 +593,8 @@ func respawn(at: Vector2) -> void:
 	position = at
 	hp = max_hp
 	fuel = fuel_max
+	for i in 2:
+		ammo[i] = ammo_max[i]
 	zone_kind = 0
 	speed = 0.0
 	_reset_water()
@@ -702,6 +754,8 @@ func _heli_weapons(delta: float) -> void:
 	if not (down or level):
 		return
 	_heli_ready[_heli_slot] = float(HELI_SLOT_COOLDOWN[_heli_slot]) / TICK_HZ
+	if not _spend_ammo(_heli_slot):
+		return   # the empty click; the cooldown just set keeps it from repeating every frame
 	var type := 7 if _heli_slot == 0 else 6
 	var mount := Vector2(-9.35 if _heli_mount_left else 9.35, 6.8)  # (x right, y ahead)
 	var toe := 0.0

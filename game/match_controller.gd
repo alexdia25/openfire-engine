@@ -375,7 +375,7 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 
 ## FUN_0040c540 (document 55): while a vehicle stands still (`moving` false) it stays in the zone it entered as
 ## long as its shape still overlaps that zone's box, else the zone is forgotten; over a refuel zone (kind 1)
-## the fuel rises by 0.5 per tick up to the tank's maximum. (Rearm, kind 2, would refill ammo: not modelled.
+## the fuel rises by 0.5 per tick up to the tank's maximum. (Rearm, kind 2, refills the ammunition: Vehicle.rearm.
 ## Pick-up, kind 3, spawns a carried object: not modelled.) While moving nothing happens and the zone stays.
 func _update_zone(v: Vehicle, delta: float) -> void:
 	if v.zone_kind == 3:
@@ -391,6 +391,8 @@ func _update_zone(v: Vehicle, delta: float) -> void:
 		return
 	if v.zone_kind == 1:
 		v.fuel = minf(v.fuel_max, v.fuel + Vehicle.REFUEL_PER_TICK * delta * Vehicle.TICK_HZ)
+	elif v.zone_kind == 2:
+		v.rearm(delta)   # FUN_0040c540 kind 2 (document 72)
 
 
 ## FUN_00432550: only if the tile still has hit points and its variant bits equal the player index; the

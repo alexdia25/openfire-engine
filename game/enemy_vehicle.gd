@@ -15,6 +15,10 @@ extends Vehicle
 ## pathfinding, no cover, no squad behaviour, no difficulty tuning -- a seek-and-shoot
 ## placeholder, nothing more.
 
+func _init() -> void:
+	infinite_ammo = true   # PLACEHOLDER (untraced): nothing rearms an enemy, so it never runs dry (document 72)
+
+
 const DETECT_RANGE_PX := 500.0
 const FIRE_RANGE_PX := 300.0
 const AIM_TOLERANCE_DEG := 8.0  ## how close to "facing the target" counts as "aimed"
