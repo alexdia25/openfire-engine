@@ -1,7 +1,7 @@
 class_name MineView3D
 extends Node3D
 ## Draws a Mine (game/mine.gd): descriptor 0x454200 is one flat quad, corners (+-6, +-6) at z 1, cel 1081 + the mine's
-## variant (0 / 2 blinking while armed, 1 once expired; document 60). The three cels are 8 x 8 "ember" sprites.
+## variant (0 / 2 blinking while the fuse runs, 1 once armed; document 60). The three cels are 8 x 8 "ember" sprites.
 
 const CELS := ["effect.ember_small.01", "effect.ember_small.02", "effect.ember_small.03"]
 const HALF := 6.0

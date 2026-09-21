@@ -209,7 +209,7 @@ func _update_mines(delta: float) -> void:
 		if v == null or not is_instance_valid(v) or not v.alive or not v.moving:
 			continue
 		for m in mines.duplicate():
-			if m.expired or m.ignores(v):
+			if not m.armed:
 				continue
 			if not Collision.z_ranges_overlap(0.0, v.hit_z[1], Mine.Z_LO, Mine.Z_HI):
 				continue
