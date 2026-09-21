@@ -15,6 +15,7 @@ var coastal_shapes: Dictionary = {}      ## "<coastal_id>" -> {jitter, shapes[]}
 var projectile_types: Array = []       ## 12 entries (documents 46, 58)
 var projectile_descriptors: Dictionary = {}  ## "0x454580" -> parts with sprite ids
 var vehicle_types: Dictionary = {}    ## "0".."3" -> stats, collision shape, parts (document 57)
+var water_tables: Dictionary = {}       ## document 62: coast shapes, boxes for FUN_0042f280
 var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
 var tile_size_px: int = 32
@@ -94,6 +95,11 @@ func load_from(dir: String) -> bool:
 		if vdoc is Dictionary:
 			vehicle_types = vdoc.get("types", {})
 
+	var water_path := dir.path_join("terrain/water.json")
+	if FileAccess.file_exists(water_path):
+		var wdoc: Variant = _read_json(water_path)
+		if wdoc is Dictionary:
+			water_tables = wdoc
 	var gates_path := dir.path_join("terrain/gates.json")
 	if FileAccess.file_exists(gates_path):
 		var gdoc: Variant = _read_json(gates_path)

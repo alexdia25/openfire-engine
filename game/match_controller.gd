@@ -117,6 +117,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.shot.connect(_on_vehicle_shot.bind(vehicle))
 	vehicle.mine_dropped.connect(_on_mine_dropped.bind(vehicle))
 	vehicle.aim_target = _pick_missile_target
+	vehicle.drowned.connect(_on_player_destroyed)
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 
@@ -187,13 +188,15 @@ func _pick_missile_target(v: Vehicle) -> Vector2:
 
 
 ## The missile came down (z < 0) without hitting anything: FUN_00415730 picks the landing record by what it fell on
-## (0 ground, 1 water, 2 the pavement tiles 0x49-0x53). Water is not classified yet (untraced), so it counts as ground.
+## (0 ground, 1 water, 2 the pavement tiles 0x49-0x53).
 func _missile_lands(p: Projectile) -> void:
 	var tsz := float(pack.tile_size_px)
 	var tx := int(floor(p.position.x / tsz))
 	var ty := int(floor(p.position.y / tsz))
 	var record := "0x444840"
-	if tx >= 0 and ty >= 0 and tx < level.width and ty < level.height:
+	if Water.class_at(level, pack, p.position) != 0:
+		record = "0x4445e8"  # water (shallow counts: FUN_0042f5b0 samples the class around the point)
+	elif tx >= 0 and ty >= 0 and tx < level.width and ty < level.height:
 		var art := level.get_art_id(tx, ty) & 0x7F
 		if art > 0x48 and art < 0x54:
 			record = "0x444a30"
@@ -363,7 +366,7 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 			continue
 		if not Collision.shell_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK):
 			continue
-		if not Collision.shell_z_overlaps(p.z, v.hit_z[0], v.hit_z[1]):
+		if not Collision.shell_z_overlaps(p.z, v.hit_z[0] + v.z, v.hit_z[1] + v.z):
 			continue
 		if Collision.segment_hits_polygon(from, to, v.hit_polygon()):
 			v.take_damage(p.damage)
@@ -796,7 +799,9 @@ func debug_swap_vehicle(t: int) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and vehicle != null:
-		if event.keycode >= KEY_F1 and event.keycode <= KEY_F3:
+		if event.keycode == KEY_B:
+			vehicle.toggle_swim()
+		elif event.keycode >= KEY_F1 and event.keycode <= KEY_F3:
 			debug_swap_vehicle(event.keycode - KEY_F1)
 		elif event.keycode == KEY_V:
 			switch_player_vehicle()

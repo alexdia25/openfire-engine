@@ -172,9 +172,13 @@ func _wants_mine() -> bool:
 ## an east- or west-facing one). Not modelled: the ammo (10), the deep-water refusal (FUN_0042f410 == 2; water is
 ## untraced) and the key bits (the original reads button C, here `M`).
 func _drop_mine() -> void:
-	_mine_cooldown_remaining = MINE_COOLDOWN_SEC
 	var rad := deg_to_rad(heading_deg)
-	mine_dropped.emit(position + Vector2(0.0, sin(rad) * 5.0))
+	var at := position + Vector2(0.0, sin(rad) * 5.0)
+	# FUN_0040d820 / FUN_00409e30: no mine while the vehicle's water state or the drop point is deep water (2)
+	if water_class == 2 or (level != null and pack != null and Water.class_at(level, pack, at) == 2):
+		return
+	_mine_cooldown_remaining = MINE_COOLDOWN_SEC
+	mine_dropped.emit(at)
 
 
 func _wants_to_fire() -> bool:
@@ -197,6 +201,7 @@ func _apply_type() -> void:
 	armor = float(t["armor"])
 	fuel_max = float(t["fuel"])
 	hit_z = [float(t["shape"]["z"][0]), float(t["shape"]["z"][1])]
+	sink_depth = float(t.get("sink_depth", 14.0))
 	hit_poly_local = PackedVector2Array()
 	for pt in t["shape"]["poly"]:
 		hit_poly_local.append(Vector2(pt[0], pt[1]))
@@ -314,6 +319,63 @@ func _move(heading_before: float, delta: float) -> void:
 
 
 ## FUN_0040c460: returns true if the hit did anything.
+## Water (document 62). `water_class` is FUN_0042f280's answer for the tile under the vehicle (0 land, 1 shallow,
+## 2 deep), recomputed every frame. A vehicle in deep water sinks (`z` falls 0.4 a tick from 0) and is lost when it
+## is deeper than `sink_depth` (record +0x158: 14 units, the Jeep 13) unless it is a Jeep in swim mode; in shallow
+## water or on land it comes back up. The Jeep's swim mode is the flag `swim_target` (state +0x84, 0 or 1) that
+## `swim_amount` (state +0x80) follows at 1092/65536 a tick, about one second; while they differ it cannot
+## accelerate or turn (FUN_0040d990).
+signal drowned(vehicle: Vehicle)
+var z := 0.0
+var water_class := 0
+var swim_target := 0.0
+var swim_amount := 0.0
+var sink_depth := 14.0
+var _sinking := false
+const SWIM_RAMP_PER_TICK := 1092.0 / 65536.0
+const SINK_PER_TICK := 0x6666 / 65536.0  ## 0.4
+
+
+## FUN_0040dfe0, the Jeep's second button: enter swim mode while in water (either kind) and not yet swimming; leave
+## it when not in deep water. Anything else does nothing.
+func toggle_swim() -> void:
+	if vehicle_type != 1 or not alive:
+		return
+	if water_class != 0 and swim_target == 0.0:
+		swim_target = 1.0
+	elif water_class != 2 and swim_target == 1.0:
+		swim_target = 0.0
+
+
+func _update_water(delta: float) -> void:
+	if level == null or pack == null:
+		return
+	var ticks := delta * TICK_HZ
+	water_class = Water.class_at(level, pack, position, hit_polygon(), z)
+	if swim_amount != swim_target:
+		swim_amount = move_toward(swim_amount, swim_target, SWIM_RAMP_PER_TICK * ticks)
+	var swimming := vehicle_type == 1 and swim_target == 1.0
+	if not _sinking:
+		if water_class == 2 and not swimming:
+			_sinking = true
+		return
+	if water_class == 0:
+		_sinking = false
+		z = 0.0
+	elif water_class == 1 or swimming:
+		z += SINK_PER_TICK * ticks
+		if z >= 0.0:
+			z = 0.0
+			_sinking = false
+	else:
+		z -= SINK_PER_TICK * ticks
+		if floorf(z) <= -floorf(sink_depth):
+			z = 1.0 - sink_depth
+			alive = false
+			_sinking = false
+			drowned.emit(self)
+
+
 ## After a hit the original draws the vehicle in variant 2 (the "yellow" cels) until `state+0x4c` = hit tick + 10
 ## runs out (documents 47, 59).
 const HIT_FLASH_SEC := 10.0 / TICK_HZ
@@ -380,15 +442,25 @@ func respawn(at: Vector2) -> void:
 	fuel = fuel_max
 	zone_kind = 0
 	speed = 0.0
+	_reset_water()
 	alive = true
 
 
 ## Port-only convenience (the original picks a vehicle at the base, FUN_0040b400; document 57): become another
 ## type in place, with that type's numbers and full hit points and fuel.
+func _reset_water() -> void:
+	z = 0.0
+	water_class = 0
+	swim_target = 0.0
+	swim_amount = 0.0
+	_sinking = false
+
+
 func set_vehicle_type(t: int) -> void:
 	vehicle_type = t
 	_apply_type()
 	speed = 0.0
+	_reset_water()
 	_salvo_index = 0
 	_salvo_reload = 0.0
 	_fire_cooldown_remaining = 0.0
@@ -399,6 +471,8 @@ func set_vehicle_type(t: int) -> void:
 
 func _process(delta: float) -> void:
 	hit_flash_remaining = maxf(hit_flash_remaining - delta, 0.0)
+	if alive:
+		_update_water(delta)
 	if pack == null or _frames.is_empty() or not alive or frozen:
 		return
 
@@ -408,6 +482,9 @@ func _process(delta: float) -> void:
 		return
 
 	var controls := _get_controls()
+	if vehicle_type == 1 and controls.y == 0.0 and controls.x != 0.0:
+		# the Jeep's own drive handler (FUN_0040db80, document 62): turning without a throttle key accelerates
+		controls.y = 1.0
 	var turn := controls.x
 	var turn_before := heading_deg
 	heading_deg = fposmod(heading_deg + turn * turn_rate_deg * delta, 360.0)
@@ -437,6 +514,13 @@ func _process(delta: float) -> void:
 ## FUN_0040c390: the tile under the vehicle scales its speed caps -- 1.2x on pavement (art ids
 ## 0x49-0x59 exclusive of both ends' neighbours, i.e. 73..89), else 1.0.
 func _terrain_speed_scale() -> float:
+	if z > 1.0:
+		return 1.0
+	if water_class != 0:
+		# FUN_0040c390: 0.75 in any water, 0.25 for a Jeep that has finished entering swim mode
+		return 0.25 if (vehicle_type == 1 and swim_amount >= 1.0) else 0.75
+	if vehicle_type == 1 and swim_amount >= 1.0:
+		return 0x28f / 65536.0  # swim mode on dry land: nearly stuck (press the swim button to leave it)
 	if level == null or pack == null:
 		return 1.0
 	var t := Vector2i((position / pack.tile_size_px).floor())

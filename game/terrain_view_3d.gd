@@ -224,8 +224,10 @@ func _spawn_match() -> void:
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
 		enemy.destroyed.connect(_on_vehicle_destroyed)
+		enemy.drowned.connect(_on_vehicle_drowned)
 	if controller.vehicle != null:
 		controller.vehicle.destroyed.connect(_on_vehicle_destroyed)
+		controller.vehicle.drowned.connect(_on_vehicle_drowned)
 		# Debug-only: RF_DEBUG_WRECK=1 drops a tan and a green wreck next to the player for screenshots.
 		if OS.get_environment("RF_DEBUG_WRECK") == "1":
 			for i in 2:
@@ -414,6 +416,11 @@ func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
 ## names the record -- `0x444b68` / `0x444ac8` for every type -- played where the shot ended.
 func _on_impact_effect(record_addr: String, at: Vector2) -> void:
 	ExplosionEffect3D.spawn(self, pack, pack.get_explosion(record_addr), at)
+
+
+## A vehicle sank in deep water (FUN_0040cf90): no wreck, just the splash record 0x444ee8 where it went down.
+func _on_vehicle_drowned(v: Vehicle) -> void:
+	ExplosionEffect3D.spawn(self, pack, pack.get_explosion("0x444ee8"), v.position)
 
 
 func _on_mine_added(m: Mine) -> void:

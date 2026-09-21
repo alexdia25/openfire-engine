@@ -344,7 +344,7 @@ func _process(_delta: float) -> void:
 	if vehicle == null:
 		return
 	visible = vehicle.alive
-	global_position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX, vehicle.position.y)
+	global_position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
 	rotation_degrees.y = -vehicle.heading_deg + FACING_OFFSET_DEG
 	_refresh()
 

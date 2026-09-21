@@ -115,7 +115,7 @@ func _follow() -> void:
 	if vehicle == null or not is_instance_valid(vehicle):
 		return
 	visible = vehicle.alive
-	position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX, vehicle.position.y)
+	position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
 	rotation_degrees.y = -90.0 - vehicle.heading_deg
 
 
