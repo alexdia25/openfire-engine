@@ -64,6 +64,10 @@ var _boxes: Array = []           ## live ExplosionBox damage boxes, each with th
 var _box_tick_acc := 0.0
 var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
+## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
+var players := 1
+## Tiles with a mine on them (tile word bit 31, set by FUN_00409e30, shown on the radar in colour 0xc9).
+var mine_tiles: Dictionary = {}
 ## Vehicles the player can still deploy, by type index (Tank, Jeep, MSV, Heli) = the level's T, J, A, H (default 3, 8, 3, 3; FUN_00413f00 stores them
 ## at 0x443030..33; the per-player bytes are at 0x48c880 + player * 0xd0 + 0xb8 + type). 255 means unlimited. Creating a vehicle spends one
 ## (FUN_0040b6xx: `if (stock != 0xff && stock != 0) stock--`), a vehicle that docks at its base returns one (0x42f1c3: `if (stock != 0xff) stock++`);
@@ -90,6 +94,7 @@ func setup(shared_pack: Pack, shared_level: LevelData, shared_pack_path: String,
 	pack_path = shared_pack_path
 	world = world_root
 	_spawn_vehicle_and_enemies()
+	_place_start_mines()
 	_setup_target_pools()
 
 
@@ -122,6 +127,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	var vp: Dictionary = level.vehicle_params
 	vehicle_stock = [int(vp.get("T", 3)), int(vp.get("J", 8)), int(vp.get("A", 3)), int(vp.get("H", 3))]
 	_take_stock(vehicle.vehicle_type)   # the first vehicle is created like any other
+	vehicle.mine_layer_enabled = vehicle.mine_layer_enabled or players > 1
 
 	for other_sp in level.spawn_points:
 		if int(other_sp.get("team", 0)) == player_team:
@@ -261,10 +267,76 @@ func _process(delta: float) -> void:
 func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
 	var m := Mine.new()
 	m.dropper = dropper
+	mine_tiles[_tile_of(at)] = true
 	world.add_child(m)
 	m.position = at
 	mines.append(m)
 	mine_added.emit(m)
+
+
+func _tile_of(p: Vector2) -> Vector2i:
+	return Vector2i(int(floor(p.x / pack.tile_size_px)), int(floor(p.y / pack.tile_size_px)))
+
+
+## FUN_0042a030 (document 75): the mines scattered at the start. `count` comes from the level: M when it is set (not 0, not 255), else 4 * LEVL
+## when M is 255 and LEVL is above 5 (one player only; two players force M = 0). Candidates are tiles with no coastal id, outside the 3 x 3 tiles
+## around home, whose terrain art has bit 3 clear and is below 0x54: an art of 0x49-0x53 always counts, land arts (0, 3, 0x34-0x48) only when the tile
+## above, below, left or right is art 0x49-0x59 (a road or pad). Each mine lands at a random spot 6-30 units into a randomly chosen candidate tile and
+## a candidate is used once per pass. When the road-side list runs out, a second list (FUN_0042a430: the same tiles without the road-side test) supplies the rest.
+## UNTRACED: the random numbers (FUN_0041d3d0's sequence; a seeded generator here).
+func _place_start_mines() -> void:
+	var m := int(level.vehicle_params.get("M", 255))
+	var count := 0
+	if m != 0 and m != 255:
+		count = m
+	elif m == 255 and players == 1 and level.levl_value > 5:
+		count = level.levl_value * 4
+	if count <= 0:
+		return
+	var home := _tile_of(_player_spawn_px)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = level.tile_seed
+	for relaxed in [false, true]:   # the first pass (road-side tiles), then FUN_0042a430's relaxed list for what is left
+		if count <= 0:
+			break
+		var cands: Array[Vector2i] = []
+		for y in level.height:
+			for x in level.width:
+				if _mine_candidate(x, y, home, relaxed):
+					cands.append(Vector2i(x, y))
+		while count > 0 and not cands.is_empty():
+			var i := rng.randi_range(0, cands.size() - 1)
+			var t := cands[i]
+			cands.remove_at(i)
+			var at := Vector2(t.x * pack.tile_size_px + rng.randi_range(0, 24) + 6, t.y * pack.tile_size_px + rng.randi_range(0, 24) + 6)
+			if Water.class_at(level, pack, at) == 2:   # FUN_00409e30 refuses deep water
+				continue
+			_on_mine_dropped(at, null)
+			count -= 1
+
+
+func _mine_candidate(x: int, y: int, home: Vector2i, relaxed := false) -> bool:
+	if level.get_coastal_id(x, y) != 0:
+		return false
+	if not (x <= home.x - 2 or x >= home.x + 2 or y <= home.y - 2 or y >= home.y + 2):
+		return false
+	var art := level.get_art_id(x, y) & 0x7F
+	if (art & 8) != 0 or art >= 0x54:
+		return false
+	if art >= 0x49:
+		return true
+	if art != 3 and art != 0 and art < 0x34:
+		return false
+	if relaxed:   # FUN_0042a430 with its last argument 0: any such land tile
+		return true
+	for d in [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]:
+		var n: Vector2i = Vector2i(x, y) + d
+		if n.x < 0 or n.y < 0 or n.x >= level.width or n.y >= level.height:
+			continue
+		var na := level.get_art_id(n.x, n.y) & 0x7F
+		if na > 0x48 and na < 0x5A:
+			return true
+	return false
 
 
 ## Document 60. Mines age and blink (game/mine.gd). A vehicle that MOVES while its shape touches a mine's 32 x 32
@@ -289,6 +361,7 @@ func _update_mines(delta: float) -> void:
 
 func _detonate_mine(m: Mine) -> void:
 	mines.erase(m)
+	mine_tiles.erase(_tile_of(m.position))   # PLACEHOLDER: the flag's clearing is assumed (FUN_00409dd0 not read for it)
 	var at := m.position
 	m.queue_free()
 	_boxes.append({"box": ExplosionBox.new(pack.get_explosion("0x445058"), at), "destroyed": {}})

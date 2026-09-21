@@ -102,6 +102,9 @@ var weapon_cooldown_ticks: Array[int] = [20, 0]
 ## PLACEHOLDER (not traced): the enemy placeholder vehicles fire without limit, since nothing rearms them.
 var infinite_ammo := false
 var _rearm_acc := 0.0
+## The MSV's mine layer works only with two players: FUN_0040d820 starts with `if ((keys & 0x60) != 0 && 1 < DAT_00442fbc)` (document 75). The controller sets
+## this from its player count (1 today); RF_DEBUG_MINES=1 forces it on for testing.
+var mine_layer_enabled := OS.get_environment("RF_DEBUG_MINES") == "1"
 var hit_half_width := HIT_HALF_WIDTH
 var hit_half_length := HIT_HALF_LENGTH
 var hit_z: Array = HIT_Z
@@ -679,7 +682,7 @@ func _process(delta: float) -> void:
 	elif fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire()
 	_mine_cooldown_remaining = maxf(_mine_cooldown_remaining - delta, 0.0)
-	if vehicle_type == 2 and _wants_mine() and _mine_cooldown_remaining <= 0.0:
+	if vehicle_type == 2 and mine_layer_enabled and _wants_mine() and _mine_cooldown_remaining <= 0.0:
 		_drop_mine()
 
 	queue_redraw()

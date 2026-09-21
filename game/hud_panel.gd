@@ -4,7 +4,7 @@ extends Control
 ## 144 x 56), the fuel bar (kind 5) and the ammunition bars (kind 4; the Jeep's 16 missile pips, kind 7) at the rectangles of the vehicle's record, the
 ## radar window (kind 6) or the Jeep's compass (kind 8). A bar's fill eases 0.6 px a tick toward the value; its colour steps down as it empties (fuel:
 ## flashing when nearly empty). NOT drawn: the compass's per-value palette, the radar's grid and brackets and ping, the panel's slide-in, and the
-## vehicle-stock counts of template slot 2 (`FUN_004116a0`). UNVERIFIED: the bar colours (the words at 0x446760 / 0x446778 read as 15-bit RGB, document 70).
+## vehicle-stock counts of template slot 2 (`FUN_004116a0`). The bar colours are the nearest palette colours to the 15-bit words at 0x446760 / 0x446778 (document 74).
 ## The scale (3 px per original pixel) and the screen position are the port's choice.
 
 const SCALE := 3
@@ -36,8 +36,9 @@ func setup(controller: MatchController) -> void:
 	size = Vector2(144, 56) * SCALE
 
 
-static func _rgb555(w: int) -> Color:
-	return Color(((w >> 10) & 31) / 31.0, ((w >> 5) & 31) / 31.0, (w & 31) / 31.0)
+## A bar colour (document 74): the game turns the 15-bit word into the nearest colour of its palette; build_pack.py has done that (`*_rgb`).
+static func _rgb(c: Array) -> Color:
+	return Color8(int(c[0]), int(c[1]), int(c[2]))
 
 
 func _atlas(sprite_id: String) -> AtlasTexture:
@@ -50,7 +51,7 @@ func _atlas(sprite_id: String) -> AtlasTexture:
 
 func _add_bar(kind: int, slot: int, rect: Array) -> void:
 	var bg := ColorRect.new()
-	bg.color = _rgb555(int(mc.pack.hud_panels["fuel_colour_words"]["empty"]))
+	bg.color = _rgb(mc.pack.hud_panels["fuel_rgb"]["empty"])
 	bg.position = Vector2(float(rect[0]), float(rect[1])) * SCALE
 	bg.size = Vector2(float(rect[2] - rect[0] + 1), float(rect[3] - rect[1] + 1)) * SCALE
 	add_child(bg)
@@ -129,21 +130,21 @@ func _update_bar(b: Dictionary, v: Vehicle, delta: float) -> void:
 	var hp: Dictionary = mc.pack.hud_panels
 	var key := "6"
 	if int(b["kind"]) == 5:   # fuel: FUN_00411f80
-		var words: Dictionary = hp["fuel_colour_words"]
+		var words: Dictionary = hp["fuel_rgb"]
 		if f < span / 4.0:
 			key = "0" if f < span / 8.0 else "2"
 			if f < span / 16.0 and int(Time.get_ticks_msec() / 1000.0 * Vehicle.TICK_HZ) & 0x20 == 0:
 				key = "8"
 		elif f < span * 3.0 / 8.0:
 			key = "4"
-		b["fill"].color = _rgb555(int(words[key]))
+		b["fill"].color = _rgb(words[key])
 	else:   # ammunition: FUN_00411da0 (a different colour set, thresholds at 1/16, 1/4 and 3/16)
-		var words2: Dictionary = hp["ammo_colour_words"]
+		var words2: Dictionary = hp["ammo_rgb"]
 		if f < span / 4.0:
 			key = "0" if f < span / 16.0 else "2"
 		elif f < floorf(span / 16.0) * 3.0:
 			key = "4"
-		b["fill"].color = _rgb555(int(words2[key]))
+		b["fill"].color = _rgb(words2[key])
 	b["fill"].position = b["bg"].position
 	b["fill"].size = Vector2(minf(f, full) * SCALE, b["bg"].size.y)
 

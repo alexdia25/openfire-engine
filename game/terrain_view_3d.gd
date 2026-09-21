@@ -210,6 +210,8 @@ func _spawn_match() -> void:
 	controller.impact_effect.connect(_on_impact_effect)
 	controller.mine_added.connect(_on_mine_added)
 	controller.mine_exploded.connect(_on_mine_exploded)
+	for existing in controller.mines:   # the mines scattered at the start (document 75) were added before this connection
+		_on_mine_added(existing)
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)

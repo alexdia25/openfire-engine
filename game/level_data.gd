@@ -12,6 +12,7 @@ var art_grid: PackedByteArray = PackedByteArray()
 var spawn_points: Array = []
 var candidate_pools: Dictionary = {}
 var vehicle_params: Dictionary = {}  ## the VHCL chunk / filename brackets: T, J, A, H = vehicles of each type the player has, M (document 73)
+var levl_value: int = 0   ## the LEVL chunk, 0-8 (DAT_00442fc0): the level's difficulty number; with M unset it decides how many mines are scattered (document 75)
 var tile_seed: int = 0  ## sum of raw tile bytes -- seeds the per-tile decoration jitter (document 44)
 var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_parts()
 var _decoration_lookup: Dictionary = {}
@@ -39,6 +40,7 @@ func load_from(level_dir: String) -> bool:
 	decorations = doc.get("decorations", [])
 	tile_seed = int(doc.get("tile_seed", 0))
 	vehicle_params = doc.get("vehicle_params", {})
+	levl_value = int(doc.get("levl_value", 0)) if doc.get("levl_value", null) != null else 0
 
 	var af := FileAccess.open(art_path, FileAccess.READ)
 	if af == null:

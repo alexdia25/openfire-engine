@@ -4,7 +4,7 @@ extends TextureRect
 ## FUN_00412dc0's rules (land 0x87, water 0x91, per-coastal-id colours for the team buildings and structures, split by the tile's pool
 ## bits) through the game's palette (hud/radar.json, built by tools/build_pack.py), with the flag's blinking pole-and-pennant blip
 ## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off). NOT reproduced (untraced): the grid overlay (cel 1963), the corner-bracket
-## cursor (cel 1964), the Jeep's direction arrow, the tiles with bit 31 set (0xc9), the bitmap background outside the map, and the
+## cursor (cel 1964), the Jeep's direction arrow, the bitmap background outside the map, and the
 ## panel frame around it. The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
 var scale_px := 4
@@ -55,6 +55,8 @@ func _tile_colour(x: int, y: int) -> Color:
 	var art := lv.get_art_id(x, y) & 0x7F
 	if art == 1 or art == 2 or (art >= 4 and art <= 0x33):
 		return _col(int(_rd["water"]))
+	if mc.mine_tiles.has(Vector2i(x, y)):   # tile word bit 31 (a mine lies here, document 75)
+		return _col(int(_rd["flagged_tile"]))
 	return _col(int(_rd["land"]))
 
 
