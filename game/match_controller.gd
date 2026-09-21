@@ -527,12 +527,30 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 				v.zone_box = sh["box"]
 				return false
 			return true
+		"0x432d80":
+			_ruin_grab(v, t)
+			return true  # it answers 0: the tile's posts still block
 		"0x436a50":
 			if v.speed > crush_speed:
 				_crush_tile(t, id)
 				return false
 			return true
 	return true
+
+
+## FUN_00432d80, the callback of coastal id 63 (document 54): when a Jeep's shape meets one of the ruin's four posts, a flag
+## that sits on this tile (its grid cell is the tile), is not carried and has no "dropper" (flag +0x70) is attached to the Jeep,
+## unless the Jeep already carries a flag. So the Jeep takes the flag by touching the ruin, without entering it.
+func _ruin_grab(v: Vehicle, t: Vector2i) -> void:
+	if v.vehicle_type != 1 or match_finished or _carrying_any(v):
+		return
+	for flag in flags.values():
+		if flag.carrier != null or flag.dropper != null:
+			continue
+		var ft := Vector2i(int(floor(flag.position.x / pack.tile_size_px)), int(floor(flag.position.y / pack.tile_size_px)))
+		if ft == t:
+			_attach_flag(flag, v)
+			return
 
 
 ## FUN_0042e8c0 with damage 100 (0x640000): every tile in the table has at most 6 hit points, so it is destroyed.

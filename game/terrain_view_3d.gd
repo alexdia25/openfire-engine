@@ -68,6 +68,7 @@ var _map_size_px: Vector2 = Vector2.ZERO
 var _terrain_vp: SubViewport
 var _tile_renderer: TerrainTileRenderer
 var _decoration_field: DecorationField3D
+var _hud: PlaceholderHud                     ## port-only placeholder (document 66)
 
 
 func _ready() -> void:
@@ -217,6 +218,14 @@ func _spawn_match() -> void:
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
 	controller.match_over.connect(_on_match_over)
+	if controller.vehicle != null:
+		_hud = PlaceholderHud.new()
+		add_child(_hud)
+		_hud.setup(controller)
+		if OS.get_environment("RF_DEBUG_AUTOPLAY") == "1":
+			var ap := DebugAutoplay.new()
+			add_child(ap)
+			ap.setup(controller)
 	# Debug-only: RF_DEBUG_SWIM=<0..1> fixes the Jeep's swim immersion for screenshots.
 	if OS.get_environment("RF_DEBUG_SWIM") != "" and controller.vehicle != null:
 		controller.vehicle.swim_target = float(OS.get_environment("RF_DEBUG_SWIM"))
@@ -275,13 +284,8 @@ func _on_player_type_changed(v: Vehicle) -> void:
 
 ## The match ended (document 57): a placeholder banner (the original fades to its score screen).
 func _on_match_over(winner_idx: int) -> void:
-	var layer := CanvasLayer.new()
-	add_child(layer)
-	var label := Label.new()
-	label.text = "%s WINS  -  flag captured" % ("TAN" if winner_idx == 0 else "GREEN")
-	label.add_theme_font_size_override("font_size", 40)
-	label.position = Vector2(60, 40)
-	layer.add_child(label)
+	if _hud != null:
+		_hud.show_win(winner_idx)
 
 
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
