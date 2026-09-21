@@ -10,6 +10,10 @@ const SHELL_ID := "projectile.shell.01"
 const SHADOW_ID := "effect.shadow.hard.projectile_shell"
 const QUAD_SIZE := 4.0
 const SHADOW_ALPHA := 5.0 / 32.0
+## A projectile's shadow object (class 4, update FUN_00409bd0) sits at the projectile's position plus (0.332 x height,
+## -0.5 x height) on the ground (document 63; earlier versions drew it straight below).
+const SHADOW_DX := 85.0 / 256.0
+const SHADOW_DY := -0.5
 
 const HEIGHT_PX := 10.0  ## fallback sphere only (placeholder)
 ## The Tank shell leaves the muzzle 7 units up and flies level (pitch 0: the velocity is (0, -speed, 0)
@@ -28,6 +32,7 @@ var _body: MeshInstance3D
 var _body_mat: StandardMaterial3D
 var _shadow: MeshInstance3D
 var _shown_frame := -1
+var _shadow_offset := Vector3.ZERO
 var _shadow_root: Node3D          ## holds the flat shadow parts of a projectile that changes height
 var _mesh: MeshInstance3D
 var _height := HEIGHT_PX
@@ -50,6 +55,7 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 		return
 
 	if pack != null and not pack.get_sprite(SHELL_ID).is_empty():
+		_shadow_offset = Vector3(SHADOW_DX * 7.0, 0.0, SHADOW_DY * 7.0)
 		_add_quad(pack, SHADOW_ID, -SHELL_HEIGHT_PX + 0.5, true)
 		_add_quad(pack, SHELL_ID, 0.0, false)
 		_height = SHELL_HEIGHT_PX
@@ -88,7 +94,8 @@ func _follow() -> void:
 	if projectile.vertical:
 		_height = maxf(projectile.z, 0.0) + VehicleBoxRender3D.GROUND_CLEARANCE_PX
 		if _shadow_root != null:
-			_shadow_root.position.y = -_height + 0.5
+			var zz := maxf(projectile.z, 0.0)
+			_shadow_root.position = Vector3(SHADOW_DX * zz, -_height + 0.5, SHADOW_DY * zz)
 	global_position = Vector3(projectile.position.x, _height, projectile.position.y)
 	if projectile.type_id != 0:
 		rotation_degrees.y = -90.0 - projectile.heading_deg
@@ -146,7 +153,7 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 			if shadow:
 				if _shadow_root == null:
 					_shadow_root = Node3D.new()
-					_shadow_root.position.y = -(projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX) + 0.5
+					_shadow_root.position = Vector3(SHADOW_DX * projectile.z, -(projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX) + 0.5, SHADOW_DY * projectile.z)
 					add_child(_shadow_root)
 				_shadow_root.add_child(mi)
 			else:
@@ -192,7 +199,7 @@ func _update_missile() -> void:
 	var yaw := -projectile.spin_deg
 	_body.position = Vector3(projectile.position.x, z + VehicleBoxRender3D.GROUND_CLEARANCE_PX, projectile.position.y)
 	_body.rotation_degrees.y = yaw
-	_shadow.position = Vector3(projectile.position.x + z, 0.5, projectile.position.y + z)
+	_shadow.position = Vector3(projectile.position.x + SHADOW_DX * z, 0.5, projectile.position.y + SHADOW_DY * z)
 	_shadow.rotation_degrees.y = yaw
 	var f := projectile.lob_frame() + (12 if projectile.team == "green" else 0)
 	if f != _shown_frame:
@@ -248,6 +255,7 @@ func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool) -> void
 	if is_shadow:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.albedo_color = Color(0.0, 0.0, 0.0, SHADOW_ALPHA)
+		mi.position = _shadow_offset
 	else:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	mi.material_override = mat

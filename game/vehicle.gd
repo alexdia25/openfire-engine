@@ -533,8 +533,8 @@ func _process(delta: float) -> void:
 ##  - it climbs 0.5 a tick to a height of 50 and stays there;
 ##  - it banks (state +0x88) toward +-3 steps while turning or strafing, at 0.02 a tick and back at 0.16, the turn
 ##    bank scaled by the speed below 1.0 (none while hovering); its nose pitch (obj +0x70) is 1.5 x its speed in
-##    steps. Both tilt the drawing (FUN_0041b590), and the bank / pitch SIGNS are chosen so that it rolls into a turn
-##    and dips its nose forward (not traced).
+##    steps. Both tilt the drawing (FUN_0041b590; the matrices at 0x458c38 / 0x458c60 make positive pitch dip the nose and
+##    a negative bank, the one a right turn sets, lower the right side: traced, document 63).
 const HELI_CEILING := 50.0
 const HELI_CLIMB_PER_TICK := 0x8000 / 65536.0
 const HELI_TURN_UP := 0x7ae / 65536.0

@@ -60,9 +60,12 @@ func _process(delta: float) -> void:
 ## (0x440708): two halves of a blade bar, cel 584 + team and cel 580 + team, each a quad over corners set 3 (0x4405a0:
 ## x +-13.6, y 0..-27.2 and 0..27.2, z 10) while the rotor runs at full speed (mode = rotor speed - 1 = 3 at 4.0), turning
 ## about the vertical axis by 4 steps of 5.625 degrees a tick (state +0x80 grows by state +0x84). The shadow is
-## cel 579 (flag 0x10) on the ground: x -12.75..13.6, y -19.55..34 (0x440df0), moved by the height in x and y as the
-## missile's shadow object is (an assumption for the Heli: its own shadow object was not read).
+## cel 579 (flag 0x10) on the ground: x -12.75..13.6, y -19.55..34 (0x440df0). Every shadow object (class 4, update
+## FUN_00409bd0) sits at the parent's position plus (0.332 x height, -0.5 x height): SHADOW_DX / SHADOW_DY. NOT DRAWN yet
+## (untraced draw details): the rotor's shadow frames 589-605 (0x440da8, chosen by the rotor angle) and the start-up slide.
 const ROTOR_SPEED_STEPS := 4.0
+const SHADOW_DX := 85.0 / 256.0   ## FUN_00409bd0: x offset = 85 * (z >> 8) in 16.16
+const SHADOW_DY := -0.5           ## y offset = -(z / 2)
 var _rotor: Node3D
 var _shadow: MeshInstance3D
 var _rotor_ticks := 0.0
@@ -114,7 +117,7 @@ func _animate_heli(delta: float) -> void:
 	_rotor.rotation_degrees.y = -step * 5.625
 	if _shadow != null and vehicle != null and is_instance_valid(vehicle):
 		var z := maxf(vehicle.z, 0.0)
-		_shadow.global_position = Vector3(vehicle.position.x + z, 0.5, vehicle.position.y + z)
+		_shadow.global_position = Vector3(vehicle.position.x + SHADOW_DX * z, 0.5, vehicle.position.y + SHADOW_DY * z)
 		_shadow.global_rotation_degrees = Vector3(0.0, -90.0 - vehicle.heading_deg, 0.0)
 		_shadow.visible = vehicle.alive
 
