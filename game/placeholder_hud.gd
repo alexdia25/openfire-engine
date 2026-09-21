@@ -25,6 +25,15 @@ func setup(controller: MatchController) -> void:
 	_keys.anchor_top = 1.0
 	_keys.anchor_bottom = 1.0
 	_keys.offset_top = -26.0
+	var radar := RadarView.new()  # traced content (documents 68, 69); its position and 4x scale are the port's
+	add_child(radar)
+	radar.setup(controller)
+	radar.anchor_top = 1.0
+	radar.anchor_bottom = 1.0
+	radar.offset_left = 12.0
+	radar.offset_top = -160.0 - 30.0
+	radar.offset_right = 12.0 + 128.0
+	radar.offset_bottom = -30.0
 	_banner = _label(Vector2(60, 90), 40)
 	_banner.visible = false
 

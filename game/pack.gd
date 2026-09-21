@@ -15,6 +15,7 @@ var coastal_shapes: Dictionary = {}      ## "<coastal_id>" -> {jitter, shapes[]}
 var projectile_types: Array = []       ## 12 entries (documents 46, 58)
 var projectile_descriptors: Dictionary = {}  ## "0x454580" -> parts with sprite ids
 var vehicle_types: Dictionary = {}    ## "0".."3" -> stats, collision shape, parts (document 57)
+var radar_data: Dictionary = {}         ## document 69: radar palette indices, their RGB, the flag blip
 var flag_data: Dictionary = {}          ## document 65: the capture flag's drawing and constants
 var water_tables: Dictionary = {}       ## document 62: coast shapes, boxes for FUN_0042f280
 var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
@@ -96,6 +97,11 @@ func load_from(dir: String) -> bool:
 		if vdoc is Dictionary:
 			vehicle_types = vdoc.get("types", {})
 
+	var radar_path := dir.path_join("hud/radar.json")
+	if FileAccess.file_exists(radar_path):
+		var rdoc: Variant = _read_json(radar_path)
+		if rdoc is Dictionary:
+			radar_data = rdoc
 	var flag_path := dir.path_join("markers/flag.json")
 	if FileAccess.file_exists(flag_path):
 		var fdoc: Variant = _read_json(flag_path)
