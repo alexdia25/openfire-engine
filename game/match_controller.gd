@@ -134,6 +134,8 @@ func _spawn_vehicle_and_enemies() -> void:
 		enemy.position = (Vector2(float(other_sp.get("x", 0)), float(other_sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 		enemy.target = vehicle
 		enemy.shot.connect(_on_vehicle_shot.bind(enemy))
+		enemy.destroyed.connect(_drop_carried_flags)
+		enemy.drowned.connect(_drop_carried_flags)
 		enemy_vehicles.append(enemy)
 
 
@@ -552,7 +554,18 @@ func _crush_tile(t: Vector2i, _id: int) -> void:
 
 
 ## No life system is traced yet (NEXT_STEPS): the player simply respawns at the start point.
-func _on_player_destroyed(_v: Vehicle) -> void:
+## A vehicle that dies leaves the flag it carries where it hangs (document 57: "a Jeep that dies while carrying leaves the
+## flag where it is"). This must happen at the moment of death: the player respawns at once, so waiting for the per-frame
+## check would let the flag ride the new vehicle back to the home tile (and win the match).
+func _drop_carried_flags(v: Vehicle) -> void:
+	for f in flags.values():
+		if f.carrier == v:
+			f.carrier = null
+			f.dropper = v
+
+
+func _on_player_destroyed(v: Vehicle) -> void:
+	_drop_carried_flags(v)
 	vehicle.respawn(_player_spawn_px)
 
 
