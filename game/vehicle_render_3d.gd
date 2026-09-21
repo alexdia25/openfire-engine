@@ -56,18 +56,13 @@ func _process(delta: float) -> void:
 		_animate_heli(delta)
 
 
-## The Heli's rotor and ground shadow (document 63). The rotor is the object the Heli descriptor's next-link points at
+## The Heli's rotor (document 63). A LIVE Heli has no shadow: the only code that creates a shadow object for it is its dying handler
+## (document 63, "Shadows"), so none is drawn here; it belongs with the dying sequence. The rotor is the object the Heli descriptor's next-link points at
 ## (0x440708): two halves of a blade bar, cel 584 + team and cel 580 + team, each a quad over corners set 3 (0x4405a0:
 ## x +-13.6, y 0..-27.2 and 0..27.2, z 10) while the rotor runs at full speed (mode = rotor speed - 1 = 3 at 4.0), turning
-## about the vertical axis by 4 steps of 5.625 degrees a tick (state +0x80 grows by state +0x84). The shadow is
-## cel 579 (flag 0x10) on the ground: x -12.75..13.6, y -19.55..34 (0x440df0). Every shadow object (class 4, update
-## FUN_00409bd0) sits at the parent's position plus (0.332 x height, -0.5 x height): SHADOW_DX / SHADOW_DY. NOT DRAWN yet
-## (untraced draw details): the rotor's shadow frames 589-605 (0x440da8, chosen by the rotor angle) and the start-up slide.
+## about the vertical axis by 4 steps of 5.625 degrees a tick (state +0x80 grows by state +0x84).
 const ROTOR_SPEED_STEPS := 4.0
-const SHADOW_DX := 85.0 / 256.0   ## FUN_00409bd0: x offset = 85 * (z >> 8) in 16.16
-const SHADOW_DY := -0.5           ## y offset = -(z / 2)
 var _rotor: Node3D
-var _shadow: MeshInstance3D
 var _rotor_ticks := 0.0
 
 
@@ -94,32 +89,12 @@ func _build_heli_extras() -> void:
 		mat.albedo_texture = tex
 		mi.material_override = mat
 		_rotor.add_child(mi)
-	var sp := _pack.get_sprite("effect.shadow.hard.heli_body")
-	if not sp.is_empty():
-		var stex := _pack.get_texture(int(sp.get("page", 0)))
-		_shadow = MeshInstance3D.new()
-		_shadow.top_level = true
-		_shadow.mesh = _quad([[-12.75, -19.55, 0.0], [13.6, -19.55, 0.0], [13.6, 34.0, 0.0], [-12.75, 34.0, 0.0]], sp, stex)
-		var smat := StandardMaterial3D.new()
-		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		smat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		smat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		smat.albedo_texture = stex
-		smat.albedo_color = Color(0.0, 0.0, 0.0, 5.0 / 32.0)
-		_shadow.material_override = smat
-		add_child(_shadow)
 
 
 func _animate_heli(delta: float) -> void:
 	_rotor_ticks += delta * Vehicle.TICK_HZ
 	var step := int(floorf(_rotor_ticks * ROTOR_SPEED_STEPS)) & 63
 	_rotor.rotation_degrees.y = -step * 5.625
-	if _shadow != null and vehicle != null and is_instance_valid(vehicle):
-		var z := maxf(vehicle.z, 0.0)
-		_shadow.global_position = Vector3(vehicle.position.x + SHADOW_DX * z, 0.5, vehicle.position.y + SHADOW_DY * z)
-		_shadow.global_rotation_degrees = Vector3(0.0, -90.0 - vehicle.heading_deg, 0.0)
-		_shadow.visible = vehicle.alive
 
 
 ## Per-tick part animation, read from the type's draw callbacks (document 59). Only what the callbacks do to the
