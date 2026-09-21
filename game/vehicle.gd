@@ -211,6 +211,76 @@ func _apply_type() -> void:
 
 ## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
 ## FUN_00415b00) is not, so only the Tank fires.
+## The Tank's turret and gun elevation (FUN_0040d460, FUN_0040d240, FUN_00402dc0; document 64).
+##  - state +0x58 is the turret's angle from the hull's heading (clockwise), free over the full circle; while the turret-left
+##    (0x4000) or turret-right (0x8000) input is held it moves 0.3 steps (1.69 degrees) a tick; any other of the bits
+##    0xd000 (0x1000) sends it back to 0; with none of them held it keeps its angle. Shots leave along heading + angle.
+##  - state +0x50 is the gun's elevation (raised 25 degrees at most) and follows state +0x54, its target, at the same rate.
+##    The first fire button (level) sets the target 0, the second (raised) sets it to 25 degrees; a shot needs the gun to be
+##    exactly at 0 (pitch 0) or at 25 (pitch 40 degrees up, shell type 0), otherwise the request waits (state +0x60) and is
+##    made again the tick the gun arrives. The gun STAYS raised until a level shot is asked for.
+const TANK_TURN_STEPS := 0x4ccc / 65536.0     ## 0.3 steps a tick
+const TANK_RAISE_DEG := 25.0                  ## 0x3b8e39 = 335 degrees: 25 up
+const TANK_RAISED_PITCH_DEG := 40.0           ## DAT_00445484 = 0x38e38f: 40 up
+var turret_deg := 0.0
+var gun_elev_deg := 0.0
+var _turret_target := 0.0
+var _gun_target := 0.0
+var _fire_pending := false
+
+
+## Seams a non-player controller overrides (like _get_controls): the turret-left / turret-right / recentre inputs
+## (bits 0x4000 / 0x8000 / 0x1000) and the second, raised, fire button.
+func _aim_keys() -> Array:
+	return [Input.is_key_pressed(KEY_Q), Input.is_key_pressed(KEY_E), Input.is_key_pressed(KEY_R)]
+
+
+func _wants_raised() -> bool:
+	return Input.is_key_pressed(KEY_Z)
+
+
+## A point (x, y, z), y = minus forward, turned by `a` radians about the lateral axis with the matrix of FUN_0041ae10
+## ([1 0 0; 0 c s; 0 -s c] on a row vector): positive is downward.
+func _pitch_point(p: Vector3, a: float) -> Vector3:
+	return Vector3(p.x, p.y * cos(a) - p.z * sin(a), p.y * sin(a) + p.z * cos(a))
+
+
+func _tank_tick(delta: float) -> void:
+	var ticks := delta * TICK_HZ
+	var step := TANK_TURN_STEPS * 5.625 * ticks
+	var keys := _aim_keys() if vehicle_type == 0 else [false, false, false]
+	var left: bool = keys[0]
+	var right: bool = keys[1]
+	var recentre: bool = keys[2]
+	if left != right or recentre:
+		if left and not recentre:
+			_turret_target = turret_deg - step
+		elif right and not recentre:
+			_turret_target = turret_deg + step
+		else:
+			_turret_target = 0.0
+	var d := wrapf(_turret_target - turret_deg, -180.0, 180.0)
+	turret_deg = fposmod(turret_deg + clampf(d, -step, step), 360.0)
+	gun_elev_deg = move_toward(gun_elev_deg, _gun_target, step)
+	if _fire_pending and gun_elev_deg == _gun_target:
+		_fire_pending = false
+		_tank_trigger(_gun_target > 0.0)
+
+
+## One press of a fire button (FUN_0040d240). `raised` is the second button.
+func _tank_trigger(raised: bool) -> void:
+	_gun_target = TANK_RAISE_DEG if raised else 0.0
+	if gun_elev_deg != 0.0 and gun_elev_deg != TANK_RAISE_DEG:
+		_fire_pending = true
+		return
+	if gun_elev_deg != _gun_target:
+		_fire_pending = true  # the gun has to move first
+		return
+	if _fire_cooldown_remaining <= 0.0:
+		_fire_pending = false
+		_fire()
+
+
 func fire_enabled() -> bool:
 	return vehicle_type == 0 or vehicle_type == 1 or vehicle_type == 2
 
@@ -251,19 +321,49 @@ func _fire() -> void:
 	var spec := {"team": team, "heading": heading_deg}
 	if vehicle_type == 0:
 		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
+		# FUN_0040d240 (document 64): the shot goes along the hull heading plus the turret angle (state +0x58). The muzzle is
+		# the point (0, -6.75, 0) turned by the shot's pitch (a raised gun: -40 degrees, i.e. 40 degrees up) plus (0, -5.25, 7).
+		var h := heading_deg + turret_deg
+		var hr := deg_to_rad(h)
+		var shot_fwd := Vector2(cos(hr), sin(hr))
+		var raised := gun_elev_deg > 0.0
+		var reach := 12.0
+		var height := MUZZLE_HEIGHT_PX
+		if raised:
+			var pr := deg_to_rad(TANK_RAISED_PITCH_DEG)
+			reach = 6.75 * cos(pr) + 5.25
+			height = 6.75 * sin(pr) + 7.0
+			spec["pitch_deg"] = -TANK_RAISED_PITCH_DEG
+		spec["heading"] = h
 		spec["type"] = 0
-		spec["position"] = position + fwd * MUZZLE_OFFSET_PX
-		spec["z"] = MUZZLE_HEIGHT_PX
-		spec["flash"] = {"record": "0x445138", "offset": Vector3(0.0, MUZZLE_OFFSET_PX, MUZZLE_HEIGHT_PX)}
+		spec["position"] = position + shot_fwd * reach
+		spec["z"] = height + z
+		spec["flash"] = {"record": "0x445138", "yaw": turret_deg,
+				"offset": Vector3(reach * sin(deg_to_rad(turret_deg)), reach * cos(deg_to_rad(turret_deg)), height + z)}
 	elif vehicle_type == 2:
 		if _salvo_reload > 0.0:
 			return
 		var x: float = MSV_SALVO_X[_salvo_index]
 		_fire_cooldown_remaining = 30.0 / TICK_HZ
-		spec["type"] = 8
-		spec["position"] = position + fwd * 8.96 + right * x
-		spec["z"] = 10.54
-		spec["flash"] = {"record": "0x4450d8", "offset": Vector3(x, -7.53, 11.05)}
+		# FUN_0040d520 (document 64): the two points (0, -15, -1) (rocket) and (0, 1.5, -1) (back-blast) are turned by the
+		# shot's pitch (level: 1.744 degrees down; raised: 40 degrees up), then the salvo's offset (x, 6, 12) is added.
+		# The rocket type is 8, or 9 when raised; FUN_00415480 then turns its (x, y, 0) by the pitch's TABLE row (a step of
+		# 5.625 degrees, -45 for the raised gun) and adds the height again, so the raised rocket leaves from (x, 4.3 ahead, 25.2).
+		var raised := gun_elev_deg > 0.0
+		var a := deg_to_rad(-TANK_RAISED_PITCH_DEG if raised else 1.744)
+		var p0 := _pitch_point(Vector3(0.0, -15.0, -1.0), a) + Vector3(x, 6.0, 12.0)
+		var p1 := _pitch_point(Vector3(0.0, 1.5, -1.0), a) + Vector3(x, 6.0, 12.0)
+		var launch_y := p0.y
+		var launch_z := p0.z
+		if raised:
+			var row := deg_to_rad(-45.0)  # table row 56 (0x38e38f >> 16)
+			launch_z = p0.y * sin(row) + p0.z
+			launch_y = p0.y * cos(row)
+			spec["pitch_deg"] = -TANK_RAISED_PITCH_DEG
+		spec["type"] = 9 if raised else 8
+		spec["position"] = position + fwd * -launch_y + right * x
+		spec["z"] = launch_z + z
+		spec["flash"] = {"record": "0x4450d8", "offset": Vector3(x, -p1.y, p1.z + z)}
 		_salvo_index += 1
 		if _salvo_index >= 3:
 			_salvo_index = 0
@@ -452,6 +552,11 @@ func respawn(at: Vector2) -> void:
 ## Port-only convenience (the original picks a vehicle at the base, FUN_0040b400; document 57): become another
 ## type in place, with that type's numbers and full hit points and fuel.
 func _reset_water() -> void:
+	turret_deg = 0.0
+	gun_elev_deg = 0.0
+	_turret_target = 0.0
+	_gun_target = 0.0
+	_fire_pending = false
 	heli_omega = 0.0
 	heli_vel = Vector2.ZERO
 	bank_steps = 0.0
@@ -513,7 +618,13 @@ func _process(delta: float) -> void:
 
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
 	_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
-	if fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
+	if vehicle_type == 0 or vehicle_type == 2:
+		_tank_tick(delta)
+		if _wants_to_fire():
+			_tank_trigger(false)
+		elif _wants_raised():
+			_tank_trigger(true)
+	elif fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire()
 	_mine_cooldown_remaining = maxf(_mine_cooldown_remaining - delta, 0.0)
 	if vehicle_type == 2 and _wants_mine() and _mine_cooldown_remaining <= 0.0:
@@ -587,7 +698,7 @@ func _heli_weapons(delta: float) -> void:
 	if _heli_ready[_heli_slot] > 0.0:
 		return
 	var down := _debug_fire or Input.is_action_pressed("ui_accept")
-	var level := Input.is_key_pressed(KEY_Z)
+	var level := _wants_raised()
 	if not (down or level):
 		return
 	_heli_ready[_heli_slot] = float(HELI_SLOT_COOLDOWN[_heli_slot]) / TICK_HZ
@@ -618,7 +729,8 @@ func _process_heli(delta: float) -> void:
 	var controls := _get_controls()
 	var strafe := 0.0
 	if not _debug_drive:
-		strafe = float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
+		var ak := _aim_keys()
+		strafe = float(ak[1]) - float(ak[0])
 	var thrust := controls.y
 	if thrust > 0.0:
 		speed = minf(speed + accel * delta, max_speed)

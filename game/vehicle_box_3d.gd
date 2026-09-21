@@ -227,10 +227,12 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	# Built once, not per-frame like the Sprite3D faces' _apply_cel: a vehicle's team never
 	# changes after spawn, and rebuilding a SurfaceTool mesh every frame (unlike just swapping
 	# a Sprite3D's texture/region) would be real, needless per-frame cost for no visual benefit.
+	_turret_pivot = Node3D.new()
+	add_child(_turret_pivot)
 	for i in TURRET_PARTS.size():
 		var part: Dictionary = TURRET_PARTS[i]
 		var mesh_instance := MeshInstance3D.new()
-		add_child(mesh_instance)
+		_turret_pivot.add_child(mesh_instance)
 		_turret_meshes.append(mesh_instance)
 		var cel := _turret_cel(part)
 		if debug_part_map:
@@ -340,9 +342,54 @@ func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index
 	mesh_instance.material_override = mat
 
 
+## The turret and the barrel cluster (FUN_00402dc0, document 64). Everything in the turret descriptor turns with the turret
+## angle (state +0x58, added to the hull's heading for the second draw); the 7 corners 15-21 (the barrel's tip and the
+## muzzle ring) are `R(elevation) * base + offset`, where R turns about the lateral axis by the elevation angle
+## (state +0x50; a raised gun is 335 degrees, i.e. -25) with the matrix [1 0 0; 0 c s; 0 -s c] of FUN_0041ae10 applied
+## as a row vector (a nose point (0, -1, 0) goes to height -s). `TIP_BASE` / `TIP_OFFSET` are the tables at 0x43e640 /
+## 0x43e40c (units; y = minus forward); the scale to this file's pixel-like units is 8/3, axes (x, z, y).
+const TIP_BASE := [Vector3(-2.184, -6.75, 0.0), Vector3(0.0, -6.75, 2.0), Vector3(2.207, -6.75, 0.0),
+		Vector3(-1.0, -6.75, 1.6), Vector3(1.0, -6.75, 1.6), Vector3(1.0, -6.75, -0.5), Vector3(-1.0, -6.75, -0.5)]
+const TIP_OFFSET := Vector3(0.0, -5.25, 7.0)
+const TIP_SCALE := 8.0 / 3.0
+var _turret_pivot: Node3D
+var _elev_shown := 0.0
+
+
+func _cluster(elev_deg: float) -> Array:
+	var a := deg_to_rad(-elev_deg)
+	var c := cos(a)
+	var s := sin(a)
+	var out := []
+	for b in TIP_BASE:
+		var y: float = b.y * c - b.z * s
+		var z: float = b.y * s + b.z * c
+		out.append(Vector3(b.x + TIP_OFFSET.x, z + TIP_OFFSET.z, y + TIP_OFFSET.y) * TIP_SCALE)
+	return out
+
+
+## The corner list of turret part `i` for the current elevation: parts 5-7 (the two barrel panels and the ring) use the
+## cluster, the rest are static.
+func _turret_corners(i: int) -> Array:
+	if _elev_shown == 0.0 or i < 5:
+		return TURRET_PARTS[i]["corners"]
+	var cl := _cluster(_elev_shown)
+	match i:
+		5:
+			return [TURRET_PARTS[5]["corners"][0], cl[2], cl[1], TURRET_PARTS[5]["corners"][3]]
+		6:
+			return [TURRET_PARTS[6]["corners"][0], cl[0], cl[1], TURRET_PARTS[6]["corners"][3]]
+	return [cl[3], cl[4], cl[5], cl[6]]
+
+
 func _process(_delta: float) -> void:
 	if vehicle == null:
 		return
+	_turret_pivot.rotation_degrees.y = -vehicle.turret_deg
+	var e := snappedf(vehicle.gun_elev_deg, 0.1)
+	if e != _elev_shown:
+		_elev_shown = e
+		_rebuild_turret_parts()
 	visible = vehicle.alive
 	global_position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
 	rotation_degrees.y = -vehicle.heading_deg + FACING_OFFSET_DEG
@@ -361,7 +408,7 @@ func _turret_cel(part: Dictionary) -> int:
 
 func _rebuild_turret_parts() -> void:
 	for i in _turret_meshes.size():
-		_build_warped_mesh(_turret_meshes[i], TURRET_PARTS[i]["corners"], _turret_cel(TURRET_PARTS[i]))
+		_build_warped_mesh(_turret_meshes[i], _turret_corners(i), _turret_cel(TURRET_PARTS[i]))
 
 
 ## Sprite id of a cel: the named ones, else the variant-2 ("yellow") id of the base cel it came from.

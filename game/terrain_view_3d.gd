@@ -221,6 +221,14 @@ func _spawn_match() -> void:
 	if OS.get_environment("RF_DEBUG_SWIM") != "" and controller.vehicle != null:
 		controller.vehicle.swim_target = float(OS.get_environment("RF_DEBUG_SWIM"))
 		controller.vehicle.swim_amount = controller.vehicle.swim_target
+	# Debug-only: RF_DEBUG_TURRET=<degrees> and RF_DEBUG_ELEV=<0..25> set the Tank's turret angle and gun elevation.
+	if controller.vehicle != null:
+		if OS.get_environment("RF_DEBUG_TURRET") != "":
+			controller.vehicle.turret_deg = float(OS.get_environment("RF_DEBUG_TURRET"))
+			controller.vehicle._turret_target = controller.vehicle.turret_deg
+		if OS.get_environment("RF_DEBUG_ELEV") != "":
+			controller.vehicle.gun_elev_deg = float(OS.get_environment("RF_DEBUG_ELEV"))
+			controller.vehicle._gun_target = controller.vehicle.gun_elev_deg
 	# Debug-only: RF_DEBUG_FLASH=1 holds the player in the hit-flash variant for screenshots.
 	if OS.get_environment("RF_DEBUG_FLASH") == "1" and controller.vehicle != null:
 		controller.vehicle.hit_flash_remaining = 99.0
@@ -298,7 +306,7 @@ func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 	var f: Dictionary = spec["flash"]
 	var o: Vector3 = f["offset"]
 	ExplosionEffect3D.spawn_attached(self, pack, pack.get_explosion(String(f["record"])), v,
-			Vector3(o.x, o.y, o.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX))
+			Vector3(o.x, o.y, o.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX), float(f.get("yaw", 0.0)))
 
 
 ## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, document 48) where it died.

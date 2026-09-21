@@ -55,6 +55,15 @@ func _get_controls() -> Vector2:
 	return Vector2(turn, thrust)
 
 
+## The placeholder AI aims with its hull only: no turret keys, no raised fire.
+func _aim_keys() -> Array:
+	return [false, false, false]
+
+
+func _wants_raised() -> bool:
+	return false
+
+
 func _wants_to_fire() -> bool:
 	if not alive or target == null or not is_instance_valid(target) or not target.alive:
 		return false

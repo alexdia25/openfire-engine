@@ -77,6 +77,7 @@ func lob_frame() -> int:
 ## speed * sin(pitch). A type without the ballistic flag (bit 1 of its flags) keeps its pitch (rounded down to a
 ## 5.625-degree step) and shrinks it toward 0 by the type's rate a tick; a ballistic type's pitch GROWS by the rate a
 ## tick, bending the shot down in an arc. A shot that reaches z < 0 has hit the ground.
+const Z_CEILING := 55.0
 var vertical := false
 var pitch_steps := 0.0
 var pitch_rate := 0.0            ## steps per tick
@@ -132,6 +133,11 @@ func _process(delta: float) -> void:
 		var p_rad := deg_to_rad(eff * 5.625)
 		position += Vector2(cos(rad), sin(rad)) * speed * cos(p_rad) * delta
 		z -= speed * sin(p_rad) * delta
+		if z > Z_CEILING:
+			# 0x370000: nothing rises above 55; a shot that hits the ceiling also has its pitch pulled toward 0 at its rate
+			z = Z_CEILING
+			if not ballistic:
+				pitch_steps = move_toward(pitch_steps, 0.0, pitch_rate * ticks)
 	else:
 		position += Vector2(cos(rad), sin(rad)) * speed * delta
 	_age_sec += delta

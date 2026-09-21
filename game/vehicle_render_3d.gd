@@ -158,15 +158,26 @@ func _animate() -> void:
 		# tick, FUN_0040d790) its two front corners (48, 49) slide: y = 11.25 - 6 + 6 * remaining / 40.
 		var fired: int = vehicle.salvo_index()
 		var slide: float = 6.0 * vehicle.salvo_reload_remaining() / 40.0
-		var key := [fired, roundf(slide * 8.0)]
+		var elev := snappedf(vehicle.gun_elev_deg, 0.1)
+		var key := [fired, roundf(slide * 8.0), elev]
 		if key != _anim_key:
 			_anim_key = key
-			var y := 5.25 + slide
-			var t: Dictionary = _pack.vehicle_types.get("2", {})
-			var corners: Array = (t["parts"][13]["corners"] as Array).duplicate(true)
-			corners[0][1] = y   # corner 49
-			corners[1][1] = y   # corner 48
-			_set_part_sprite(13, "vehicle.msv.p324.canisters_%d" % (3 - fired), corners)
+			var rack: Dictionary = _pack.vehicle_types.get("2", {}).get("rack", {})
+			if rack.is_empty():
+				return
+			# corners 44-51 = R(elevation) * base + (0, 6, 12); base y of corners 4 and 5 is -6 - n while reloading
+			var a := deg_to_rad(-elev)
+			var pts: Array = []
+			var off: Array = rack["offset"]
+			for i in 8:
+				var b: Array = (rack["base"] as Array)[i].duplicate()
+				if i == 4 or i == 5:
+					b[1] = -6.0 + slide
+				var y: float = b[1] * cos(a) - b[2] * sin(a)
+				var zz: float = b[1] * sin(a) + b[2] * cos(a)
+				pts.append([b[0] + off[0], y + off[1], zz + off[2]])
+			_set_part_sprite(2, _msv_plate_sprite(), [pts[0], pts[1], pts[2], pts[3]])
+			_set_part_sprite(13, "vehicle.msv.p324.canisters_%d" % (3 - fired), [pts[5], pts[4], pts[7], pts[6]])
 
 
 ## Redraws every flag-8 part in the current variant: the team's, or variant 2 while the hit flash lasts
@@ -181,6 +192,13 @@ func _redraw_team_parts() -> void:
 		var ids: Array = part["sprite_ids"]
 		var v := 2 if _flash else vehicle.player_index()
 		_set_part_sprite(i, String(ids[clampi(v, 0, ids.size() - 1)]), null)
+
+
+func _msv_plate_sprite() -> String:
+	var t: Dictionary = _pack.vehicle_types.get("2", {})
+	var ids: Array = t["parts"][2]["sprite_ids"]
+	var v := 2 if _flash else vehicle.player_index()
+	return String(ids[clampi(v, 0, ids.size() - 1)])
 
 
 func _update_ring(scale: float, swim: Dictionary) -> void:

@@ -31,6 +31,7 @@ signal tile_cleared  ## op 21 ran: the tile loses its decoration NOW; its result
 ## the vehicle's heading, and drawn turned with it.
 var follow: Vehicle = null
 var follow_offset := Vector3.ZERO
+var follow_yaw := 0.0  ## extra clockwise degrees (the Tank's turret angle)
 
 var _record: Dictionary
 var _pc := 0
@@ -85,11 +86,12 @@ func _add_part(data: Dictionary) -> void:
 
 
 static func spawn_attached(parent: Node, pack: Pack, record: Dictionary, vehicle: Vehicle,
-		offset: Vector3) -> ExplosionEffect3D:
+		offset: Vector3, yaw := 0.0) -> ExplosionEffect3D:
 	var fx := spawn(parent, pack, record, vehicle.position)
 	if fx != null:
 		fx.follow = vehicle
 		fx.follow_offset = offset
+		fx.follow_yaw = yaw
 		fx._follow()
 	return fx
 
@@ -103,7 +105,7 @@ func _follow() -> void:
 	var p := follow.position + fwd * follow_offset.y + right * follow_offset.x
 	position = Vector3(p.x, follow_offset.z, p.y)
 	# corners are (x right, y = -forward, z up): the same yaw the vehicle box uses
-	rotation_degrees.y = -90.0 - follow.heading_deg
+	rotation_degrees.y = -90.0 - follow.heading_deg - follow_yaw
 
 
 func _process(delta: float) -> void:
