@@ -193,13 +193,16 @@ func _missile_lands(p: Projectile) -> void:
 	var tsz := float(pack.tile_size_px)
 	var tx := int(floor(p.position.x / tsz))
 	var ty := int(floor(p.position.y / tsz))
-	var record := "0x444840"
+	# the impact table (document 50): 0x448970 for the Tank-shell-like types, 0x448988 for the rest; entry 0 ground,
+	# 1 water, 2 pavement
+	var shell_like: bool = (p.impact_table == "0x448970") and not p.lob
+	var record := "0x444740" if shell_like else "0x444840"
 	if Water.class_at(level, pack, p.position) != 0:
-		record = "0x4445e8"  # water (shallow counts: FUN_0042f5b0 samples the class around the point)
+		record = "0x4445b8" if shell_like else "0x4445e8"  # water (shallow counts: FUN_0042f5b0 samples the class around)
 	elif tx >= 0 and ty >= 0 and tx < level.width and ty < level.height:
 		var art := level.get_art_id(tx, ty) & 0x7F
 		if art > 0x48 and art < 0x54:
-			record = "0x444a30"
+			record = "0x444968" if shell_like else "0x444a30"
 	impact_effect.emit(record, p.position)
 
 
@@ -216,6 +219,8 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 		return
 	p.configure(pack, int(spec["type"]))
 	p.z = float(spec["z"])
+	if spec.has("pitch_deg"):
+		p.start_pitched(float(spec["pitch_deg"]), float(spec.get("bonus", 0.0)))
 	p.team = spec["team"]
 	p.heading_deg = float(spec["heading"])
 	p.global_position = spec["position"]
@@ -244,7 +249,7 @@ func _process(delta: float) -> void:
 		p.prev_checked = to
 		if _shell_hits_tile(p, from, to) or _shell_hits_vehicle(p, from, to):
 			p.queue_free()
-		elif p.lob and p.z < 0.0:
+		elif (p.lob or p.vertical) and p.z < 0.0:
 			_missile_lands(p)
 			p.queue_free()
 
@@ -471,7 +476,7 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 			for sh in info["shapes"]:
 				if not Collision.vehicle_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK, int(sh["layer"]), int(sh["mask"])):
 					continue
-				if not Collision.z_ranges_overlap(v.hit_z[0], v.hit_z[1], float(sh["z"][0]), float(sh["z"][1])):
+				if not Collision.z_ranges_overlap(v.hit_z[0] + v.z, v.hit_z[1] + v.z, float(sh["z"][0]), float(sh["z"][1])):
 					continue
 				var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
 				var hit := false
@@ -495,7 +500,7 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 	for other in [vehicle] + enemy_vehicles:
 		if other == null or other == v or not is_instance_valid(other) or not other.alive:
 			continue
-		if at.distance_to(other.position) > 40.0:
+		if at.distance_to(other.position) > 40.0 or absf(other.z - v.z) > 12.0:
 			continue
 		if Collision.polygons_hit(poly, other.hit_polygon()):
 			return true
@@ -783,10 +788,10 @@ func switch_player_vehicle() -> void:
 	var t := Vector2i(int(floor(vehicle.position.x / pack.tile_size_px)), int(floor(vehicle.position.y / pack.tile_size_px)))
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
 		return
-	vehicle.set_vehicle_type((vehicle.vehicle_type + 1) % 3)  # Tank, Jeep, MSV (the Heli needs flight)
+	vehicle.set_vehicle_type((vehicle.vehicle_type + 1) % 4)  # Tank, Jeep, MSV, Heli
 
 
-## Debug convenience (not in the original): become vehicle type `t` (0 Tank, 1 Jeep, 2 MSV) anywhere, at once, with
+## Debug convenience (not in the original): become vehicle type `t` (0 Tank, 1 Jeep, 2 MSV, 3 Heli) anywhere, at once, with
 ## fresh hit points and fuel. A flag carried by a non-Jeep is dropped, since only a Jeep can carry one (document 57).
 func debug_swap_vehicle(t: int) -> void:
 	if vehicle == null or match_finished or t == vehicle.vehicle_type:
@@ -801,7 +806,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and vehicle != null:
 		if event.keycode == KEY_B:
 			vehicle.toggle_swim()
-		elif event.keycode >= KEY_F1 and event.keycode <= KEY_F3:
+		elif event.keycode == KEY_X:
+			vehicle.toggle_heli_slot()
+		elif event.keycode >= KEY_F1 and event.keycode <= KEY_F4:
 			debug_swap_vehicle(event.keycode - KEY_F1)
 		elif event.keycode == KEY_V:
 			switch_player_vehicle()

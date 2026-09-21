@@ -350,6 +350,9 @@ func toggle_swim() -> void:
 func _update_water(delta: float) -> void:
 	if level == null or pack == null:
 		return
+	if vehicle_type == 3:
+		water_class = 0  # the Heli's record has no water handler (+0x4c is 0): FUN_0042f280 is never asked for it
+		return
 	var ticks := delta * TICK_HZ
 	water_class = Water.class_at(level, pack, position, hit_polygon(), z)
 	if swim_amount != swim_target:
@@ -449,6 +452,9 @@ func respawn(at: Vector2) -> void:
 ## Port-only convenience (the original picks a vehicle at the base, FUN_0040b400; document 57): become another
 ## type in place, with that type's numbers and full hit points and fuel.
 func _reset_water() -> void:
+	heli_omega = 0.0
+	heli_vel = Vector2.ZERO
+	bank_steps = 0.0
 	z = 0.0
 	water_class = 0
 	swim_target = 0.0
@@ -481,6 +487,11 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		return
 
+	if vehicle_type == 3:
+		_process_heli(delta)
+		queue_redraw()
+		return
+
 	var controls := _get_controls()
 	if vehicle_type == 1 and controls.y == 0.0 and controls.x != 0.0:
 		# the Jeep's own drive handler (FUN_0040db80, document 62): turning without a throttle key accelerates
@@ -509,6 +520,159 @@ func _process(delta: float) -> void:
 		_drop_mine()
 
 	queue_redraw()
+
+
+## The Heli (vehicle type 3; its drive handler FUN_0040e0e0, document 63). Flight, as traced:
+##  - the speed changes like the ground vehicles' (accelerate, brake, friction; record +0x168..0x174) but there is
+##    no terrain factor; the heading turns by an angular velocity `heli_omega` (steps of 5.625 degrees per tick) that
+##    follows +-0.75 (record +0x178) at 0.03 per tick per tick when it is building up and 0.12 when it is slowing or
+##    reversing (0x445498 / 0x44549c);
+##  - the flight direction is the heading rounded down to one of 64 steps; two more keys strafe sideways at 0.8
+##    units a tick (only while not turning), and the velocity the vehicle actually moves with follows the sum of
+##    those at 0.03 units per tick per tick (state +0x98 / +0x9c);
+##  - it climbs 0.5 a tick to a height of 50 and stays there;
+##  - it banks (state +0x88) toward +-3 steps while turning or strafing, at 0.02 a tick and back at 0.16, the turn
+##    bank scaled by the speed below 1.0 (none while hovering); its nose pitch (obj +0x70) is 1.5 x its speed in
+##    steps. Both tilt the drawing (FUN_0041b590), and the bank / pitch SIGNS are chosen so that it rolls into a turn
+##    and dips its nose forward (not traced).
+const HELI_CEILING := 50.0
+const HELI_CLIMB_PER_TICK := 0x8000 / 65536.0
+const HELI_TURN_UP := 0x7ae / 65536.0
+const HELI_TURN_DOWN := 0x1eb8 / 65536.0
+const HELI_STRAFE := 0xcccc / 65536.0
+const HELI_VEL_RATE := 0x7ae / 65536.0
+const HELI_BANK_STEPS := 3.0
+const HELI_BANK_RISE := 0x147a / 65536.0
+const HELI_BANK_FALL := 0x28f4 / 65536.0
+var heli_omega := 0.0            ## heading change, steps per tick
+var heli_vel := Vector2.ZERO     ## world velocity, units per tick
+var bank_steps := 0.0
+
+
+## Nose-down tilt in degrees: obj+0x70 = 1.5 x the speed (units per tick), as a count of 5.625-degree steps.
+func pitch_deg() -> float:
+	return speed / TICK_HZ * 1.5 * 5.625
+
+
+func bank_deg() -> float:
+	return bank_steps * 5.625
+
+
+func _dir_for(heading: float, offset_steps: int = 0) -> Vector2:
+	var idx := floori(fposmod(heading + 90.0, 360.0) / 5.625) + offset_steps
+	var h := deg_to_rad(idx * 5.625 - 90.0)
+	return Vector2(cos(h), sin(h))
+
+
+## The Heli's weapons (FUN_0040e600 and FUN_0040e7a0; document 63). Two slots, picked by `toggle_heli_slot()` (the third
+## button): 0 fires projectile type 7 every 15 ticks, 1 type 6 (a ballistic bomb) every 30. Either of two fire buttons
+## fires the selected slot from alternating left and right mounts at (+-9.35, 6.8 ahead, 0) of the Heli. The first
+## button (`Space`) is the downward one: guns fire 39.4 degrees down (pitch step 7) toed in by 0.5 step, bombs level; the
+## second (`Z`) fires level with no toe-in. The launcher's forward speed is added to the shot's. Not modelled: ammo (gun
+## 100, bomb 50), the sounds.
+const HELI_SLOT_COOLDOWN := [15.0, 30.0]
+var _heli_slot := 0
+var _heli_mount_left := false
+var _heli_ready := [0.0, 0.0]
+
+
+func toggle_heli_slot() -> void:
+	if vehicle_type == 3 and alive:
+		_heli_slot = 1 - _heli_slot
+
+
+func _heli_weapons(delta: float) -> void:
+	for i in 2:
+		_heli_ready[i] = maxf(_heli_ready[i] - delta, 0.0)
+	if _heli_ready[_heli_slot] > 0.0:
+		return
+	var down := _debug_fire or Input.is_action_pressed("ui_accept")
+	var level := Input.is_key_pressed(KEY_Z)
+	if not (down or level):
+		return
+	_heli_ready[_heli_slot] = float(HELI_SLOT_COOLDOWN[_heli_slot]) / TICK_HZ
+	var type := 7 if _heli_slot == 0 else 6
+	var mount := Vector2(-9.35 if _heli_mount_left else 9.35, 6.8)  # (x right, y ahead)
+	var toe := 0.0
+	var pitch := 0.0
+	if down:
+		toe = 0.5 * 5.625 if _heli_mount_left else -0.5 * 5.625
+		pitch = 7.0 * 5.625 if type == 7 else 0.0
+	var h := heading_deg + toe
+	var rad := deg_to_rad(h)
+	var fwd := Vector2(cos(rad), sin(rad))
+	var right := Vector2(-fwd.y, fwd.x)
+	var spec := {"team": team, "heading": h, "type": type, "z": z,
+			"position": position + fwd * mount.y + right * mount.x, "pitch_deg": pitch,
+			"bonus": maxf(speed, 0.0) / TICK_HZ}
+	if type == 6:
+		# the bomb's launch flash, record 0x445168, at the mount's second triple (x, 2.55 ahead, 0)
+		spec["flash"] = {"record": "0x445168", "offset": Vector3(mount.x, 2.55, z)}
+	_heli_mount_left = not _heli_mount_left
+	shot.emit(spec)
+
+
+func _process_heli(delta: float) -> void:
+	_heli_weapons(delta)
+	var ticks := delta * TICK_HZ
+	var controls := _get_controls()
+	var strafe := 0.0
+	if not _debug_drive:
+		strafe = float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
+	var thrust := controls.y
+	if thrust > 0.0:
+		speed = minf(speed + accel * delta, max_speed)
+	elif thrust < 0.0:
+		speed = maxf(speed - brake * delta, -reverse_max_speed)
+	else:
+		speed = move_toward(speed, 0.0, friction * delta)
+	# turning, or else strafing
+	var target_omega := 0.0
+	var bank_target := 0.0
+	var strafe_steps := 0
+	var turn := controls.x
+	if turn > 0.0:
+		target_omega = turn_rate_deg / 5.625 / TICK_HZ
+		bank_target = -HELI_BANK_STEPS
+	elif turn < 0.0:
+		target_omega = -turn_rate_deg / 5.625 / TICK_HZ
+		bank_target = HELI_BANK_STEPS
+	elif strafe != 0.0:
+		strafe_steps = 16 if strafe > 0.0 else -16
+		bank_target = -HELI_BANK_STEPS if strafe > 0.0 else HELI_BANK_STEPS
+	var fast := (target_omega >= 0.0 and heli_omega < 1.0 / 65536.0) or (target_omega < 1.0 / 65536.0 and heli_omega > 0.0)
+	heli_omega = move_toward(heli_omega, target_omega, (HELI_TURN_DOWN if fast else HELI_TURN_UP) * ticks)
+	heading_deg = fposmod(heading_deg + heli_omega * 5.625 * ticks, 360.0)
+	# bank
+	var speed_units := speed / TICK_HZ
+	if bank_target != 0.0 and strafe_steps == 0 and absf(speed_units) < 1.0:
+		bank_target *= speed_units
+	if bank_target != 0.0:
+		bank_steps = move_toward(bank_steps, bank_target, HELI_BANK_RISE * ticks)
+	else:
+		bank_steps = move_toward(bank_steps, 0.0, HELI_BANK_FALL * ticks)
+	# velocity toward forward speed plus strafe
+	var want := _dir_for(heading_deg) * speed_units
+	if strafe_steps != 0:
+		want += _dir_for(heading_deg, strafe_steps) * HELI_STRAFE
+	heli_vel.x = move_toward(heli_vel.x, want.x, HELI_VEL_RATE * ticks)
+	heli_vel.y = move_toward(heli_vel.y, want.y, HELI_VEL_RATE * ticks)
+	# climb
+	if z < HELI_CEILING:
+		z = minf(z + HELI_CLIMB_PER_TICK * ticks, HELI_CEILING)
+	# move (only tall things can stop it, and only while it is low)
+	moving = heli_vel != Vector2.ZERO or heli_omega != 0.0
+	if speed != 0.0:
+		fuel -= absf(speed) * delta / 32.0
+		if fuel <= 0.0:
+			fuel = 0.0
+			alive = false
+			destroyed.emit(self)
+			return
+	var target := position + heli_vel * ticks
+	if blocked_test.is_valid() and blocked_test.call(self, target, heading_deg):
+		return
+	position = target
 
 
 ## FUN_0040c390: the tile under the vehicle scales its speed caps -- 1.2x on pavement (art ids

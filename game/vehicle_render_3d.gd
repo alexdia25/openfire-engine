@@ -44,12 +44,79 @@ func setup(v: Vehicle, pack: Pack) -> void:
 		mi.material_override = mat
 		add_child(mi)
 		_parts.append({"mesh": mi, "mat": mat})
+	if v.vehicle_type == 3:
+		_build_heli_extras()
 	_follow()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_follow()
 	_animate()
+	if _type == 3 and _rotor != null:
+		_animate_heli(delta)
+
+
+## The Heli's rotor and ground shadow (document 63). The rotor is the object the Heli descriptor's next-link points at
+## (0x440708): two halves of a blade bar, cel 584 + team and cel 580 + team, each a quad over corners set 3 (0x4405a0:
+## x +-13.6, y 0..-27.2 and 0..27.2, z 10) while the rotor runs at full speed (mode = rotor speed - 1 = 3 at 4.0), turning
+## about the vertical axis by 4 steps of 5.625 degrees a tick (state +0x80 grows by state +0x84). The shadow is
+## cel 579 (flag 0x10) on the ground: x -12.75..13.6, y -19.55..34 (0x440df0), moved by the height in x and y as the
+## missile's shadow object is (an assumption for the Heli: its own shadow object was not read).
+const ROTOR_SPEED_STEPS := 4.0
+var _rotor: Node3D
+var _shadow: MeshInstance3D
+var _rotor_ticks := 0.0
+
+
+func _build_heli_extras() -> void:
+	var team := "green" if vehicle.player_index() == 1 else "tan"
+	_rotor = Node3D.new()
+	add_child(_rotor)
+	var halves := [
+		["vehicle.heli.rotor.b." + team, [[13.6, 0.0, 10.0], [13.6, -27.2, 10.0], [-13.6, -27.2, 10.0], [-13.6, 0.0, 10.0]]],
+		["vehicle.heli.rotor.a." + team, [[13.6, 27.2, 10.0], [13.6, 0.0, 10.0], [-13.6, 0.0, 10.0], [-13.6, 27.2, 10.0]]],
+	]
+	for h in halves:
+		var s := _pack.get_sprite(String(h[0]))
+		if s.is_empty():
+			continue
+		var tex := _pack.get_texture(int(s.get("page", 0)))
+		var mi := MeshInstance3D.new()
+		mi.mesh = _quad(h[1], s, tex)
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mat.albedo_texture = tex
+		mi.material_override = mat
+		_rotor.add_child(mi)
+	var sp := _pack.get_sprite("effect.shadow.hard.heli_body")
+	if not sp.is_empty():
+		var stex := _pack.get_texture(int(sp.get("page", 0)))
+		_shadow = MeshInstance3D.new()
+		_shadow.top_level = true
+		_shadow.mesh = _quad([[-12.75, -19.55, 0.0], [13.6, -19.55, 0.0], [13.6, 34.0, 0.0], [-12.75, 34.0, 0.0]], sp, stex)
+		var smat := StandardMaterial3D.new()
+		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		smat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		smat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		smat.albedo_texture = stex
+		smat.albedo_color = Color(0.0, 0.0, 0.0, 5.0 / 32.0)
+		_shadow.material_override = smat
+		add_child(_shadow)
+
+
+func _animate_heli(delta: float) -> void:
+	_rotor_ticks += delta * Vehicle.TICK_HZ
+	var step := int(floorf(_rotor_ticks * ROTOR_SPEED_STEPS)) & 63
+	_rotor.rotation_degrees.y = -step * 5.625
+	if _shadow != null and vehicle != null and is_instance_valid(vehicle):
+		var z := maxf(vehicle.z, 0.0)
+		_shadow.global_position = Vector3(vehicle.position.x + z, 0.5, vehicle.position.y + z)
+		_shadow.global_rotation_degrees = Vector3(0.0, -90.0 - vehicle.heading_deg, 0.0)
+		_shadow.visible = vehicle.alive
 
 
 ## Per-tick part animation, read from the type's draw callbacks (document 59). Only what the callbacks do to the
@@ -154,6 +221,13 @@ func _follow() -> void:
 	visible = vehicle.alive
 	position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
 	rotation_degrees.y = -90.0 - vehicle.heading_deg
+	if vehicle.vehicle_type == 3:
+		# the whole Heli tilts with its pitch and bank (FUN_0041b590; document 63)
+		rotation_degrees.x = -vehicle.pitch_deg()
+		rotation_degrees.z = vehicle.bank_deg()
+	else:
+		rotation_degrees.x = 0.0
+		rotation_degrees.z = 0.0
 
 
 func _quad(corners: Array, s: Dictionary, tex: Texture2D) -> ArrayMesh:

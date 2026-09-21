@@ -28,6 +28,7 @@ var _body: MeshInstance3D
 var _body_mat: StandardMaterial3D
 var _shadow: MeshInstance3D
 var _shown_frame := -1
+var _shadow_root: Node3D          ## holds the flat shadow parts of a projectile that changes height
 var _mesh: MeshInstance3D
 var _height := HEIGHT_PX
 
@@ -84,6 +85,10 @@ func _process(_delta: float) -> void:
 
 
 func _follow() -> void:
+	if projectile.vertical:
+		_height = maxf(projectile.z, 0.0) + VehicleBoxRender3D.GROUND_CLEARANCE_PX
+		if _shadow_root != null:
+			_shadow_root.position.y = -_height + 0.5
 	global_position = Vector3(projectile.position.x, _height, projectile.position.y)
 	if projectile.type_id != 0:
 		rotation_degrees.y = -90.0 - projectile.heading_deg
@@ -112,7 +117,7 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 			for q in part["corners"]:
 				var y: float = float(q[2])
 				if shadow:
-					y = -(projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX) + 0.5
+					y = 0.0  # placed by the shadow root, which follows the ground (_follow)
 				c.append(Vector3(q[0], y, q[1]))
 			var sx := float(sp["x"])
 			var sy := float(sp["y"])
@@ -138,7 +143,14 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 			else:
 				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 			mi.material_override = mat
-			add_child(mi)
+			if shadow:
+				if _shadow_root == null:
+					_shadow_root = Node3D.new()
+					_shadow_root.position.y = -(projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX) + 0.5
+					add_child(_shadow_root)
+				_shadow_root.add_child(mi)
+			else:
+				add_child(mi)
 			drew = true
 	return drew
 

@@ -213,7 +213,7 @@ func _spawn_match() -> void:
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
 		controller.vehicle.type_changed.connect(_on_player_type_changed)
-		var start_type: int = ["tank", "jeep", "msv"].find(OS.get_environment("RF_VEHICLE"))
+		var start_type: int = ["tank", "jeep", "msv", "heli"].find(OS.get_environment("RF_VEHICLE"))
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
 	controller.match_over.connect(_on_match_over)

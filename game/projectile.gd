@@ -72,6 +72,24 @@ func lob_frame() -> int:
 	return int(fmod(lob_t * (10922.0 / 65536.0), 12.0))
 
 
+## Pitched shots (the Heli's guns and bombs, document 63; FUN_00414b10). The velocity is (0, -speed, 0) turned by the
+## pitch (positive = downward) and then by the heading, so it moves speed * cos(pitch) along the heading and falls at
+## speed * sin(pitch). A type without the ballistic flag (bit 1 of its flags) keeps its pitch (rounded down to a
+## 5.625-degree step) and shrinks it toward 0 by the type's rate a tick; a ballistic type's pitch GROWS by the rate a
+## tick, bending the shot down in an arc. A shot that reaches z < 0 has hit the ground.
+var vertical := false
+var pitch_steps := 0.0
+var pitch_rate := 0.0            ## steps per tick
+var ballistic := false
+var impact_table := "0x448970"
+
+
+func start_pitched(pitch_deg: float, bonus_units_per_tick: float) -> void:
+	vertical = true
+	pitch_steps = pitch_deg / 5.625
+	speed += bonus_units_per_tick * TICK_HZ  # FUN_004155a0: the launcher's forward speed is added
+
+
 func configure(pack: Pack, type: int) -> void:
 	type_id = type
 	if type < pack.projectile_types.size():
@@ -79,6 +97,9 @@ func configure(pack: Pack, type: int) -> void:
 		speed = float(t["speed_units_per_tick"]) * TICK_HZ
 		damage = float(t["damage"])
 		lifetime_sec = float(t["lifetime_ticks"]) / TICK_HZ
+		ballistic = (int(t["flags"]) & 2) != 0
+		pitch_rate = float(t["pitch_rate_raw"]) / 65536.0
+		impact_table = String(t["impact_table"])
 const RADIUS_PX := 3.0
 
 const TEAM_COLOURS := {
@@ -101,7 +122,18 @@ func _process(delta: float) -> void:
 			queue_free()
 		return
 	var rad := deg_to_rad(heading_deg)
-	position += Vector2(cos(rad), sin(rad)) * speed * delta
+	if vertical:
+		var ticks := delta * TICK_HZ
+		if ballistic:
+			pitch_steps += pitch_rate * ticks
+		else:
+			pitch_steps = move_toward(pitch_steps, 0.0, pitch_rate * ticks)
+		var eff := pitch_steps if ballistic else floorf(pitch_steps)
+		var p_rad := deg_to_rad(eff * 5.625)
+		position += Vector2(cos(rad), sin(rad)) * speed * cos(p_rad) * delta
+		z -= speed * sin(p_rad) * delta
+	else:
+		position += Vector2(cos(rad), sin(rad)) * speed * delta
 	_age_sec += delta
 	if _age_sec >= lifetime_sec:
 		queue_free()
