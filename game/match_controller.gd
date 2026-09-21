@@ -978,22 +978,63 @@ func flag_action(v: Vehicle) -> void:
 			return
 
 
-## Port-only convenience: the original picks a vehicle at the base (FUN_0040b400, with per-type stock counts that
-## are not traced); here the player cycles Tank <-> Jeep while standing still on its own home tile.
+## The vehicle choice at the base (document 76). The original docks the vehicle, then a selection state (FUN_00418290 -> FUN_00417ad0) shows the four
+## types in a 2 x 2 grid: top row Heli, MSV, bottom row Tank, Jeep. The cursor starts on the first type (in order Tank, Jeep, MSV, Heli) whose stock is not 0 and
+## moves by the neighbour table at 0x4491c0 (+0x24..0x27 = left, right, up, down per type); a target with no stock is skipped by trying that target's
+## other-axis neighbours, and if none is in stock the cursor stays. A fire button confirms: the vehicle is created and one is taken from its stock.
+## PORT-ONLY: the docking is the `V` key while standing on the home tile (the original does it when the vehicle drives onto the pad), the keys are the arrows and Space / Enter,
+## and no cancel exists (the original's other two buttons lead to state 0x4180d0, untraced).
+const SELECT_NEIGHBOURS := [[0, 1, 3, 0], [0, 1, 2, 1], [3, 2, 2, 1], [3, 2, 3, 0]]   ## [left, right, up, down] for Tank, Jeep, MSV, Heli
+var selecting := false
+var selection := 0
+signal selection_changed()
+
+
 func switch_player_vehicle() -> void:
-	if vehicle == null or match_finished or vehicle.moving:
+	if vehicle == null or match_finished or vehicle.moving or selecting:
 		return
-	var t := Vector2i(int(floor(vehicle.position.x / pack.tile_size_px)), int(floor(vehicle.position.y / pack.tile_size_px)))
+	var t := _tile_of(vehicle.position)
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
 		return
-	# PLACEHOLDER (untraced): the next type in the cycle that is in stock; the vehicle being left goes back to stock
-	for step in range(1, 4):
-		var nt := (vehicle.vehicle_type + step) % 4
-		if vehicle_stock[nt] != 0:
-			_return_stock(vehicle.vehicle_type)
-			_take_stock(nt)
-			vehicle.set_vehicle_type(nt)  # Tank, Jeep, MSV, Heli
-			return
+	_return_stock(vehicle.vehicle_type)   # the docking (0x42f1b0)
+	selection = 0
+	for i in 4:
+		if vehicle_stock[i] != 0:
+			selection = i
+			break
+	selecting = true
+	vehicle.frozen = true
+	selection_changed.emit()
+
+
+## dir: 0 left, 1 right, 2 up, 3 down (the four direction bits 0x40000000, 0x80000000, 0x10000000, 0x20000000 of the original's input word).
+func select_move(dir: int) -> void:
+	if not selecting:
+		return
+	var cur := selection
+	var cand: int = SELECT_NEIGHBOURS[cur][dir]
+	if vehicle_stock[cand] == 0:
+		var alt: Array = [2, 3] if dir < 2 else [0, 1]
+		var first: int = SELECT_NEIGHBOURS[cand][alt[0]]
+		var c2 := first
+		if first == cand:
+			c2 = SELECT_NEIGHBOURS[cand][alt[1]]
+		cand = c2
+		if vehicle_stock[cand] == 0:
+			cand = cur
+	if cand != selection:
+		selection = cand
+		selection_changed.emit()
+
+
+func confirm_selection() -> void:
+	if not selecting or vehicle_stock[selection] == 0:
+		return
+	_take_stock(selection)
+	vehicle.frozen = false
+	vehicle.set_vehicle_type(selection)
+	selecting = false
+	selection_changed.emit()
 
 
 ## Debug convenience (not in the original): become vehicle type `t` (0 Tank, 1 Jeep, 2 MSV, 3 Heli) anywhere, at once, with
@@ -1008,6 +1049,15 @@ func debug_swap_vehicle(t: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if selecting and event is InputEventKey and event.pressed and not event.echo:
+		match event.keycode:
+			KEY_LEFT: select_move(0)
+			KEY_RIGHT: select_move(1)
+			KEY_UP: select_move(2)
+			KEY_DOWN: select_move(3)
+			KEY_SPACE, KEY_ENTER, KEY_KP_ENTER: confirm_selection()
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventKey and event.pressed and not event.echo and vehicle != null:
 		if event.keycode == KEY_B:
 			vehicle.toggle_swim()

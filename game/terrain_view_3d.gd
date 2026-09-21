@@ -247,6 +247,10 @@ func _spawn_match() -> void:
 		if OS.get_environment("RF_DEBUG_FLAG") == "carry":
 			controller.flags[1].position = controller.vehicle.position
 			controller._attach_flag(controller.flags[1], controller.vehicle)
+	# Debug-only: RF_DEBUG_SELECT=1 opens the vehicle-choice grid at the start (for screenshots).
+	if OS.get_environment("RF_DEBUG_SELECT") == "1" and controller.vehicle != null:
+		controller.switch_player_vehicle()
+		controller.select_move(1)
 	# Debug-only: RF_DEBUG_FLASH=1 holds the player in the hit-flash variant for screenshots.
 	if OS.get_environment("RF_DEBUG_FLASH") == "1" and controller.vehicle != null:
 		controller.vehicle.hit_flash_remaining = 99.0

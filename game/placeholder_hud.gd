@@ -23,7 +23,7 @@ func setup(controller: MatchController) -> void:
 	_objective = _label(Vector2(12, 34), 16)
 	_stock = _label(Vector2(12, 58), 14)
 	_keys = _label(Vector2(12, 0), 13)
-	_keys.text = "arrows drive   space fire   V switch vehicle (standing on your base tile)   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun"
+	_keys.text = "arrows drive   space fire   V choose vehicle (standing on your base tile: arrows, Space to confirm)   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun"
 	_keys.anchor_top = 1.0
 	_keys.anchor_bottom = 1.0
 	_keys.offset_top = -26.0
@@ -35,6 +35,15 @@ func setup(controller: MatchController) -> void:
 	panel.offset_left = 12.0
 	panel.offset_top = -168.0 - 30.0
 	panel.offset_bottom = -30.0
+	var select := VehicleSelectView.new()   # the vehicle-choice grid (document 76): shown while MatchController.selecting
+	add_child(select)
+	select.setup(controller)
+	select.anchor_left = 0.5
+	select.anchor_right = 0.5
+	select.anchor_top = 0.5
+	select.anchor_bottom = 0.5
+	select.offset_left = -150.0
+	select.offset_top = -110.0
 	_banner = _label(Vector2(60, 90), 40)
 	_banner.visible = false
 
