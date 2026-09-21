@@ -121,6 +121,8 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.shot.connect(_on_vehicle_shot.bind(vehicle))
 	vehicle.mine_dropped.connect(_on_mine_dropped.bind(vehicle))
 	vehicle.aim_target = _pick_missile_target
+	vehicle.dock_check = can_dock
+	vehicle.dock_requested.connect(_begin_dock)
 	vehicle.drowned.connect(_on_player_destroyed)
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
@@ -240,6 +242,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 
 
 func _process(delta: float) -> void:
+	_update_dock(delta)
 	_update_flags(delta)
 	_update_mines(delta)
 	for v in [vehicle] + enemy_vehicles:
@@ -990,13 +993,99 @@ var selection := 0
 signal selection_changed()
 
 
+## Docking and undocking (document 77). The original: a vehicle standing STILL on its own pad (tile art 90 / 91), within the record's tolerance of the tile centre
+## (+0x254: Tank and MSV 4 units, Jeep 9, Heli 32), that gets a fire button is docked (Tank, MSV: at once; Jeep: after returning its own team's flag if it carries it;
+## Heli: an automatic landing first). Docking gives one vehicle back to the stock (an MSV's unused mines go to a reserve) and removes the vehicle; a dock object
+## carrying its model sinks 0.3 units a tick for 70 ticks with the pad art changed; the view fades out and the vehicle-choice grid opens; a confirm creates the new
+## vehicle on the pad at once, heading 180 degrees (the Heli 135), and the view fades in.
+const DOCK_TOLERANCE := [4.0, 9.0, 4.0, 32.0]   ## by type: record +0x254
+const DOCK_SINK_TICKS := 70.0                   ## the dock object's timer (+0x68 = 0x46)
+const HELI_LAND_RATE := 0.5                     ## units of height a tick during the automatic landing (0x40ec30: dt << 15)
+var dock_state := 0                             ## 0 none, 1 the Heli landing, 2 sinking into the base
+var mine_reserve := 0                           ## the player's reserve of mines (player struct +0xbc); only filled here, not yet used (document 75)
+var _dock_timer := 0.0
+var _pad_centre := Vector2.ZERO
+var _land_from := Vector2.ZERO
+var _land_heading_from := 0.0
+var _land_z0 := 1.0
+## PORT-ONLY option (kept from the earlier placeholder): the `V` key docks and opens the choice at once without the sinking, on the pad.
+var quick_swap_enabled := true
+
+
+func can_dock(v: Vehicle) -> bool:
+	if v != vehicle or v.moving or not v.alive or dock_state != 0 or selecting or match_finished:
+		return false
+	var t := _tile_of(v.position)
+	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + v.player_index():
+		return false
+	var centre := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
+	var d := v.position - centre
+	var tol: float = DOCK_TOLERANCE[v.vehicle_type]
+	return d.x >= -tol and d.x <= tol and d.y >= -tol and d.y <= tol
+
+
+func _begin_dock() -> void:
+	if dock_state != 0:
+		return
+	_pad_centre = (Vector2(_tile_of(vehicle.position)) + Vector2(0.5, 0.5)) * pack.tile_size_px
+	if vehicle.vehicle_type == 3:
+		# the automatic landing (FUN_0040eb00 -> 0x40eb40 -> 0x40ec30): height falls 0.5 a tick while position and heading slide to the pad centre and
+		# heading 135 degrees. NOT reproduced: the rotor spin-down (0x40ecd0), the folded model and the gear stage (0x40ede0).
+		dock_state = 1
+		_land_from = vehicle.position
+		_land_heading_from = vehicle.heading_deg
+		_land_z0 = maxf(vehicle.z, 0.001)
+		vehicle.frozen = true
+		return
+	_do_dock()
+
+
+func _do_dock() -> void:
+	# Jeep: FUN_0040e090 first returns its own team's flag if it carries it (sound 0x44b670, FUN_00432600); the port's only flag is the enemy's, so nothing to do
+	_return_stock(vehicle.vehicle_type)               # 0x42f110: stock++ (unless 255) ...
+	if vehicle.vehicle_type == 2:
+		mine_reserve += vehicle.ammo[1]                # ... and an MSV's unused mines join the reserve
+	_drop_carried_flags(vehicle)                       # PLACEHOLDER: a flag still carried is dropped here (the original's dock of a Jeep with the enemy flag is untraced)
+	vehicle.docked = true
+	vehicle.frozen = true
+	vehicle.speed = 0.0
+	dock_state = 2
+	_dock_timer = DOCK_SINK_TICKS
+
+
+func _update_dock(delta: float) -> void:
+	if dock_state == 0:
+		return
+	var ticks := delta * Vehicle.TICK_HZ
+	if dock_state == 1:
+		vehicle.z = maxf(vehicle.z - HELI_LAND_RATE * ticks, 0.0)
+		var f := vehicle.z / _land_z0
+		vehicle.position = _pad_centre + (_land_from - _pad_centre) * f
+		vehicle.heading_deg = fposmod(45.0 + wrapf(_land_heading_from - 45.0, -180.0, 180.0) * f, 360.0)
+		if vehicle.z <= 0.0:
+			vehicle.position = _pad_centre
+			_do_dock()
+		return
+	_dock_timer -= ticks
+	if _dock_timer <= 0.0:
+		dock_state = 0
+		_open_selection()
+
+
 func switch_player_vehicle() -> void:
-	if vehicle == null or match_finished or vehicle.moving or selecting:
+	if not quick_swap_enabled or vehicle == null or match_finished or vehicle.moving or selecting or dock_state != 0:
 		return
 	var t := _tile_of(vehicle.position)
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
 		return
-	_return_stock(vehicle.vehicle_type)   # the docking (0x42f1b0)
+	_pad_centre = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
+	_return_stock(vehicle.vehicle_type)   # the docking's stock return, without the sinking
+	if vehicle.vehicle_type == 2:
+		mine_reserve += vehicle.ammo[1]
+	_open_selection()
+
+
+func _open_selection() -> void:
 	selection = 0
 	for i in 4:
 		if vehicle_stock[i] != 0:
@@ -1031,8 +1120,14 @@ func confirm_selection() -> void:
 	if not selecting or vehicle_stock[selection] == 0:
 		return
 	_take_stock(selection)
+	vehicle.set_vehicle_type(selection)   # a new vehicle object: full hit points, fuel and ammunition
+	vehicle.position = _pad_centre        # FUN_0040b1c0 creates it on the pad, heading 180 degrees (the Heli 135); the port's heading is the original's minus 90
+	vehicle.heading_deg = 45.0 if selection == 3 else 90.0
+	vehicle.z = 0.0
+	vehicle.speed = 0.0
+	vehicle.moving = false
+	vehicle.docked = false
 	vehicle.frozen = false
-	vehicle.set_vehicle_type(selection)
 	selecting = false
 	selection_changed.emit()
 

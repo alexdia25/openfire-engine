@@ -64,6 +64,8 @@ signal shot(spec: Dictionary)
 signal mine_dropped(position: Vector2)
 ## A trigger pull with the weapon slot empty (FUN_004232d0 with sound 0x44b988, "the empty click"; documents 61, 63, 72): no sound is played yet.
 signal empty_click()
+## The player pressed a fire button while standing still on the centre of their base pad (FUN_0040b980 tail, test `state+8 & 0x920`, document 77).
+signal dock_requested()
 signal destroyed(vehicle: Vehicle)
 signal type_changed(vehicle: Vehicle)
 
@@ -102,6 +104,10 @@ var weapon_cooldown_ticks: Array[int] = [20, 0]
 ## PLACEHOLDER (not traced): the enemy placeholder vehicles fire without limit, since nothing rearms them.
 var infinite_ammo := false
 var _rearm_acc := 0.0
+## Set by the match controller: (Vehicle) -> bool, true when this vehicle stands still on its own pad within the type's tolerance of the tile centre.
+var dock_check := Callable()
+## The vehicle is inside the base (docked, or the dock object is sinking): not drawn.
+var docked := false
 ## The MSV's mine layer works only with two players: FUN_0040d820 starts with `if ((keys & 0x60) != 0 && 1 < DAT_00442fbc)` (document 75). The controller sets
 ## this from its player count (1 today); RF_DEBUG_MINES=1 forces it on for testing.
 var mine_layer_enabled := OS.get_environment("RF_DEBUG_MINES") == "1"
@@ -196,6 +202,18 @@ func _drop_mine() -> void:
 		ammo[1] -= 1
 	_mine_cooldown_remaining = MINE_COOLDOWN_SEC
 	mine_dropped.emit(at)
+
+
+## FUN_0040b980: when the vehicle stands still on its pad, any of the three fire buttons (bits 0x20, 0x100, 0x800 of the input word) docks it and the
+## weapon dispatch is skipped for the tick (document 77).
+func _dock_pressed() -> bool:
+	if not dock_check.is_valid():
+		return false
+	var buttons := _wants_to_fire() or _wants_raised() or (vehicle_type == 2 and _wants_mine())
+	if buttons and dock_check.call(self):
+		dock_requested.emit()
+		return true
+	return false
 
 
 func _wants_to_fire() -> bool:
@@ -673,6 +691,9 @@ func _process(delta: float) -> void:
 
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
 	_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
+	if _dock_pressed():
+		queue_redraw()
+		return
 	if vehicle_type == 0 or vehicle_type == 2:
 		_tank_tick(delta)
 		if _wants_to_fire():
@@ -781,6 +802,8 @@ func _heli_weapons(delta: float) -> void:
 
 
 func _process_heli(delta: float) -> void:
+	if _dock_pressed():
+		return
 	_heli_weapons(delta)
 	var ticks := delta * TICK_HZ
 	var controls := _get_controls()

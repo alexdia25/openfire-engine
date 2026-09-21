@@ -214,7 +214,7 @@ func _set_part_sprite(index: int, sprite_id: String, corners: Variant) -> void:
 func _follow() -> void:
 	if vehicle == null or not is_instance_valid(vehicle):
 		return
-	visible = vehicle.alive
+	visible = vehicle.alive and not vehicle.docked
 	position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
 	rotation_degrees.y = -90.0 - vehicle.heading_deg
 	if vehicle.vehicle_type == 3:

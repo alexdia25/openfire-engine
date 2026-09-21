@@ -390,7 +390,7 @@ func _process(_delta: float) -> void:
 	if e != _elev_shown:
 		_elev_shown = e
 		_rebuild_turret_parts()
-	visible = vehicle.alive
+	visible = vehicle.alive and not vehicle.docked
 	global_position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
 	rotation_degrees.y = -vehicle.heading_deg + FACING_OFFSET_DEG
 	_refresh()
