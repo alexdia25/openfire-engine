@@ -116,6 +116,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 	vehicle.shot.connect(_on_vehicle_shot.bind(vehicle))
 	vehicle.mine_dropped.connect(_on_mine_dropped.bind(vehicle))
+	vehicle.aim_target = _pick_missile_target
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 
@@ -153,10 +154,63 @@ func _setup_target_pools() -> void:
 ## Phase 4 step 4 (first pass): spawn a projectile as a sibling of the firing vehicle in
 ## `world` -- not a child of it -- so its transform is independent of the vehicle's own
 ## position/rotation once launched.
+## FUN_00415b00 (document 61): where the Jeep missile goes. In order: an enemy vehicle on the ground within 61.2
+## units; else the last tile that blocked this vehicle, if it still has hit points and is within 61.2 units (its
+## centre plus the decoration jitter); else a random point ahead. (The original also considers the last enemy
+## object touched, state +0xa8; vehicle-vs-vehicle contact is not modelled.)
+const MISSILE_RANGE := 0x3d3ab7 / 65536.0  ## 61.23 units
+
+
+func _pick_missile_target(v: Vehicle) -> Vector2:
+	var best := INF
+	var target := Vector2.ZERO
+	for o in [vehicle] + enemy_vehicles:
+		if o == null or not is_instance_valid(o) or not o.alive or o.team == v.team:
+			continue
+		var d := v.position.distance_to(o.position)
+		if d < MISSILE_RANGE and d < best:
+			best = d
+			target = o.position
+	if best < INF:
+		return target
+	var t := v.last_blocked_tile
+	if t.x >= 0 and t.y >= 0 and t.x < level.width and t.y < level.height and level.get_coastal_id(t.x, t.y) != 0:
+		if _tile_hp.get(t, _initial_tile_hp(t)) > 0:
+			var tsz := float(pack.tile_size_px)
+			var c := (Vector2(t) + Vector2(0.5, 0.5)) * tsz
+			var info := pack.get_coastal_shapes(level.get_coastal_id(t.x, t.y))
+			if info.get("jitter", false):
+				c += level.jitter_at(t.x, t.y)
+			if v.position.distance_to(c) < MISSILE_RANGE:
+				return c
+	return v.random_aim_point()
+
+
+## The missile came down (z < 0) without hitting anything: FUN_00415730 picks the landing record by what it fell on
+## (0 ground, 1 water, 2 the pavement tiles 0x49-0x53). Water is not classified yet (untraced), so it counts as ground.
+func _missile_lands(p: Projectile) -> void:
+	var tsz := float(pack.tile_size_px)
+	var tx := int(floor(p.position.x / tsz))
+	var ty := int(floor(p.position.y / tsz))
+	var record := "0x444840"
+	if tx >= 0 and ty >= 0 and tx < level.width and ty < level.height:
+		var art := level.get_art_id(tx, ty) & 0x7F
+		if art > 0x48 and art < 0x54:
+			record = "0x444a30"
+	impact_effect.emit(record, p.position)
+
+
 func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 	var p := Projectile.new()
 	p.shooter = shooter
 	world.add_child(p)
+	if spec.get("kind", "") == "missile":
+		p.team = spec["team"]
+		p.heading_deg = float(spec["heading"])
+		p.start_lob(spec["position"], float(spec["z"]), spec["target"])
+		_projectiles.append(p)
+		projectile_spawned.emit(p)
+		return
 	p.configure(pack, int(spec["type"]))
 	p.z = float(spec["z"])
 	p.team = spec["team"]
@@ -186,6 +240,9 @@ func _process(delta: float) -> void:
 		var to: Vector2 = p.global_position
 		p.prev_checked = to
 		if _shell_hits_tile(p, from, to) or _shell_hits_vehicle(p, from, to):
+			p.queue_free()
+		elif p.lob and p.z < 0.0:
+			_missile_lands(p)
 			p.queue_free()
 
 
@@ -423,6 +480,7 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 						tp.append(origin + Vector2(pt[0], pt[1]))
 					hit = Collision.polygons_hit(poly, tp)
 				if hit and _tile_blocks_vehicle(v, t, id, info, sh):
+					v.last_blocked_tile = t
 					return true
 	for gt in gates:
 		var g: Gate = gates[gt]

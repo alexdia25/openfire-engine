@@ -29,6 +29,49 @@ var z := 7.0
 const SHELL_Z := 7.0
 
 
+## The Jeep missile (object class 0x12, FUN_00415730; document 61) is not a straight shot: it is lobbed to a target
+## point. Per tick t (whole ticks since launch) it is at start + dir * (v * 0.38269 * t) horizontally and at height
+## z0 + (0.92387 * v - 0.024994 * t) * t, where v = sqrt(3276 * D / 46340) for a target D whole units away, so it
+## lands (z < 0) on the target. `dir` is the direction to the target rounded down to one of 64 headings. Its damage is
+## 1.5 (0x18000) to whatever it touches on the way; its shape is the shell's (layer 4, mask 0x43, z +-1.5).
+var lob := false
+var lob_start := Vector2.ZERO
+var lob_dir := Vector2.RIGHT
+var lob_v := 0.0
+var lob_z0 := 5.0
+var lob_t := 0.0                 ## ticks since launch (fractional here)
+var spin_deg := 0.0              ## obj+0x4c grows by 0x8888 of 0x400000 per tick = 3 degrees
+const LOB_COS := 60547.0 / 65536.0    ## 0xec83
+const LOB_SIN := 25079.0 / 65536.0    ## 0x61f7
+const LOB_GRAVITY := 1638.0 / 65536.0 ## 0x666
+const LOB_DAMAGE := 1.5
+
+
+func start_lob(start: Vector2, z0: float, target: Vector2) -> void:
+	lob = true
+	lob_start = start
+	lob_z0 = z0
+	damage = LOB_DAMAGE
+	var dx := floorf(target.x) - floorf(start.x)
+	var dy := floorf(target.y) - floorf(start.y)
+	var d := floorf(sqrt(dx * dx + dy * dy))
+	lob_v = sqrt(3276.0 * d / 46340.0)
+	# FUN_00410b80 gives atan2 of the start-minus-target vector; (>> 2) - 0x100000 and the 64-step table index
+	# make it the heading toward the target, rounded DOWN to a multiple of 5.625 degrees.
+	var phi := rad_to_deg(atan2(target.y - start.y, target.x - start.x))
+	var idx := floori(fposmod(phi + 90.0, 360.0) / 5.625)
+	var hq := idx * 5.625 - 90.0
+	lob_dir = Vector2(cos(deg_to_rad(hq)), sin(deg_to_rad(hq)))
+	position = start
+	prev_checked = start
+	z = z0
+
+
+## Which of the 12 spin frames to draw (obj+0x70 grows 0x2aaa per tick and wraps at 12.0).
+func lob_frame() -> int:
+	return int(fmod(lob_t * (10922.0 / 65536.0), 12.0))
+
+
 func configure(pack: Pack, type: int) -> void:
 	type_id = type
 	if type < pack.projectile_types.size():
@@ -49,6 +92,14 @@ var _age_sec: float = 0.0
 
 
 func _process(delta: float) -> void:
+	if lob:
+		lob_t += delta * TICK_HZ
+		position = lob_start + lob_dir * (lob_v * LOB_SIN * lob_t)
+		z = lob_z0 + (LOB_COS * lob_v - LOB_GRAVITY * lob_t) * lob_t
+		spin_deg = fmod(spin_deg + 3.0 * delta * TICK_HZ, 360.0)
+		if lob_t > 1000.0:
+			queue_free()
+		return
 	var rad := deg_to_rad(heading_deg)
 	position += Vector2(cos(rad), sin(rad)) * speed * delta
 	_age_sec += delta

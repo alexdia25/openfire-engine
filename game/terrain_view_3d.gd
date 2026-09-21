@@ -287,6 +287,8 @@ func _spawn_vehicle_render(v: Vehicle) -> Node3D:
 ## to the vehicle at the muzzle (12 units ahead, 7 up -- plus the box render's own ground clearance, so it
 ## sits on the barrel's drawn tip) and following it while it plays.
 func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
+	if not spec.has("flash"):
+		return  # the Jeep's missile has a sound but no flash record
 	var f: Dictionary = spec["flash"]
 	var o: Vector3 = f["offset"]
 	ExplosionEffect3D.spawn_attached(self, pack, pack.get_explosion(String(f["record"])), v,

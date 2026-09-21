@@ -23,6 +23,11 @@ const TEAM_COLOURS := {
 }
 
 var projectile: Projectile
+var _pack: Pack
+var _body: MeshInstance3D
+var _body_mat: StandardMaterial3D
+var _shadow: MeshInstance3D
+var _shown_frame := -1
 var _mesh: MeshInstance3D
 var _height := HEIGHT_PX
 
@@ -30,6 +35,12 @@ var _height := HEIGHT_PX
 func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 	projectile = shared_projectile
 	projectile.visible = false  # logic only -- see file header
+
+	if projectile.lob and pack != null:
+		_pack = pack
+		_setup_missile()
+		projectile.tree_exited.connect(queue_free)
+		return
 
 	if pack != null and projectile.type_id != 0 and _add_descriptor_parts(pack):
 		_height = projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX
@@ -65,6 +76,9 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 func _process(_delta: float) -> void:
 	if not is_instance_valid(projectile):
 		queue_free()
+		return
+	if projectile.lob:
+		_update_missile()
 		return
 	_follow()
 
@@ -127,6 +141,72 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 			add_child(mi)
 			drew = true
 	return drew
+
+
+## The Jeep missile (document 61): descriptor 0x4548f0, one quad (x -2.7..0, y -2.7..2.8, drawn as read) of cel
+## 1779 + spin frame (+ 12 for the green team; init callback 0x436be0), turning 3 degrees a tick, drawn at its height;
+## its shadow (object class 4, cel 1076, flag 0x10) is on the ground offset by the height in x and y (FUN_00409b50).
+const MISSILE_CORNERS := [Vector3(-2.7, 0.0, -2.7), Vector3(0.0, 0.0, -2.7), Vector3(0.0, 0.0, 2.8), Vector3(-2.7, 0.0, 2.8)]
+
+
+func _setup_missile() -> void:
+	_body = MeshInstance3D.new()
+	_body_mat = StandardMaterial3D.new()
+	_body_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_body_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	_body_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_body_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	_body.material_override = _body_mat
+	add_child(_body)
+	_shadow = MeshInstance3D.new()
+	var sp := _pack.get_sprite(SHADOW_ID)
+	if not sp.is_empty():
+		var tex := _pack.get_texture(int(sp.get("page", 0)))
+		_shadow.mesh = _quad_mesh(MISSILE_CORNERS, sp, tex)
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_texture = tex
+		m.albedo_color = Color(0.0, 0.0, 0.0, SHADOW_ALPHA)
+		_shadow.material_override = m
+	add_child(_shadow)
+	_update_missile()
+
+
+func _update_missile() -> void:
+	var z := maxf(projectile.z, 0.0)
+	var yaw := -projectile.spin_deg
+	_body.position = Vector3(projectile.position.x, z + VehicleBoxRender3D.GROUND_CLEARANCE_PX, projectile.position.y)
+	_body.rotation_degrees.y = yaw
+	_shadow.position = Vector3(projectile.position.x + z, 0.5, projectile.position.y + z)
+	_shadow.rotation_degrees.y = yaw
+	var f := projectile.lob_frame() + (12 if projectile.team == "green" else 0)
+	if f != _shown_frame:
+		_shown_frame = f
+		var sid := "projectile.jeep_missile.%s.%02d" % ["green" if f >= 12 else "tan", (f % 12) + 1]
+		var s := _pack.get_sprite(sid)
+		if not s.is_empty():
+			var tex := _pack.get_texture(int(s.get("page", 0)))
+			_body.mesh = _quad_mesh(MISSILE_CORNERS, s, tex)
+			_body_mat.albedo_texture = tex
+
+
+func _quad_mesh(c: Array, sp: Dictionary, tex: Texture2D) -> ArrayMesh:
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var u0: float = float(sp["x"]) / tw
+	var v0: float = float(sp["y"]) / th
+	var u1: float = (float(sp["x"]) + float(sp["w"])) / tw
+	var v1: float = (float(sp["y"]) + float(sp["h"])) / th
+	var uv := [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in [0, 1, 2, 0, 2, 3]:
+		st.set_uv(uv[i])
+		st.add_vertex(c[i])
+	return st.commit()
 
 
 func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool) -> void:

@@ -207,7 +207,22 @@ func _apply_type() -> void:
 ## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
 ## FUN_00415b00) is not, so only the Tank fires.
 func fire_enabled() -> bool:
-	return vehicle_type == 0 or vehicle_type == 2
+	return vehicle_type == 0 or vehicle_type == 1 or vehicle_type == 2
+
+
+## Set by the match controller: (Vehicle) -> Vector2, the point the Jeep missile is lobbed at.
+var aim_target := Callable()
+## The last tile that blocked this vehicle (state +0xa4, set by FUN_0040c130); the Jeep missile aims at it if it is
+## still destructible and within 61.2 units.
+var last_blocked_tile := Vector2i(-1, -1)
+
+
+## FUN_00415b00's fallback when there is nothing to aim at: a point 48-62 units away along the heading turned by
+## -4..+3 steps of 5.625 degrees (FUN_0041d3d0(8) and FUN_0041d3d0(15) are random 0..7 and 0..14).
+func random_aim_point() -> Vector2:
+	var step := floori(fposmod(heading_deg + 90.0, 360.0) / 5.625) + randi_range(0, 7) - 4
+	var h := deg_to_rad(step * 5.625 - 90.0)
+	return position + Vector2(cos(h), sin(h)) * float(0x30 + randi_range(0, 14))
 
 
 ## Rockets fired in the current salvo (0-2): the original's state +0x58 (document 59), which the MSV's draw uses.
@@ -248,6 +263,15 @@ func _fire() -> void:
 		if _salvo_index >= 3:
 			_salvo_index = 0
 			_salvo_reload = 40.0
+	elif vehicle_type == 1:
+		# FUN_0040df00 / FUN_00415b00 / FUN_004159a0 (document 61): a lobbed missile from the vehicle's own position,
+		# 5 units up, every 30 ticks; the target point comes from FUN_00415b00's rules (the controller's aim_target).
+		_fire_cooldown_remaining = 30.0 / TICK_HZ
+		spec["kind"] = "missile"
+		spec["type"] = -1
+		spec["position"] = position
+		spec["z"] = 5.0
+		spec["target"] = aim_target.call(self) if aim_target.is_valid() else random_aim_point()
 	shot.emit(spec)
 	if _debug_fire:
 		print("frame=%d shot %s" % [Engine.get_process_frames(), spec])
