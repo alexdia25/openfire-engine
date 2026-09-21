@@ -51,6 +51,9 @@ signal gate_removed(gate: Gate)
 signal match_over(winner_idx: int)
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
+## A vehicle laid a mine / a mine went off (document 60); the explosion drawn is record 0x445058.
+signal mine_added(mine: Mine)
+signal mine_exploded(position: Vector2)
 
 var pack: Pack
 var pack_path: String = ""       ## re-passed to each spawned Vehicle/EnemyVehicle, see below
@@ -62,6 +65,9 @@ var pools: Dictionary = {}       ## pool_id (String) -> TargetPool
 var _projectiles: Array = []     ## live Projectile nodes, for target hit-testing
 var _player_spawn_px := Vector2.ZERO
 var gates: Dictionary = {}       ## Vector2i -> Gate
+var mines: Array = []            ## live Mine nodes
+var _boxes: Array = []           ## live ExplosionBox damage boxes, each with the tiles it has already destroyed
+var _box_tick_acc := 0.0
 var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
 var winner_idx := -1
@@ -109,6 +115,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.blocked_test = vehicle_blocked
 	vehicle.position = (Vector2(float(sp.get("x", 0)), float(sp.get("y", 0))) + Vector2(0.5, 0.5)) * tile
 	vehicle.shot.connect(_on_vehicle_shot.bind(vehicle))
+	vehicle.mine_dropped.connect(_on_mine_dropped.bind(vehicle))
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 
@@ -162,6 +169,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 
 func _process(delta: float) -> void:
 	_update_flags(delta)
+	_update_mines(delta)
 	for v in [vehicle] + enemy_vehicles:
 		if v != null and is_instance_valid(v) and v.alive:
 			_update_zone(v, delta)
@@ -179,6 +187,114 @@ func _process(delta: float) -> void:
 		p.prev_checked = to
 		if _shell_hits_tile(p, from, to) or _shell_hits_vehicle(p, from, to):
 			p.queue_free()
+
+
+func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
+	var m := Mine.new()
+	m.dropper = dropper
+	world.add_child(m)
+	m.position = at
+	mines.append(m)
+	mine_added.emit(m)
+
+
+## Document 60. Mines age and blink (game/mine.gd). A vehicle that MOVES while its shape touches a mine's 32 x 32
+## trigger box sets it off (FUN_0042bd40 tests movers; FUN_00409dd0 detonates on a class-1 object). Its explosion
+## is record 0x445058, which owns a damage box (game/explosion_box.gd).
+func _update_mines(delta: float) -> void:
+	var ticks := delta * Vehicle.TICK_HZ
+	for m in mines.duplicate():
+		m.advance(ticks)
+	for v in [vehicle] + enemy_vehicles:
+		if v == null or not is_instance_valid(v) or not v.alive or not v.moving:
+			continue
+		for m in mines.duplicate():
+			if m.expired or m.ignores(v):
+				continue
+			if not Collision.z_ranges_overlap(0.0, v.hit_z[1], Mine.Z_LO, Mine.Z_HI):
+				continue
+			if Collision.polygon_hits_box(v.hit_polygon(), m.position, Mine.TRIGGER_BOX):
+				_detonate_mine(m)
+	_update_boxes(ticks)
+
+
+func _detonate_mine(m: Mine) -> void:
+	mines.erase(m)
+	var at := m.position
+	m.queue_free()
+	_boxes.append({"box": ExplosionBox.new(pack.get_explosion("0x445058"), at), "destroyed": {}})
+	mine_exploded.emit(at)
+
+
+## Every whole tick a live damage box hurts what it overlaps: vehicles (layer 2, z 0..their height) get
+## FUN_0040c460 with |rate| x ticks, and tiles with shapes get FUN_0042e8c0 with the same amount (document 44
+## rule: max(1, whole damage) hit points). Mines are not touched (their masks lack the box's layer 0x20).
+func _update_boxes(ticks: float) -> void:
+	_box_tick_acc += ticks
+	var n := floori(_box_tick_acc)
+	_box_tick_acc -= n
+	for entry in _boxes.duplicate():
+		var b: ExplosionBox = entry["box"]
+		if not b.advance(ticks):
+			_boxes.erase(entry)
+			continue
+		if n < 1 or not b.active:
+			continue
+		var dmg := b.damage_per_tick * n
+		for v in [vehicle] + enemy_vehicles:
+			if v == null or not is_instance_valid(v) or not v.alive:
+				continue
+			if (b.mask & Vehicle.HIT_LAYER) == 0 or (Vehicle.HIT_MASK & 0x20) == 0:
+				continue
+			if not Collision.z_ranges_overlap(0.0, v.hit_z[1], b.z_lo, b.z_hi):
+				continue
+			if Collision.polygon_hits_box(v.hit_polygon(), b.position, b.box()):
+				v.take_damage(dmg)
+		_box_damage_tiles(entry, dmg)
+
+
+func _box_damage_tiles(entry: Dictionary, dmg: float) -> void:
+	var b: ExplosionBox = entry["box"]
+	var tsz := float(pack.tile_size_px)
+	var x0 := int(floor((b.position.x - b.half_x) / tsz)) - 1
+	var x1 := int(floor((b.position.x + b.half_x) / tsz)) + 1
+	var y0 := int(floor((b.position.y - b.half_y) / tsz)) - 1
+	var y1 := int(floor((b.position.y + b.half_y) / tsz)) + 1
+	var box_poly := PackedVector2Array([
+		b.position + Vector2(-b.half_x, -b.half_y), b.position + Vector2(b.half_x, -b.half_y),
+		b.position + Vector2(b.half_x, b.half_y), b.position + Vector2(-b.half_x, b.half_y)])
+	for ty in range(y0, y1 + 1):
+		for tx in range(x0, x1 + 1):
+			var t := Vector2i(tx, ty)
+			if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height or entry["destroyed"].has(t):
+				continue
+			var id := level.get_coastal_id(t.x, t.y)
+			if id == 0:
+				continue
+			var info := pack.get_coastal_shapes(id)
+			if info.is_empty():
+				continue
+			var centre := (Vector2(t) + Vector2(0.5, 0.5)) * tsz
+			if info.get("jitter", false):
+				centre += level.jitter_at(t.x, t.y)
+			for sh in info["shapes"]:
+				if (int(sh["layer"]) & b.mask) == 0 or (int(sh["mask"]) & 0x20) == 0:
+					continue
+				if not Collision.z_ranges_overlap(float(sh["z"][0]), float(sh["z"][1]), b.z_lo, b.z_hi):
+					continue
+				var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
+				var hit := false
+				if int(sh["type"]) == 2:
+					hit = Collision.polygon_hits_box(box_poly, origin, sh["box"])
+				elif int(sh["type"]) == 3:
+					var poly := PackedVector2Array()
+					for pt in sh["poly"]:
+						poly.append(origin + Vector2(pt[0], pt[1]))
+					hit = Collision.polygons_hit(box_poly, poly)
+				if hit:
+					if _damage_tile_amount(t, id, dmg):
+						entry["destroyed"][t] = true
+					break
 
 
 ## Document 53: a shell is a swept point (z 7 +- 1.5); a living vehicle other than its shooter is hit when the
@@ -433,13 +549,18 @@ func _shell_hits_tile(p: Projectile, from: Vector2, to: Vector2) -> bool:
 ## is destroyed when its hit points are <= that. A pool's active target goes through TargetPool
 ## (FUN_00432710); any other tile just changes state (the scene applies it).
 func _damage_tile(t: Vector2i, id: int, p: Projectile) -> void:
+	_damage_tile_amount(t, id, p.damage)
+
+
+## Returns true when the tile was destroyed by this call.
+func _damage_tile_amount(t: Vector2i, id: int, damage: float) -> bool:
 	var hp: int = _tile_hp.get(t, _initial_tile_hp(t))
 	if hp <= 0:
-		return
-	var dmg := maxi(int(p.damage), 1)
+		return false
+	var dmg := maxi(int(damage), 1)
 	if hp > dmg:
 		_tile_hp[t] = hp - dmg
-		return
+		return false
 	_tile_hp.erase(t)
 	if gates.has(t):
 		_remove_gate(gates[t])  # FUN_00432460: the decoration returns, then the tile is destroyed as usual
@@ -459,8 +580,9 @@ func _damage_tile(t: Vector2i, id: int, p: Projectile) -> void:
 			# The pool went silent for good: FUN_00432710 falls through to spawn its flag object
 			# (section 4 item 1); destroy_active() only returns false once per pool.
 			_spawn_flag(pool_id, tile_px)
-		return
+		return true
 	tile_destroyed.emit(t)
+	return true
 
 
 ## The scene calls this once a crushed tile's state has changed.

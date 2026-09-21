@@ -207,6 +207,8 @@ func _spawn_match() -> void:
 	controller.gate_created.connect(_on_gate_created)
 	controller.gate_removed.connect(_on_gate_removed)
 	controller.impact_effect.connect(_on_impact_effect)
+	controller.mine_added.connect(_on_mine_added)
+	controller.mine_exploded.connect(_on_mine_exploded)
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
@@ -410,6 +412,17 @@ func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
 ## names the record -- `0x444b68` / `0x444ac8` for every type -- played where the shot ended.
 func _on_impact_effect(record_addr: String, at: Vector2) -> void:
 	ExplosionEffect3D.spawn(self, pack, pack.get_explosion(record_addr), at)
+
+
+func _on_mine_added(m: Mine) -> void:
+	var mv := MineView3D.new()
+	add_child(mv)
+	mv.setup(m, pack)
+
+
+## A mine went off: its explosion (record 0x445058; the damage box is the controller's).
+func _on_mine_exploded(at: Vector2) -> void:
+	ExplosionEffect3D.spawn(self, pack, pack.get_explosion("0x445058"), at)
 
 
 func _on_flag_spawned(flag: FlagMarker, _pool_id: String) -> void:

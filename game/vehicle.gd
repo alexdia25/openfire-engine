@@ -60,6 +60,8 @@ const HIT_MASK := 0x27
 ## One shot leaving a weapon: {type: projectile type, position: Vector2 (world, xy), z: height, heading: degrees,
 ## team: String, flash: {record: String, offset: Vector3 (x right, y forward, z up, world units)}}.
 signal shot(spec: Dictionary)
+## The MSV lays a mine at this world position (document 60).
+signal mine_dropped(position: Vector2)
 signal destroyed(vehicle: Vehicle)
 signal type_changed(vehicle: Vehicle)
 
@@ -72,6 +74,9 @@ var _frames: Array[String] = []
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
+const MINE_COOLDOWN_SEC := 140.0 / TICK_HZ
+var _mine_cooldown_remaining := 0.0
+var _debug_mine: bool = OS.get_environment("RF_DEBUG_MINE") == "1"
 const MSV_SALVO_X := [-1.5, 0.0, 1.5]
 var _salvo_index := 0
 var _salvo_reload := 0.0
@@ -157,6 +162,21 @@ func _get_controls() -> Vector2:
 
 ## Overridable the same way _get_controls() is -- default is step 4's real-input-or-debug
 ## behaviour.
+func _wants_mine() -> bool:
+	return _debug_mine or Input.is_key_pressed(KEY_M)
+
+
+## The MSV's mine layer (record slot 1, handler FUN_0040d820; document 60): one mine every 140 ticks, placed at
+## (x + dirx * 0, y + diry * 5.0) where (dirx, diry) is the unit heading vector and 0 / 5.0 are the slot's two offset
+## fields at +4 / +8. As coded that moves it only along y (in front of a north- or south-facing vehicle, on top of
+## an east- or west-facing one). Not modelled: the ammo (10), the deep-water refusal (FUN_0042f410 == 2; water is
+## untraced) and the key bits (the original reads button C, here `M`).
+func _drop_mine() -> void:
+	_mine_cooldown_remaining = MINE_COOLDOWN_SEC
+	var rad := deg_to_rad(heading_deg)
+	mine_dropped.emit(position + Vector2(0.0, sin(rad) * 5.0))
+
+
 func _wants_to_fire() -> bool:
 	return _debug_fire or Input.is_action_pressed("ui_accept")
 
@@ -348,6 +368,7 @@ func set_vehicle_type(t: int) -> void:
 	_salvo_index = 0
 	_salvo_reload = 0.0
 	_fire_cooldown_remaining = 0.0
+	_mine_cooldown_remaining = 0.0
 	hit_flash_remaining = 0.0
 	type_changed.emit(self)
 
@@ -382,6 +403,9 @@ func _process(delta: float) -> void:
 	_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
 	if fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire()
+	_mine_cooldown_remaining = maxf(_mine_cooldown_remaining - delta, 0.0)
+	if vehicle_type == 2 and _wants_mine() and _mine_cooldown_remaining <= 0.0:
+		_drop_mine()
 
 	queue_redraw()
 
