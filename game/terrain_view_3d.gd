@@ -215,6 +215,9 @@ func _spawn_match() -> void:
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
 	controller.match_over.connect(_on_match_over)
+	# Debug-only: RF_DEBUG_FLASH=1 holds the player in the hit-flash variant for screenshots.
+	if OS.get_environment("RF_DEBUG_FLASH") == "1" and controller.vehicle != null:
+		controller.vehicle.hit_flash_remaining = 99.0
 
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))

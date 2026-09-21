@@ -270,10 +270,21 @@ func _move(heading_before: float, delta: float) -> void:
 
 
 ## FUN_0040c460: returns true if the hit did anything.
+## After a hit the original draws the vehicle in variant 2 (the "yellow" cels) until `state+0x4c` = hit tick + 10
+## runs out (documents 47, 59).
+const HIT_FLASH_SEC := 10.0 / TICK_HZ
+var hit_flash_remaining := 0.0
+
+
+func flashing() -> bool:
+	return hit_flash_remaining > 0.0
+
+
 func take_damage(damage: float) -> bool:
 	if not alive or damage <= armor:
 		return false
 	hp -= damage - armor
+	hit_flash_remaining = HIT_FLASH_SEC
 	if hp <= 0.0:
 		alive = false
 		destroyed.emit(self)
@@ -338,6 +349,7 @@ func set_vehicle_type(t: int) -> void:
 
 
 func _process(delta: float) -> void:
+	hit_flash_remaining = maxf(hit_flash_remaining - delta, 0.0)
 	if pack == null or _frames.is_empty() or not alive or frozen:
 		return
 

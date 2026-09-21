@@ -189,6 +189,8 @@ const VEHICLE_SCALE := 0.375
 var vehicle: Vehicle
 var pack: Pack
 var _sprites: Array[Sprite3D] = []
+var _turret_meshes: Array[MeshInstance3D] = []
+var _flash := false
 
 
 func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
@@ -229,9 +231,8 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 		var part: Dictionary = TURRET_PARTS[i]
 		var mesh_instance := MeshInstance3D.new()
 		add_child(mesh_instance)
-		var cel: int = part["cel"]
-		if part["team_pair"] != -1 and vehicle.team == "green":
-			cel = part["team_pair"]
+		_turret_meshes.append(mesh_instance)
+		var cel := _turret_cel(part)
 		if debug_part_map:
 			_build_warped_mesh(mesh_instance, part["corners"], cel, debug_colors[i])
 		else:
@@ -271,7 +272,7 @@ func _quad_normal(corners: Array) -> Vector3:
 ## the quad's own overall normal (see _quad_normal above) -- the wrong diagonal always produces
 ## at least one triangle winding the opposite way.
 func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index: int, debug_color: Color = Color.TRANSPARENT) -> void:
-	var s := pack.get_sprite(_CEL_NAMES.get(cel_index, ""))
+	var s := pack.get_sprite(_sprite_id(cel_index))
 	if s.is_empty():
 		return
 	var tex := pack.get_texture(int(s.get("page", 0)))
@@ -348,19 +349,50 @@ func _process(_delta: float) -> void:
 	_refresh()
 
 
+## The cel a turret part is drawn with: the hit flash is variant 2 (base cel + 2, document 59), otherwise the
+## traced team pair.
+func _turret_cel(part: Dictionary) -> int:
+	if _flash:
+		return int(part["cel"]) + 2
+	if part["team_pair"] != -1 and vehicle.team == "green":
+		return part["team_pair"]
+	return part["cel"]
+
+
+func _rebuild_turret_parts() -> void:
+	for i in _turret_meshes.size():
+		_build_warped_mesh(_turret_meshes[i], TURRET_PARTS[i]["corners"], _turret_cel(TURRET_PARTS[i]))
+
+
+## Sprite id of a cel: the named ones, else the variant-2 ("yellow") id of the base cel it came from.
+func _sprite_id(cel: int) -> String:
+	if _CEL_NAMES.has(cel):
+		return _CEL_NAMES[cel]
+	for base in [167, 172, 182, 187, 177, 192, 197, 207, 202, 212]:
+		if cel == base + 2:
+			return "vehicle.hovercraft.p%d.yellow" % base
+	return ""
+
+
 func _refresh() -> void:
 	if vehicle == null or vehicle.pack == null:
 		return
-	var offset: int = TEAM_COLOUR_CEL_OFFSET.get(vehicle.team, 0)
+	if vehicle.flashing() != _flash:
+		_flash = vehicle.flashing()
+		_rebuild_turret_parts()
+	var offset: int = 2 if _flash else TEAM_COLOUR_CEL_OFFSET.get(vehicle.team, 0)
 	for i in FACES.size():
 		var cel: int = FACES[i]["cel"] + offset
 		_apply_cel(_sprites[i], cel)
+		# The variant-2 cels are half-size images (32 x 32 for a 64 x 64 face); the original draws every part
+		# stretched to its four corners, so the same face is drawn twice as big per pixel.
+		_sprites[i].pixel_size = 2.0 if _flash else 1.0
 
 
 func _apply_cel(sprite: Sprite3D, cel_index: int) -> void:
 	# Cel indices aren't sprite ids -- the pack only exposes sprite ids (section 2.4.2), so
 	# this reverse-maps the handful of real cels this file cares about. See _CEL_NAMES below.
-	var s := pack.get_sprite(_CEL_NAMES.get(cel_index, ""))
+	var s := pack.get_sprite(_sprite_id(cel_index))
 	if s.is_empty():
 		return
 	var tex := pack.get_texture(int(s.get("page", 0)))

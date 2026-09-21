@@ -12,6 +12,7 @@ const GROUND_CLEARANCE_PX := 2.0  ## same as VehicleBoxRender3D
 var vehicle: Vehicle
 var _pack: Pack
 var _parts: Array = []          ## per part: {mesh: MeshInstance3D, data: Dictionary, sprite_id: String}
+var _flash := false               ## drawn in variant 2 (the hit flash)
 var _anim_key: Variant = null   ## last animation state drawn (rebuild the animated parts only when it changes)
 
 
@@ -52,6 +53,9 @@ func _process(_delta: float) -> void:
 func _animate() -> void:
 	if vehicle == null or not is_instance_valid(vehicle):
 		return
+	if vehicle.flashing() != _flash:
+		_flash = vehicle.flashing()
+		_redraw_team_parts()
 	if vehicle.vehicle_type == 1:
 		# FUN_00402fc0: the wheel-strip parts 9 and 10 (cel 457) are drawn as cel 457 + ((obj+0x40 & 0x30000) >> 16),
 		# obj+0x40 being the object's x position in 16.16: the frame is the integer x (world units) modulo 4, so
@@ -76,6 +80,20 @@ func _animate() -> void:
 			corners[0][1] = y   # corner 49
 			corners[1][1] = y   # corner 48
 			_set_part_sprite(13, "vehicle.msv.p324.canisters_%d" % (3 - fired), corners)
+
+
+## Redraws every flag-8 part in the current variant: the team's, or variant 2 while the hit flash lasts
+## (FUN_00402d20 sets the draw variant to 2 while the hit time is in the future).
+func _redraw_team_parts() -> void:
+	var t: Dictionary = _pack.vehicle_types.get(str(vehicle.vehicle_type), {})
+	var parts: Array = t.get("parts", [])
+	for i in parts.size():
+		var part: Dictionary = parts[i]
+		if _parts[i].is_empty() or not (int(part["flags"]) & 8):
+			continue
+		var ids: Array = part["sprite_ids"]
+		var v := 2 if _flash else vehicle.player_index()
+		_set_part_sprite(i, String(ids[clampi(v, 0, ids.size() - 1)]), null)
 
 
 func _set_part_sprite(index: int, sprite_id: String, corners: Variant) -> void:
