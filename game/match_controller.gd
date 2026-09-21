@@ -797,6 +797,35 @@ func _update_flags(delta: float) -> void:
 			_check_capture(v)
 
 
+## The Jeep's compass value (document 71), FUN_0040d990's `state + 0x5c`, -16..16. The target is the other pool's flag while the Jeep is not
+## carrying it, else home (also when the flag lies more than 90 degrees to the side). The value only says how well the Jeep points at the target
+## (no left/right): within 11.25 degrees 16, else 15 falling to 12 at 90 degrees (`(0x10000 - (angle >> 6)) >> 12`, angle in 22-bit turns);
+## behind, a flag target falls back to home, and a home target shows 0. A flag target is negative, a home target positive.
+## UNTRACED: the home position is taken as the player's spawn (the original reads a pointer at 0x48c8b4 + player * 0x34).
+func compass_value(v: Vehicle) -> int:
+	var flag: FlagMarker = flags.get(v.player_index() ^ 1)
+	if flag != null and flag.carrier != v:
+		var m := _compass_magnitude(v, flag.position)
+		if m >= 0:
+			return -m
+	return maxi(_compass_magnitude(v, _player_spawn_px), 0)
+
+
+## 16 aligned, 15..12 within 90 degrees, -1 beyond (the original's iVar4).
+func _compass_magnitude(v: Vehicle, target: Vector2) -> int:
+	var to := target - v.position
+	var steps := floori(fposmod(rad_to_deg(to.angle()), 360.0) / 5.625)   # FUN_00422e70 rounds the heading down to 64 steps
+	var diff := fposmod(steps * 5.625 - v.heading_deg, 360.0)             # 0..360
+	var turn := int(diff / 360.0 * 4194304.0) & 0x3FFFFF                 # 22-bit turns
+	if (turn & 0x3E0000) == 0:
+		return 16
+	if turn > 0x1FFFFF:
+		turn = (-turn) & 0x3FFFFF
+	if turn < 0x100000:
+		return mini((0x10000 - (turn >> 6)) >> 12, 15)
+	return -1
+
+
 ## FUN_0040d990: the Jeep carries the flag of the other pool and stands on its own home tile.
 func _check_capture(v: Vehicle) -> void:
 	var own := v.player_index()

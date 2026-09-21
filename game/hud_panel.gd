@@ -2,8 +2,7 @@ class_name HudPanel
 extends Control
 ## The player's panel as the original lays it out (documents 66, 68, 69, 70), for the current vehicle type: the base picture (cel 1943 + vehicle
 ## index, 144 x 56), the fuel bar (kind 5: an easing fill, a colour that steps down with the fill and flashes when nearly empty) at the rectangle of the
-## vehicle's record, and the radar window (kind 6) at its record position and size. Ammunition bars (not modelled yet), the Jeep's compass (kind 8, its
-## needle source unconfirmed), the radar's grid and brackets, and the panel's slide-in are NOT drawn. UNVERIFIED: the bar colours are read from
+## vehicle's record, and the radar window (kind 6) at its record position and size. Ammunition bars (not modelled yet), the Jeep's compass palette by value (kind 8; the value itself is document 71's), the radar's grid and brackets, and the panel's slide-in are NOT drawn. UNVERIFIED: the bar colours are read from
 ## the words at 0x446760 as 15-bit RGB (document 70). The scale (3 px per original pixel) and the screen position are the port's choice.
 
 const SCALE := 3
@@ -11,6 +10,9 @@ const SCALE := 3
 var mc: MatchController
 var _base: TextureRect
 var _radar: RadarView
+var _compass: TextureRect
+var _compass_pos := Vector2.ZERO
+var _compass_on := false
 var _bar_bg: ColorRect
 var _bar_fill: ColorRect
 var _type := -1
@@ -28,6 +30,11 @@ func setup(controller: MatchController) -> void:
 	add_child(_bar_bg)
 	_bar_fill = ColorRect.new()
 	add_child(_bar_fill)
+	_compass = TextureRect.new()
+	_compass.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_compass.stretch_mode = TextureRect.STRETCH_SCALE
+	_compass.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	add_child(_compass)
 	_radar = RadarView.new()
 	add_child(_radar)
 	_radar.setup(controller)
@@ -61,13 +68,18 @@ func _layout(t: int) -> void:
 	_bar_bg.position = Vector2(float(_rect[0]), float(_rect[1])) * SCALE
 	_bar_bg.size = Vector2(float(_rect[2] - _rect[0] + 1), float(_rect[3] - _rect[1] + 1)) * SCALE
 	var s9: Dictionary = pn["slot9"]
+	_compass_on = false
 	if int(s9["kind"]) == 6:
 		_radar.visible = true
 		_radar.configure(Vector2i(int(s9["size"][0]), int(s9["size"][1])), SCALE)
 		_radar.position = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * SCALE
 	else:
-		_radar.visible = false   # the Jeep's compass (kind 8) is not drawn yet
+		_radar.visible = false
+		_compass_on = int(s9["kind"]) == 8
+		_compass_pos = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * SCALE
+		_compass.size = Vector2(float(s9["size"][0]), float(s9["size"][1])) * SCALE
 	_fill = float(_rect[2] - _rect[0] + 1) * clampf(mc.vehicle.fuel / _fuel_max, 0.0, 1.0)
+	_compass.visible = false
 
 
 func _process(delta: float) -> void:
@@ -78,6 +90,18 @@ func _process(delta: float) -> void:
 		_layout(v.vehicle_type)
 	if not visible:
 		return
+	if _compass_on:
+		# kind 8 (document 71): the reticle cel for the target (flag: negative value, home: positive); its per-value palette is NOT reproduced
+		var cv := mc.compass_value(v)
+		var cd: Dictionary = mc.pack.hud_panels["compass"]
+		var cs := mc.pack.get_sprite(String(cd["flag_sprite_id"] if cv < 0 else cd["home_sprite_id"]))
+		var cat := AtlasTexture.new()
+		cat.atlas = mc.pack.get_texture(int(cs.get("page", 0)))
+		cat.region = Rect2(float(cs["x"]), float(cs["y"]), float(cs["w"]), float(cs["h"]))
+		_compass.texture = cat
+		_compass.position = _compass_pos
+		_compass.visible = true
+		_compass.tooltip_text = str(cv)
 	var width := float(_rect[2] - _rect[0] + 1)
 	var target := width * clampf(v.fuel / _fuel_max, 0.0, 1.0)
 	_fill = move_toward(_fill, target, 0.6 * delta * Vehicle.TICK_HZ)   # FUN_0042cdd0 at 0x9999 (0.6) pixels per tick
