@@ -2,7 +2,7 @@ class_name PlaceholderHud
 extends CanvasLayer
 ## PORT-ONLY PLACEHOLDER (not the original interface). Plain labels giving a player what the level needs to be played from start to
 ## finish: the current vehicle, hit points and fuel, what to do next, the keys, and after the win a restart key. Every piece of it is
-## a choice of this port, listed under "Untraced choices" in docs/process/NEXT_STEPS.md, to be replaced by the traced interface
+## a choice of this port (the fuel and radar are now the traced panel, game/hud_panel.gd), listed under "Untraced choices" in docs/process/NEXT_STEPS.md, to be replaced by the traced interface
 ## (the per-player panel of document 66: frame cel 1940, vehicle icon cels 2161-2164, weapon counts drawn with the digit cels 2146-2155,
 ## and the radar). The objective texts are not original messages either (the announcer's are in document 66).
 
@@ -25,15 +25,14 @@ func setup(controller: MatchController) -> void:
 	_keys.anchor_top = 1.0
 	_keys.anchor_bottom = 1.0
 	_keys.offset_top = -26.0
-	var radar := RadarView.new()  # traced content (documents 68, 69); its position and 4x scale are the port's
-	add_child(radar)
-	radar.setup(controller)
-	radar.anchor_top = 1.0
-	radar.anchor_bottom = 1.0
-	radar.offset_left = 12.0
-	radar.offset_top = -160.0 - 30.0
-	radar.offset_right = 12.0 + 128.0
-	radar.offset_bottom = -30.0
+	var panel := HudPanel.new()  # the traced panel (documents 66-70); its scale and position are the port's
+	add_child(panel)
+	panel.setup(controller)
+	panel.anchor_top = 1.0
+	panel.anchor_bottom = 1.0
+	panel.offset_left = 12.0
+	panel.offset_top = -168.0 - 30.0
+	panel.offset_bottom = -30.0
 	_banner = _label(Vector2(60, 90), 40)
 	_banner.visible = false
 
@@ -58,8 +57,8 @@ func _process(_delta: float) -> void:
 	var v := mc.vehicle
 	if v == null:
 		return
-	_status.text = "%s   hp %d / %d   fuel %d / %d%s" % [VEHICLE_NAMES[v.vehicle_type], int(ceil(v.hp)), int(v.max_hp),
-			int(v.fuel), int(v.fuel_max), "" if v.alive else "   (destroyed)"]
+	_status.text = "%s   hp %d / %d%s" % [VEHICLE_NAMES[v.vehicle_type], int(ceil(v.hp)), int(v.max_hp),
+			"" if v.alive else "   (destroyed)"]  # the original shows no health readout (document 70): a debug aid
 	_objective.text = _objective_text(v)
 
 

@@ -5,9 +5,9 @@ extends TextureRect
 ## bits) through the game's palette (hud/radar.json, built by tools/build_pack.py), with the flag's blinking pole-and-pennant blip
 ## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off). NOT reproduced (untraced): the grid overlay (cel 1963), the corner-bracket
 ## cursor (cel 1964), the Jeep's direction arrow, the tiles with bit 31 set (0xc9), the bitmap background outside the map, and the
-## panel frame around it. The on-screen scale (4 px per tile) is the port's choice, as is the position.
+## panel frame around it. The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
-const SCALE := 4
+var scale_px := 4
 
 var mc: MatchController
 var _img: Image
@@ -21,14 +21,20 @@ func setup(controller: MatchController) -> void:
 	if _rd.is_empty():
 		visible = false
 		return
-	var w: Array = _rd.get("window", [32, 32])
-	_win = Vector2i(int(w[0]), int(w[1]))
-	_img = Image.create(_win.x, _win.y, false, Image.FORMAT_RGBA8)
-	texture = ImageTexture.create_from_image(_img)
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	custom_minimum_size = Vector2(_win) * SCALE
 	stretch_mode = TextureRect.STRETCH_SCALE
 	expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	var w: Array = _rd.get("window", [32, 32])
+	configure(Vector2i(int(w[0]), int(w[1])), scale_px)
+
+
+## The window size in tiles (from the vehicle's panel record) and the screen pixels per tile.
+func configure(window: Vector2i, scale: int) -> void:
+	_win = window
+	scale_px = scale
+	_img = Image.create(_win.x, _win.y, false, Image.FORMAT_RGBA8)
+	texture = ImageTexture.create_from_image(_img)
+	custom_minimum_size = Vector2(_win) * scale_px
 	size = custom_minimum_size
 
 
