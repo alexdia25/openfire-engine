@@ -74,11 +74,18 @@ func _process(_delta: float) -> void:
 		"settle":
 			if _ticks > 150:
 				mc.switch_player_vehicle()
-				mc.select_move(1)
-				mc.confirm_selection()
+				mc.select_move(1)   # Tank -> Jeep (down in the hangar picture)
 				if v.vehicle_type != 1:
 					mc.debug_swap_vehicle(1)
 					print("[autoplay] (swapped to the Jeep by the debug key; the home tile did not switch)")
+				_next("choose")
+		"choose":
+			if mc.selecting:
+				if mc.select_anim.fade >= 1.0:
+					mc.confirm_selection()
+			elif not mc.undocking:
+				if v.vehicle_type != 1:
+					mc.debug_swap_vehicle(1)
 				_next("wait_flag")
 		"wait_flag":
 			_flag = mc.flags.get(1)

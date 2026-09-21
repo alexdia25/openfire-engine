@@ -251,6 +251,10 @@ func _spawn_match() -> void:
 	if OS.get_environment("RF_DEBUG_SELECT") == "1" and controller.vehicle != null:
 		controller.switch_player_vehicle()
 		controller.select_move(1)
+	# Debug-only: RF_DEBUG_SELECT_CONFIRM=<frame> confirms the choice at that process frame (with RF_DEBUG_SELECT=1), for screenshots of the confirm script.
+	# Debug-only: RF_DEBUG_SELECT_MAP=1 opens the map window.
+	if OS.get_environment("RF_DEBUG_SELECT_MAP") == "1" and controller.vehicle != null:
+		controller.toggle_map()
 	# Debug-only: RF_DEBUG_FLASH=1 holds the player in the hit-flash variant for screenshots.
 	if OS.get_environment("RF_DEBUG_FLASH") == "1" and controller.vehicle != null:
 		controller.vehicle.hit_flash_remaining = 99.0
@@ -549,6 +553,8 @@ func _camera_target_position(look_at_px: Vector2) -> Vector3:
 func _process(delta: float) -> void:
 	if camera == null:
 		return
+	if OS.get_environment("RF_DEBUG_SELECT_CONFIRM") != "" and controller != null and Engine.get_process_frames() == int(OS.get_environment("RF_DEBUG_SELECT_CONFIRM")):
+		controller.confirm_selection()
 	# Debug-only: RF_DEBUG_SWAP="frame:type,frame:type" swaps the player's vehicle at those frames (with
 	# RF_DEBUG_DRIVE=1 this swaps while moving).
 	if OS.get_environment("RF_DEBUG_SWAP") != "" and controller != null:

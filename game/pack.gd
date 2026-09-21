@@ -17,6 +17,7 @@ var projectile_descriptors: Dictionary = {}  ## "0x454580" -> parts with sprite 
 var vehicle_types: Dictionary = {}    ## "0".."3" -> stats, collision shape, parts (document 57)
 var radar_data: Dictionary = {}         ## document 69: radar palette indices, their RGB, the flag blip
 var hud_panels: Dictionary = {}         ## document 70: the four vehicles' panel layouts
+var selector_data: Dictionary = {}      ## document 78: the docked vehicle-choice screen
 var flag_data: Dictionary = {}          ## document 65: the capture flag's drawing and constants
 var water_tables: Dictionary = {}       ## document 62: coast shapes, boxes for FUN_0042f280
 var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
@@ -98,6 +99,11 @@ func load_from(dir: String) -> bool:
 		if vdoc is Dictionary:
 			vehicle_types = vdoc.get("types", {})
 
+	var sel_path := dir.path_join("hud/selector.json")
+	if FileAccess.file_exists(sel_path):
+		var sdoc: Variant = _read_json(sel_path)
+		if sdoc is Dictionary:
+			selector_data = sdoc
 	var hp_path := dir.path_join("hud/panels.json")
 	if FileAccess.file_exists(hp_path):
 		var hdoc: Variant = _read_json(hp_path)

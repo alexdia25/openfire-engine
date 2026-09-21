@@ -981,13 +981,18 @@ func flag_action(v: Vehicle) -> void:
 			return
 
 
-## The vehicle choice at the base (document 76). The original docks the vehicle, then a selection state (FUN_00418290 -> FUN_00417ad0) shows the four
-## types in a 2 x 2 grid: top row Heli, MSV, bottom row Tank, Jeep. The cursor starts on the first type (in order Tank, Jeep, MSV, Heli) whose stock is not 0 and
-## moves by the neighbour table at 0x4491c0 (+0x24..0x27 = left, right, up, down per type); a target with no stock is skipped by trying that target's
-## other-axis neighbours, and if none is in stock the cursor stays. A fire button confirms: the vehicle is created and one is taken from its stock.
-## PORT-ONLY: the docking is the `V` key while standing on the home tile (the original does it when the vehicle drives onto the pad), the keys are the arrows and Space / Enter,
-## and no cancel exists (the original's other two buttons lead to state 0x4180d0, untraced).
-const SELECT_NEIGHBOURS := [[0, 1, 3, 0], [0, 1, 2, 1], [3, 2, 2, 1], [3, 2, 3, 0]]   ## [left, right, up, down] for Tank, Jeep, MSV, Heli
+## The vehicle choice at the base (documents 76, 78). The original docks the vehicle, then a selection state (FUN_00418290 -> FUN_00417ad0) shows the four
+## types in a 2 x 2 hangar picture: top row Heli, Tank; bottom row MSV, Jeep. The cursor starts on the first type (in order Tank, Jeep, MSV, Heli) whose stock is not 0 and
+## moves by the neighbour table at 0x4491c0 (+0x24..0x27 = up, down, left, right per type; document 78 corrects document 76's order); a target with no stock is skipped by
+## trying that target's other-axis neighbours, and if none is in stock the cursor stays. The view fades in over about 14 ticks and only then can a fire button confirm: the vehicle
+## is created and one is taken from its stock, and the type's confirm script runs (the picture slides onto the lift, the lift rises, the view fades out; SelectorAnim).
+## PORT-ONLY: the keys are the arrows and Space / Enter, M shows the map (the original's other buttons lead to the map window, state 0x4180d0), and no cancel exists.
+const SELECT_NEIGHBOURS := [[0, 1, 3, 0], [0, 1, 2, 1], [3, 2, 2, 1], [3, 2, 3, 0]]   ## [up, down, left, right] for Tank, Jeep, MSV, Heli
+const SCRIPT_NAMES := ["Tank", "Jeep", "MSV", "Heli"]
+var select_anim: SelectorAnim = null
+var undocking := false      ## the confirm script is playing; the new vehicle is on the pad but held (`state +0x70 = 1`) until it ends
+var map_open := false       ## the map window of state 0x4180d0 (the level's radar bitmap in a 144 x 144 frame)
+var view_fade := 1.0        ## the game view's own fade-in after the choice (0x4183e0, 0.07 a tick)
 var selecting := false
 var selection := 0
 signal selection_changed()
@@ -1013,7 +1018,7 @@ var quick_swap_enabled := true
 
 
 func can_dock(v: Vehicle) -> bool:
-	if v != vehicle or v.moving or not v.alive or dock_state != 0 or selecting or match_finished:
+	if v != vehicle or v.moving or not v.alive or dock_state != 0 or selecting or undocking or match_finished:
 		return false
 	var t := _tile_of(v.position)
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + v.player_index():
@@ -1054,9 +1059,20 @@ func _do_dock() -> void:
 
 
 func _update_dock(delta: float) -> void:
+	var ticks := delta * Vehicle.TICK_HZ
+	if selecting and select_anim != null:
+		select_anim.fade_in(ticks)
+	elif undocking:
+		select_anim.step(ticks)
+		if select_anim.finished:
+			undocking = false
+			vehicle.frozen = false
+			view_fade = 0.0
+			selection_changed.emit()
+	elif view_fade < 1.0:
+		view_fade = minf(view_fade + SelectorAnim.FADE_PER_TICK * ticks, 1.0)
 	if dock_state == 0:
 		return
-	var ticks := delta * Vehicle.TICK_HZ
 	if dock_state == 1:
 		vehicle.z = maxf(vehicle.z - HELI_LAND_RATE * ticks, 0.0)
 		var f := vehicle.z / _land_z0
@@ -1073,7 +1089,7 @@ func _update_dock(delta: float) -> void:
 
 
 func switch_player_vehicle() -> void:
-	if not quick_swap_enabled or vehicle == null or match_finished or vehicle.moving or selecting or dock_state != 0:
+	if not quick_swap_enabled or vehicle == null or match_finished or vehicle.moving or selecting or undocking or dock_state != 0:
 		return
 	var t := _tile_of(vehicle.position)
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
@@ -1092,18 +1108,20 @@ func _open_selection() -> void:
 			selection = i
 			break
 	selecting = true
+	map_open = false
+	select_anim = SelectorAnim.new()
 	vehicle.frozen = true
 	selection_changed.emit()
 
 
-## dir: 0 left, 1 right, 2 up, 3 down (the four direction bits 0x40000000, 0x80000000, 0x10000000, 0x20000000 of the original's input word).
+## dir: 0 up, 1 down, 2 left, 3 right (the input word's bits 0x40000000, 0x80000000, 0x10000000, 0x20000000; document 78).
 func select_move(dir: int) -> void:
 	if not selecting:
 		return
 	var cur := selection
 	var cand: int = SELECT_NEIGHBOURS[cur][dir]
 	if vehicle_stock[cand] == 0:
-		var alt: Array = [2, 3] if dir < 2 else [0, 1]
+		var alt: Array = [2, 3] if dir < 2 else [0, 1]   # a vertical move falls back to the target's left / right, a horizontal one to its up / down
 		var first: int = SELECT_NEIGHBOURS[cand][alt[0]]
 		var c2 := first
 		if first == cand:
@@ -1117,8 +1135,10 @@ func select_move(dir: int) -> void:
 
 
 func confirm_selection() -> void:
-	if not selecting or vehicle_stock[selection] == 0:
+	if not selecting or vehicle_stock[selection] == 0 or map_open:
 		return
+	if select_anim != null and select_anim.fade < 1.0:
+		return   # the confirm only counts once the view has faded in (FUN_00417ad0 tests the fade value against 1.0)
 	_take_stock(selection)
 	vehicle.set_vehicle_type(selection)   # a new vehicle object: full hit points, fuel and ammunition
 	vehicle.position = _pad_centre        # FUN_0040b1c0 creates it on the pad, heading 180 degrees (the Heli 135); the port's heading is the original's minus 90
@@ -1126,10 +1146,21 @@ func confirm_selection() -> void:
 	vehicle.z = 0.0
 	vehicle.speed = 0.0
 	vehicle.moving = false
-	vehicle.docked = false
-	vehicle.frozen = false
+	vehicle.docked = false                # held on the pad (frozen) until the script has run
 	selecting = false
+	undocking = true
+	var sel: Dictionary = pack.selector_data
+	if sel.is_empty():
+		select_anim.finished = true
+	else:
+		select_anim.start_script(sel["scripts"][SCRIPT_NAMES[selection]])
 	selection_changed.emit()
+
+
+func toggle_map() -> void:
+	if selecting:
+		map_open = not map_open
+		selection_changed.emit()
 
 
 ## Debug convenience (not in the original): become vehicle type `t` (0 Tank, 1 Jeep, 2 MSV, 3 Heli) anywhere, at once, with
@@ -1146,10 +1177,11 @@ func debug_swap_vehicle(t: int) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if selecting and event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
-			KEY_LEFT: select_move(0)
-			KEY_RIGHT: select_move(1)
-			KEY_UP: select_move(2)
-			KEY_DOWN: select_move(3)
+			KEY_UP: select_move(0)
+			KEY_DOWN: select_move(1)
+			KEY_LEFT: select_move(2)
+			KEY_RIGHT: select_move(3)
+			KEY_M: toggle_map()
 			KEY_SPACE, KEY_ENTER, KEY_KP_ENTER: confirm_selection()
 		get_viewport().set_input_as_handled()
 		return

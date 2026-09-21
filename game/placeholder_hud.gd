@@ -11,6 +11,7 @@ const VEHICLE_NAMES := ["Tank", "Jeep", "MSV", "Helicopter"]
 var mc: MatchController
 var _status: Label
 var _objective: Label
+var _fade: ColorRect
 var _stock: Label
 var _keys: Label
 var _banner: Label
@@ -35,15 +36,16 @@ func setup(controller: MatchController) -> void:
 	panel.offset_left = 12.0
 	panel.offset_top = -168.0 - 30.0
 	panel.offset_bottom = -30.0
-	var select := VehicleSelectView.new()   # the vehicle-choice grid (document 76): shown while MatchController.selecting
+	var select := SelectorScreen.new()   # the docked vehicle-choice screen (documents 76, 78): shown while MatchController.selecting / undocking
 	add_child(select)
+	select.set_anchors_preset(Control.PRESET_FULL_RECT)
 	select.setup(controller)
-	select.anchor_left = 0.5
-	select.anchor_right = 0.5
-	select.anchor_top = 0.5
-	select.anchor_bottom = 0.5
-	select.offset_left = -150.0
-	select.offset_top = -110.0
+	var fade := ColorRect.new()   # the game view's fade-in after the choice (0x4183e0): black at alpha 1 - view_fade
+	fade.color = Color(0, 0, 0, 0)
+	fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(fade)
+	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fade = fade
 	_banner = _label(Vector2(60, 90), 40)
 	_banner.visible = false
 
@@ -82,6 +84,8 @@ func _process(_delta: float) -> void:
 	_status.text = "%s   hp %d / %d%s" % [VEHICLE_NAMES[v.vehicle_type], int(ceil(v.hp)), int(v.max_hp),
 			"" if v.alive else "   (destroyed)"]  # the original shows no health readout (document 70): a debug aid
 	_objective.text = _objective_text(v)
+	_fade.color.a = 1.0 - mc.view_fade
+	_fade.size = get_viewport().get_visible_rect().size
 	_stock.text = "vehicles left (placeholder display): Tank %s  Jeep %s  MSV %s  Heli %s" % [_n(mc.vehicle_stock[0]), _n(mc.vehicle_stock[1]), _n(mc.vehicle_stock[2]), _n(mc.vehicle_stock[3])]
 
 

@@ -91,3 +91,14 @@ func _process(_delta: float) -> void:
 				if qx >= 0 and qy >= 0 and qx < _win.x and qy < _win.y:
 					_img.set_pixel(qx, qy, col)
 	(texture as ImageTexture).update(_img)
+
+
+## The whole level as the radar bitmap (one pixel per tile): what the map window of the choice screen shows (document 78).
+func full_image() -> Image:
+	var lv := mc.level
+	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	img.fill(Color.BLACK)
+	for y in mini(lv.height, 128):
+		for x in mini(lv.width, 128):
+			img.set_pixel(x, y, _tile_colour(x, y))
+	return img
