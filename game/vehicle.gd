@@ -796,6 +796,12 @@ func toggle_heli_slot() -> void:
 		_heli_slot = 1 - _heli_slot
 
 
+## Which weapon is currently selected (0 gun, 1 bomb) -- obj+0xc bit 0x10000000 in the original
+## (FUN_0040e600/FUN_0040e7a0, document 63), also read by the panel's weapon-select icons (document 83).
+func heli_weapon_slot() -> int:
+	return _heli_slot
+
+
 func _heli_weapons(delta: float) -> void:
 	for i in 2:
 		_heli_ready[i] = maxf(_heli_ready[i] - delta, 0.0)

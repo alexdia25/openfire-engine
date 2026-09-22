@@ -18,6 +18,8 @@ var _bars: Array = []      ## {kind, rect [l, t, r, b], slot (-1 = fuel), bg, fi
 var _pips: Array = []      ## 16 TextureRects (the Jeep's missiles)
 var _pip_tex: AtlasTexture
 var _type := -1
+var _weapon_select_bomb: TextureRect   ## Heli only, kind 9 (document 83): lit/dim by Vehicle.heli_weapon_slot()
+var _weapon_select_gun: TextureRect
 
 
 func setup(controller: MatchController) -> void:
@@ -49,6 +51,16 @@ func _atlas(sprite_id: String) -> AtlasTexture:
 	return at
 
 
+func _new_icon(pos: Array) -> TextureRect:
+	var r := TextureRect.new()
+	r.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	r.stretch_mode = TextureRect.STRETCH_SCALE
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.position = Vector2(float(pos[0]), float(pos[1])) * SCALE
+	add_child(r)
+	return r
+
+
 func _add_bar(kind: int, slot: int, rect: Array) -> void:
 	var bg := ColorRect.new()
 	bg.color = _rgb(mc.pack.hud_panels["fuel_rgb"]["empty"])
@@ -69,6 +81,11 @@ func _layout(t: int) -> void:
 	for p in _pips:
 		p.queue_free()
 	_pips.clear()
+	if _weapon_select_bomb != null:
+		_weapon_select_bomb.queue_free()
+		_weapon_select_gun.queue_free()
+		_weapon_select_bomb = null
+		_weapon_select_gun = null
 	var hp: Dictionary = mc.pack.hud_panels
 	var pn: Dictionary = hp.get("panels", {}).get(str(t), {})
 	if pn.is_empty():
@@ -96,6 +113,10 @@ func _layout(t: int) -> void:
 				r.position = Vector2(float(hp["pips"]["x"][i]), float(hp["pips"]["y"][i])) * SCALE
 				add_child(r)
 				_pips.append(r)
+	if t == 3:   # Heli only: kind 9's weapon-select icons (document 83)
+		var ws: Dictionary = hp["weapon_select"]
+		_weapon_select_bomb = _new_icon(ws["bomb_pos"])
+		_weapon_select_gun = _new_icon(ws["gun_pos"])
 	var s9: Dictionary = pn["slot9"]
 	_compass_on = false
 	_compass.visible = false
@@ -167,3 +188,11 @@ func _process(delta: float) -> void:
 		_update_bar(b, v, delta)
 	for i in _pips.size():
 		_pips[i].visible = i < v.ammo[0]   # kind 7: pip i + 1 is lit while the stock reaches it (the easing of FUN_004127b0 is not reproduced)
+	if _weapon_select_bomb != null:
+		var ws: Dictionary = mc.pack.hud_panels["weapon_select"]
+		var ids: Dictionary = ws["sprite_ids"]
+		var bomb_selected := v.heli_weapon_slot() == 1
+		_weapon_select_bomb.texture = _atlas(String(ids["bomb_lit" if bomb_selected else "bomb_dim"]))
+		_weapon_select_gun.texture = _atlas(String(ids["gun_dim" if bomb_selected else "gun_lit"]))
+		_weapon_select_bomb.size = _weapon_select_bomb.texture.get_size() * SCALE
+		_weapon_select_gun.size = _weapon_select_gun.texture.get_size() * SCALE
