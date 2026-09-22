@@ -13,6 +13,11 @@ const SPEED_PER_TICK := 0.5
 const REMOVE_AFTER_CLOSED_TICKS := 60.0
 const TICK_HZ := 62.5
 
+## FUN_004322f0 (document 56/82): "GateMove" (0x44b610) plays the tick the gate is fully open and decides to start
+## closing again; "GateClose" (0x44b628) plays the first tick it finishes closing (open reaches 0). Neither address
+## is called anywhere in this function on the *opening* side -- untraced, not invented.
+signal sound_cue(id: String)
+
 var tile: Vector2i
 var coastal_id: int      ## the id the tile had (43 or 44), restored on removal
 var variant: int         ## the tile's team variant (door panel colour and who may open it)
@@ -57,6 +62,8 @@ func tick(delta: float, others_block: Callable) -> void:
 	var closing := target < previous
 	open = move_toward(open, target, SPEED_PER_TICK * ticks)
 	if open == 0.0:
+		if _closed_ticks == 0.0:
+			sound_cue.emit("GateClose")
 		_closed_ticks += ticks
 		if _closed_ticks > REMOVE_AFTER_CLOSED_TICKS:
 			finished = true
@@ -68,6 +75,7 @@ func tick(delta: float, others_block: Callable) -> void:
 		if carrier == null or not is_instance_valid(carrier) \
 				or not Collision.polygon_hits_box(carrier.hit_polygon(), centre, region["box"]):
 			target = 0.0
+			sound_cue.emit("GateMove")
 	if closing and others_block.call(bars(open)):
 		target = OPEN_MAX
 		open = previous

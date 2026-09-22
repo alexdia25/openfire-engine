@@ -501,6 +501,7 @@ func _create_gate(v: Vehicle) -> void:
 	g.setup(t, id, gd, level.get_variant(t.x, t.y), float(pack.tile_size_px), v)
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
+	g.sound_cue.connect(v.sound_cue.emit)
 	gate_created.emit(g)
 
 
@@ -515,6 +516,7 @@ func debug_open_gate(t: Vector2i) -> void:
 	g.setup(t, id, gd, level.get_variant(t.x, t.y), float(pack.tile_size_px), vehicle)
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
+	g.sound_cue.connect(vehicle.sound_cue.emit)
 	gate_created.emit(g)
 
 
