@@ -57,6 +57,22 @@ const IMPACT_SOUND_CUES := {
 const IMPACT_SOUND_CUES_RANDOM := {
 	"0x444b68": ["MetalHit1", "MetalHit2", "MetalHit3", "MetalHit4"],
 }
+## Coastal id -> sound cue for a tile's destroy effect (document 84), built the same way: every id here is a real
+## destroy-effect record's first SOUND opcode via the master index table, not a guess. An id with no entry has no
+## traced destroy-effect record at all, not an assumed "Boom".
+const DESTROY_SOUND_CUES := {
+	1: "SmallBoom", 2: "SmallBoom", 3: "SmallBoom", 4: "SmallBoom", 5: "SmallBoom", 6: "SmallBoom", 11: "SmallBoom",
+	12: "Boom", 13: "Boom", 15: "Boom", 16: "Boom", 17: "Boom", 18: "Boom", 19: "Boom", 20: "Boom", 21: "Boom",
+	22: "Boom", 23: "Boom", 24: "Boom", 25: "Boom", 26: "Boom", 27: "Boom", 28: "Boom", 29: "Boom", 30: "Boom",
+	31: "Boom", 32: "Boom", 33: "Boom", 34: "Boom", 35: "Boom", 36: "Boom", 37: "Boom", 38: "Boom",
+	39: "ExplLarge", 40: "ExplLarge", 41: "ExplLarge", 42: "ExplLarge",
+	43: "Boom", 44: "Boom", 45: "Boom", 46: "Boom", 47: "BushCrush", 48: "BushCrush", 49: "Boom", 50: "Boom",
+	54: "Boom", 55: "Boom", 56: "Boom", 57: "Boom", 58: "Boom", 59: "Boom", 60: "Boom", 62: "Boom", 63: "Boom",
+	64: "SmDirtHit", 65: "SmDirtHit", 66: "SmDirtHit", 67: "SmDirtHit",
+	68: "Boom", 69: "Boom", 70: "Boom", 71: "Boom", 72: "Boom",
+	74: "Boom", 75: "Boom", 76: "Boom", 77: "Boom", 78: "Boom", 79: "Boom", 80: "Boom", 81: "Boom", 82: "Boom",
+	83: "Boom", 84: "Boom", 85: "Boom", 86: "Boom", 87: "Boom", 88: "Boom", 89: "Boom", 90: "Boom",
+}
 ## A vehicle laid a mine / a mine went off (document 60); the explosion drawn is record 0x445058.
 signal mine_added(mine: Mine)
 signal mine_exploded(position: Vector2)
@@ -405,6 +421,8 @@ func _detonate_mine(m: Mine) -> void:
 	m.queue_free()
 	_boxes.append({"box": ExplosionBox.new(pack.get_explosion("0x445058"), at), "destroyed": {}})
 	mine_exploded.emit(at)
+	if vehicle != null:
+		vehicle.sound_cue.emit("ExplLarge")   # record 0x445058's script: SOUND 14 then SOUND 1 (document 84); only the first is reproduced
 
 
 ## Every whole tick a live damage box hurts what it overlaps: vehicles (layer 2, z 0..their height) get
@@ -808,6 +826,8 @@ func _damage_tile_amount(t: Vector2i, id: int, damage: float) -> bool:
 		_tile_hp[t] = hp - dmg
 		return false
 	_tile_hp.erase(t)
+	if vehicle != null and DESTROY_SOUND_CUES.has(id):
+		vehicle.sound_cue.emit(DESTROY_SOUND_CUES[id])
 	if gates.has(t):
 		_remove_gate(gates[t])  # FUN_00432460: the decoration returns, then the tile is destroyed as usual
 	var tile_px := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
