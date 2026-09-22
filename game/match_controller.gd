@@ -1003,13 +1003,18 @@ var selection := 0
 signal selection_changed()
 
 
-## Docking and undocking (document 77). The original: a vehicle standing STILL on its own pad (tile art 90 / 91), within the record's tolerance of the tile centre
-## (+0x254: Tank and MSV 4 units, Jeep 9, Heli 32), that gets a fire button is docked (Tank, MSV: at once; Jeep: after returning its own team's flag if it carries it;
-## Heli: an automatic landing first). Docking gives one vehicle back to the stock (an MSV's unused mines go to a reserve) and removes the vehicle; a dock object
-## carrying its model sinks 0.3 units a tick for 70 ticks with the pad art changed; the view fades out and the vehicle-choice grid opens; a confirm creates the new
-## vehicle on the pad at once, heading 180 degrees (the Heli 135), and the view fades in.
+## Docking and undocking (document 77, corrected in document 81). The original: a vehicle standing STILL on its own pad (tile art 90 / 91), within the record's
+## tolerance of the tile centre (+0x254: Tank and MSV 4 units, Jeep 9, Heli 32), that gets a fire button is docked (Tank, MSV: at once; Jeep: after returning its
+## own team's flag if it carries it; Heli: an automatic landing first). Docking gives one vehicle back to the stock (an MSV's unused mines go to a reserve). A dock
+## object then carries the vehicle's own model and VISIBLY SINKS -- FUN_0042efc0/0042f054, disassembled again for document 81 -- at a continuous 0x4ccc/65536
+## (0.3) units a tick: once past -16 units the view starts fading out, and the object is destroyed only once it has both reached -32 units AND a separate 70-tick
+## timer has run out (the slower of the two: -32 units at 0.3/tick takes ~107 ticks, so in practice the depth, not the timer, decides). A confirm then creates the
+## new vehicle on the pad at once, heading 180 degrees (the Heli 135), and the view fades in.
 const DOCK_TOLERANCE := [4.0, 9.0, 4.0, 32.0]   ## by type: record +0x254
-const DOCK_SINK_TICKS := 70.0                   ## the dock object's timer (+0x68 = 0x46)
+const DOCK_SINK_RATE := 0x4CCC / 65536.0        ## units of depth a tick (FUN_0042efc0/0042f054's shared constant)
+const DOCK_FADE_DEPTH := -16.0                  ## the view starts fading out once the object passes this depth
+const DOCK_MIN_DEPTH := -32.0                   ## the object is not removed above this depth even if the timer has run out
+const DOCK_SINK_TICKS := 70.0                   ## the dock object's timer (+0x68 = 0x46): the OTHER of the two conditions, usually the faster one
 const HELI_LAND_RATE := 0.5                     ## units of height a tick during the automatic landing (0x40ec30: dt << 15)
 var dock_state := 0                             ## 0 none, 1 the Heli landing, 2 sinking into the base
 var mine_reserve := 0                           ## the player's reserve of mines (player struct +0xbc); only filled here, not yet used (document 75)
@@ -1056,7 +1061,6 @@ func _do_dock() -> void:
 	if vehicle.vehicle_type == 2:
 		mine_reserve += vehicle.ammo[1]                # ... and an MSV's unused mines join the reserve
 	_drop_carried_flags(vehicle)                       # PLACEHOLDER: a flag still carried is dropped here (the original's dock of a Jeep with the enemy flag is untraced)
-	vehicle.docked = true
 	vehicle.frozen = true
 	vehicle.speed = 0.0
 	dock_state = 2
@@ -1072,9 +1076,10 @@ func _update_dock(delta: float) -> void:
 		if select_anim.finished:
 			undocking = false
 			vehicle.frozen = false
+			vehicle.z = 0.0
 			view_fade = 0.0
 			selection_changed.emit()
-	elif view_fade < 1.0:
+	elif view_fade < 1.0 and dock_state == 0:
 		view_fade = minf(view_fade + SelectorAnim.FADE_PER_TICK * ticks, 1.0)
 	if dock_state == 0:
 		return
@@ -1087,8 +1092,15 @@ func _update_dock(delta: float) -> void:
 			vehicle.position = _pad_centre
 			_do_dock()
 		return
-	_dock_timer -= ticks
-	if _dock_timer <= 0.0:
+	# dock_state == 2: FUN_0042efc0 / 0042f054 -- the vehicle visibly sinks at a constant rate; the view starts
+	# fading once it passes -16, and it is only removed once BOTH it has reached -32 AND the 70-tick timer is spent.
+	vehicle.z -= DOCK_SINK_RATE * ticks
+	_dock_timer = maxf(_dock_timer - ticks, 0.0)
+	if vehicle.z <= DOCK_FADE_DEPTH:
+		view_fade = maxf(view_fade - SelectorAnim.FADE_PER_TICK * ticks, 0.0)
+	if vehicle.z <= DOCK_MIN_DEPTH and _dock_timer <= 0.0:
+		vehicle.z = DOCK_MIN_DEPTH
+		vehicle.docked = true
 		dock_state = 0
 		_open_selection()
 
