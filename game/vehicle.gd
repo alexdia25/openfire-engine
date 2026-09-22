@@ -258,6 +258,8 @@ func _apply_type() -> void:
 		_start_heli_spinup()
 	else:
 		rotor_speed_steps = 0.0
+	if vehicle_type == 1:
+		sound_cue.emit("JeepStart")   # FUN_0040b980's panel-activation block reads a per-type "created" sound from record+0x240 (0x44b910 for the Jeep); document 82
 
 
 ## Spends one round of `slot` (the handlers' `ammo -= 1`). False, with the empty click and the slot's cooldown, when it is empty
