@@ -248,6 +248,10 @@ func _apply_type() -> void:
 		ammo_max[i] = int(am[i])
 		ammo[i] = ammo_max[i]
 		weapon_cooldown_ticks[i] = int(cd[i])
+	if vehicle_type == 3:
+		_start_heli_spinup()
+	else:
+		rotor_speed_steps = 0.0
 
 
 ## Spends one round of `slot` (the handlers' `ammo -= 1`). False, with the empty click and the slot's cooldown, when it is empty
@@ -619,6 +623,8 @@ func respawn(at: Vector2) -> void:
 	zone_kind = 0
 	speed = 0.0
 	_reset_water()
+	if vehicle_type == 3:
+		_start_heli_spinup()
 	alive = true
 
 
@@ -751,6 +757,25 @@ func _dir_for(heading: float, offset_steps: int = 0) -> Vector2:
 	return Vector2(cos(h), sin(h))
 
 
+## The Heli's start-up (document 79): every time a Heli object is created (initial spawn, undocking, or this port's in-place respawn) the record's
+## state handler runs a short sequence before the drive handler (FUN_0040e0e0) gets normal control: FUN_0040e8c0 accumulates state+0x58 by 1179/65536
+## a tick (silent, ~55.6 ticks = 0.89 s) then plays sound 0x44b550 and switches to FUN_0040e930, which ramps state+0x84 -- **the same field that drives
+## the live rotor's spin, document 63's "4 steps of 5.625 degrees a tick"** -- from 0 up by 1638/65536 a tick (~160 ticks = 2.56 s) to 4.0; only then
+## does FUN_0040e9c0 hand over to the steady per-tick rotor updater FUN_0040eab0 and the climb to hover height (already modelled: HELI_CLIMB_PER_TICK)
+## can proceed, since nothing raises state+0x48 (z) before that. So the whole thing is: silence, then the rotor visibly spins up, then it climbs.
+const HELI_SPINUP_A_RATE := 1179.0 / 65536.0    ## state+0x58 a tick (stage 1, silent)
+const HELI_SPINUP_B_RATE := 1638.0 / 65536.0    ## state+0x84 a tick (stage 2, the rotor ramps up)
+var heli_spinup_stage := 0        ## 0 done/flying, 1 blade accel (silent), 2 rotor ramp-up
+var _heli_spinup_progress := 0.0  ## stage 1's accumulator (0..1)
+var rotor_speed_steps := 4.0      ## the renderer's rotor speed (document 63's constant 4.0), ramped by stage 2
+
+
+func _start_heli_spinup() -> void:
+	heli_spinup_stage = 1
+	_heli_spinup_progress = 0.0
+	rotor_speed_steps = 0.0
+
+
 ## The Heli's weapons (FUN_0040e600 and FUN_0040e7a0; document 63). Two slots, picked by `toggle_heli_slot()` (the third
 ## button): 0 fires projectile type 7 every 15 ticks, 1 type 6 (a ballistic bomb) every 30. Either of two fire buttons
 ## fires the selected slot from alternating left and right mounts at (+-9.35, 6.8 ahead, 0) of the Heli. The first
@@ -801,7 +826,25 @@ func _heli_weapons(delta: float) -> void:
 	shot.emit(spec)
 
 
+## Stages 1 and 2 of the start-up (see above): grounded and still, no weapons, no dock check (the original's state handler alone runs; the drive
+## handler FUN_0040e0e0 is not reached). Stage 3 (the climb to hover height) needs nothing extra: `_process_heli`'s own climb runs once this returns
+## to 0, and z is already 0 here.
+func _process_heli_spinup(delta: float) -> void:
+	var ticks := delta * TICK_HZ
+	if heli_spinup_stage == 1:
+		_heli_spinup_progress += HELI_SPINUP_A_RATE * ticks
+		if _heli_spinup_progress >= 1.0:
+			heli_spinup_stage = 2   # sound 0x44b550 here, once the sound pass exists
+	else:
+		rotor_speed_steps = minf(rotor_speed_steps + HELI_SPINUP_B_RATE * ticks, 4.0)
+		if rotor_speed_steps >= 4.0:
+			heli_spinup_stage = 0
+
+
 func _process_heli(delta: float) -> void:
+	if heli_spinup_stage != 0:
+		_process_heli_spinup(delta)
+		return
 	if _dock_pressed():
 		return
 	_heli_weapons(delta)

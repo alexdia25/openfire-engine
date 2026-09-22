@@ -56,14 +56,13 @@ func _process(delta: float) -> void:
 		_animate_heli(delta)
 
 
-## The Heli's rotor (document 63). A LIVE Heli has no shadow: the only code that creates a shadow object for it is its dying handler
+## The Heli's rotor (documents 63, 79). A LIVE Heli has no shadow: the only code that creates a shadow object for it is its dying handler
 ## (document 63, "Shadows"), so none is drawn here; it belongs with the dying sequence. The rotor is the object the Heli descriptor's next-link points at
 ## (0x440708): two halves of a blade bar, cel 584 + team and cel 580 + team, each a quad over corners set 3 (0x4405a0:
-## x +-13.6, y 0..-27.2 and 0..27.2, z 10) while the rotor runs at full speed (mode = rotor speed - 1 = 3 at 4.0), turning
-## about the vertical axis by 4 steps of 5.625 degrees a tick (state +0x80 grows by state +0x84).
-const ROTOR_SPEED_STEPS := 4.0
+## x +-13.6, y 0..-27.2 and 0..27.2, z 10), turning about the vertical axis by `vehicle.rotor_speed_steps` steps of 5.625 degrees a tick (state +0x80
+## grows by state +0x84): 4.0 at full speed, ramped up from 0 during the start-up (document 79).
 var _rotor: Node3D
-var _rotor_ticks := 0.0
+var _rotor_deg := 0.0
 
 
 func _build_heli_extras() -> void:
@@ -92,9 +91,8 @@ func _build_heli_extras() -> void:
 
 
 func _animate_heli(delta: float) -> void:
-	_rotor_ticks += delta * Vehicle.TICK_HZ
-	var step := int(floorf(_rotor_ticks * ROTOR_SPEED_STEPS)) & 63
-	_rotor.rotation_degrees.y = -step * 5.625
+	_rotor_deg = fposmod(_rotor_deg + vehicle.rotor_speed_steps * 5.625 * delta * Vehicle.TICK_HZ, 360.0)
+	_rotor.rotation_degrees.y = -_rotor_deg
 
 
 ## Per-tick part animation, read from the type's draw callbacks (document 59). Only what the callbacks do to the
