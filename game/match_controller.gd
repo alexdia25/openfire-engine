@@ -607,6 +607,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 				return true
 			if v.speed > crush_speed:
 				_crush_tile(t, id)
+				v.sound_cue.emit("BushCrush")   # document 54/82: 0x44b6b8
 				return false
 			return true
 		"0x436610":
@@ -919,6 +920,7 @@ func _update_flags(delta: float) -> void:
 	for v in [vehicle] + enemy_vehicles:
 		if v != null and is_instance_valid(v) and v.alive and v.vehicle_type == 1:
 			_check_capture(v)
+			_update_compass_chime(v)
 
 
 ## The Jeep's compass value (document 71), FUN_0040d990's `state + 0x5c`, -16..16. The target is the other pool's flag while the Jeep is not
@@ -948,6 +950,17 @@ func _compass_magnitude(v: Vehicle, target: Vector2) -> int:
 	if turn < 0x100000:
 		return mini((0x10000 - (turn >> 6)) >> 12, 15)
 	return -1
+
+
+var _compass_aligned: Dictionary = {}   ## Vehicle -> bool, FUN_0040d990's state+0x60 (document 71/82): plays a chime the first tick the compass reads -16
+
+
+## FUN_0040d990: "state + 0x60 = (value == -16); play 0x44b928 the first time it becomes -16" (document 71).
+func _update_compass_chime(v: Vehicle) -> void:
+	var aligned := compass_value(v) == -16
+	if aligned and not _compass_aligned.get(v, false):
+		v.sound_cue.emit("DumbDirect")
+	_compass_aligned[v] = aligned
 
 
 ## FUN_0040d990: the Jeep carries the flag of the other pool and stands on its own home tile.
@@ -1065,6 +1078,7 @@ func _do_dock() -> void:
 	vehicle.speed = 0.0
 	dock_state = 2
 	_dock_timer = DOCK_SINK_TICKS
+	vehicle.sound_cue.emit("Raise")   # dock.handler = 0x42efc0; dock.timer = 0x46; sound 0x44b7d8 (document 82)
 
 
 func _update_dock(delta: float) -> void:
@@ -1149,6 +1163,7 @@ func select_move(dir: int) -> void:
 	if cand != selection:
 		selection = cand
 		selection_changed.emit()
+		vehicle.sound_cue.emit("GClick")   # document 76: "each change plays sound 0x44b640" (document 82)
 
 
 func confirm_selection() -> void:

@@ -271,6 +271,9 @@ func _spend_ammo(slot: int) -> bool:
 
 ## FUN_0040c540, kind 2 (document 55, 72): one call per tick over a rearm zone. Each weapon slot in turn gains `max(1, dt / 2)` (dt = whole ticks
 ## since the last call, 1 here) up to its cap; a slot that reaches its cap passes the same tick's gain on to the next one.
+## Also plays the looping sound every 40 ticks while in the zone (document 72's "Ding", document 82) -- the phase is not
+## reset on leaving/re-entering a zone, since that lifecycle detail isn't traced either way.
+var _rearm_sound_ticks := 0.0
 func rearm(delta: float) -> void:
 	_rearm_acc += delta * TICK_HZ
 	while _rearm_acc >= 1.0:
@@ -282,6 +285,10 @@ func rearm(delta: float) -> void:
 			if ammo[i] < ammo_max[i]:
 				break
 			ammo[i] = ammo_max[i]
+	_rearm_sound_ticks += delta * TICK_HZ
+	if _rearm_sound_ticks >= 40.0:
+		_rearm_sound_ticks -= 40.0
+		sound_cue.emit("Ding")
 
 
 ## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
@@ -532,7 +539,12 @@ func _update_water(delta: float) -> void:
 		water_class = 0  # the Heli's record has no water handler (+0x4c is 0): FUN_0042f280 is never asked for it
 		return
 	var ticks := delta * TICK_HZ
+	var _water_class_before := water_class
 	water_class = Water.class_at(level, pack, position, hit_polygon(), z)
+	if _water_class_before == 0 and water_class != 0:
+		sound_cue.emit("TireIn")   # PORT CHOICE, untraced trigger: Sound/Tirein.SDT on the land->water transition (document 82)
+	elif _water_class_before != 0 and water_class == 0:
+		sound_cue.emit("TireOut")  # PORT CHOICE, untraced trigger: Sound/Tireout.SDT on the water->land transition (document 82)
 	if swim_amount != swim_target:
 		swim_amount = move_toward(swim_amount, swim_target, SWIM_RAMP_PER_TICK * ticks)
 	var swimming := vehicle_type == 1 and swim_target == 1.0
@@ -794,6 +806,7 @@ var _heli_ready := [0.0, 0.0]
 func toggle_heli_slot() -> void:
 	if vehicle_type == 3 and alive:
 		_heli_slot = 1 - _heli_slot
+		sound_cue.emit("HeliClick")   # FUN_0040e7a0, document 63/82: "toggles bit 28 and plays a sound" (0x44b970)
 
 
 ## Which weapon is currently selected (0 gun, 1 bomb) -- obj+0xc bit 0x10000000 in the original
