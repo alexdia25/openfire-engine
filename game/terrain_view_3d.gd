@@ -216,6 +216,9 @@ func _spawn_match() -> void:
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
 		controller.vehicle.type_changed.connect(_on_player_type_changed)
+		var dock_light := DockReadyIndicator3D.new()
+		add_child(dock_light)
+		dock_light.setup(controller, pack)
 		var start_type: int = ["tank", "jeep", "msv", "heli"].find(OS.get_environment("RF_VEHICLE"))
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
@@ -273,9 +276,11 @@ func _spawn_match() -> void:
 				add_child(w)
 				w.setup(pack, ["tan", "green"][i], controller.vehicle.position + Vector2(-70.0 + i * 140.0, 40.0), 30.0)
 
-	# Debug-only: RF_DEBUG_NO_MARKERS=1 hides the spawn/candidate debug markers for clean visual
-	# comparison against reference shots.
-	if OS.get_environment("RF_DEBUG_NO_MARKERS") != "1":
+	# Debug-only: RF_DEBUG_MARKERS=1 shows the spawn/candidate debug markers (none of it real art,
+	# see debug_marker_renderer.gd's header). Off by default (flipped from the old opt-out
+	# RF_DEBUG_NO_MARKERS=1): document 80 found the home tile's real art (cels 90/91, an animated
+	# hangar hatch) was sitting the whole time underneath this overlay's beige spawn circle.
+	if OS.get_environment("RF_DEBUG_MARKERS") == "1":
 		var overlay := DebugMarkerOverlay3D.new()
 		add_child(overlay)
 		overlay.setup(pack, level, controller)

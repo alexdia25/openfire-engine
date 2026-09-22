@@ -83,6 +83,9 @@ func _process(_delta: float) -> void:
 		return
 	_status.text = "%s   hp %d / %d%s" % [VEHICLE_NAMES[v.vehicle_type], int(ceil(v.hp)), int(v.max_hp),
 			"" if v.alive else "   (destroyed)"]  # the original shows no health readout (document 70): a debug aid
+	if mc.can_dock(v):
+		# the original's own signal is the pad's border animating (FUN_0040b400, document 80); this text is the port's stand-in for it
+		_status.text += "   [DOCK READY - press fire]"
 	_objective.text = _objective_text(v)
 	_fade.color.a = 1.0 - mc.view_fade
 	_fade.size = get_viewport().get_visible_rect().size

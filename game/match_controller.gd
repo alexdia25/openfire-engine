@@ -281,6 +281,11 @@ func _tile_of(p: Vector2) -> Vector2i:
 	return Vector2i(int(floor(p.x / pack.tile_size_px)), int(floor(p.y / pack.tile_size_px)))
 
 
+## The player's own home pad, in world pixels (its spawn point: document 77's docking tolerance is measured from this tile's centre).
+func home_position() -> Vector2:
+	return _player_spawn_px
+
+
 ## FUN_0042a030 (document 75): the mines scattered at the start. `count` comes from the level: M when it is set (not 0, not 255), else 4 * LEVL
 ## when M is 255 and LEVL is above 5 (one player only; two players force M = 0). Candidates are tiles with no coastal id, outside the 3 x 3 tiles
 ## around home, whose terrain art has bit 3 clear and is below 0x54: an art of 0x49-0x53 always counts, land arts (0, 3, 0x34-0x48) only when the tile
