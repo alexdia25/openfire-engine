@@ -45,6 +45,18 @@ signal match_over(winner_idx: int)
 signal out_of_vehicles()
 ## A projectile ended on a vehicle or a target tile: the explosion record to play there (document 50).
 signal impact_effect(record_addr: String, position: Vector2)
+## Record address -> sound cue id(s), cross-referenced against tools/data/explosion_records.json's SOUND opcodes
+## through the master index table at 0x44b9a0 (document 82/tools/data/sound_cues.json's "impact_effect_sound_map").
+## A vehicle hit (0x444b68) originally REPEATs all four MetalHit variants in sequence; the port just picks one.
+const IMPACT_SOUND_CUES := {
+	"0x444740": "SmDirtHit", "0x444840": "DirtHit",
+	"0x4445b8": "SmSplash", "0x4445e8": "Splash",
+	"0x444968": "SmConcreteHit", "0x444a30": "ConcreteHit",
+	"0x444ac8": "SmallBoom",
+}
+const IMPACT_SOUND_CUES_RANDOM := {
+	"0x444b68": ["MetalHit1", "MetalHit2", "MetalHit3", "MetalHit4"],
+}
 ## A vehicle laid a mine / a mine went off (document 60); the explosion drawn is record 0x445058.
 signal mine_added(mine: Mine)
 signal mine_exploded(position: Vector2)
@@ -96,6 +108,17 @@ func setup(shared_pack: Pack, shared_level: LevelData, shared_pack_path: String,
 	_spawn_vehicle_and_enemies()
 	_place_start_mines()
 	_setup_target_pools()
+	impact_effect.connect(_on_impact_effect_sound)
+
+
+func _on_impact_effect_sound(record_addr: String, _position: Vector2) -> void:
+	if vehicle == null:
+		return
+	if IMPACT_SOUND_CUES.has(record_addr):
+		vehicle.sound_cue.emit(IMPACT_SOUND_CUES[record_addr])
+	elif IMPACT_SOUND_CUES_RANDOM.has(record_addr):
+		var choices: Array = IMPACT_SOUND_CUES_RANDOM[record_addr]
+		vehicle.sound_cue.emit(choices[randi() % choices.size()])
 
 
 ## Phase 4 step 3 (single-viewport half): spawn the player vehicle at the level's team-0 spawn
@@ -267,6 +290,9 @@ func _process(delta: float) -> void:
 			p.queue_free()
 
 
+const MINE_THROW_CUES := ["ThrowGrenade1_a", "ThrowGrenade1_b", "ThrowGrenade1_c"]
+
+
 func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
 	var m := Mine.new()
 	m.dropper = dropper
@@ -275,6 +301,11 @@ func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
 	m.position = at
 	mines.append(m)
 	mine_added.emit(m)
+	if dropper != null:
+		# PORT CHOICE, not traced: document 82's three "Throw Grenade1" descriptors (Sound/Throw1-3.SDT) are all
+		# named identically and read as launch-sound variants for the MSV's mine layer, but which one plays when
+		# (random? alternating? by mine index?) was not found -- picked uniformly at random here.
+		dropper.sound_cue.emit(MINE_THROW_CUES[randi() % 3])
 
 
 func _tile_of(p: Vector2) -> Vector2i:

@@ -408,6 +408,7 @@ func _fire() -> void:
 		return
 	if vehicle_type == 0:
 		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
+		sound_cue.emit("Cannon")   # FUN_0040d240, document 64/82: the Tank's turret fire
 		# FUN_0040d240 (document 64): the shot goes along the hull heading plus the turret angle (state +0x58). The muzzle is
 		# the point (0, -6.75, 0) turned by the shot's pitch (a raised gun: -40 degrees, i.e. 40 degrees up) plus (0, -5.25, 7).
 		var h := heading_deg + turret_deg
