@@ -792,6 +792,12 @@ func _start_heli_spinup() -> void:
 	rotor_speed_steps = 0.0
 
 
+## Stage 1's own accumulator (0..1, state+0x58) -- read by the renderer (document 85 addendum) to
+## animate the two folded blades scissoring apart during the silent phase.
+func heli_spinup_progress() -> float:
+	return _heli_spinup_progress
+
+
 ## The Heli's weapons (FUN_0040e600 and FUN_0040e7a0; document 63). Two slots, picked by `toggle_heli_slot()` (the third
 ## button): 0 fires projectile type 7 every 15 ticks, 1 type 6 (a ballistic bomb) every 30. Either of two fire buttons
 ## fires the selected slot from alternating left and right mounts at (+-9.35, 6.8 ahead, 0) of the Heli. The first

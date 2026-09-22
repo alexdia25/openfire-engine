@@ -119,6 +119,12 @@ func _ready() -> void:
 
 	var screenshot_path := OS.get_environment("RF_DEBUG_SCREENSHOT")
 	if screenshot_path != "":
+		# RF_DEBUG_SCREENSHOT_WAIT_SELECTING=1: wait for the hangar/choice screen to actually open
+		# before counting down, since autoplay's own timing to reach it varies run to run (real-time
+		# physics, not a fixed tick count) -- a fixed frame delay alone can miss or overshoot it.
+		if OS.get_environment("RF_DEBUG_SCREENSHOT_WAIT_SELECTING") == "1":
+			while controller == null or not controller.selecting:
+				await get_tree().process_frame
 		var wait_frames := 2
 		var wait_env := OS.get_environment("RF_DEBUG_SCREENSHOT_DELAY_FRAMES")
 		if wait_env != "":

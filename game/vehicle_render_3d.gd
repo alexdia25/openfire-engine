@@ -65,21 +65,28 @@ func _process(delta: float) -> void:
 ## **User-flagged (2026-09-22): "different textures used when the helicopter is in full flight, we
 ## aren't using those here."** Document 63's own init callback (`0x403350`) picks a MODE from the
 ## rotor speed before choosing which corner set (blade width) to draw: `whole(speed) - 1` clamped to
-## 0-3, or **mode 4 while the start-up value (state+0x58, `Vehicle._heli_spinup_progress`) is below
+## 0-3, or **mode 4 while the start-up value (state+0x58, `Vehicle.heli_spinup_progress()`) is below
 ## 1** -- exactly `Vehicle.heli_spinup_stage == 1`, document 79's ~56-tick silent phase, before the
 ## rotor visibly starts spinning at all. Modes 0-3 are the same two-half-bar quad at increasing half-
 ## widths (3.4/3.4/6.8/13.6 -- document 63's "6.8/13.6/27.2 wide" halved for a +-x extent); this file
 ## used to always draw at the mode-3 (full-flight) width, correct only once `rotor_speed_steps`
-## reaches 4.0. Mode 4 is a wholly different, single, non-spinning blade (cel 588, "rotor.c",
-## `0x4406c0`) -- a real, separate, previously-unrendered asset, not a width variant. So a freshly
-## spawned or just-undocked Heli was showing the full spinning blur from tick 0, where the original
-## shows this static blade for ~56 ticks, then widens the blur through the ~160-tick ramp
-## (document 79) before finally matching what this file already drew.
+## reaches 4.0.
+##
+## **Mode 4 corrected (2026-09-22, re-disassembling the draw callback `0x403420` byte-for-byte
+## after a user report that a spinning-speed state was still missing):** it is not a single static
+## blade. It draws descriptor `0x4406c0` (cel 588, "rotor.c") **twice**, at two independent
+## rotations -- once at a fixed base angle, once at `base + (state+0x58 << 5) & 0x3fffff`. Since
+## `0x3fffff` is a full turn and `state+0x58` runs 0..0x10000 (0..1.0), that second angle sweeps
+## exactly 0..180 degrees as stage 1 progresses: **two overlapping blades scissor apart into a
+## straight bar** over the silent phase, not one frozen blade. Fixed by giving mode 4 its own two
+## pivots, the second one animated by `Vehicle.heli_spinup_progress() * 180`, instead of one static
+## quad.
 const ROTOR_HALF_WIDTHS := [3.4, 3.4, 6.8, 13.6]  ## modes 0-3, document 63
 const ROTOR_FOLDED_CORNERS := [[3.4, 1.7, 10.0], [3.4, -25.5, 10.0], [-3.4, -25.5, 10.0], [-3.4, 1.7, 10.0]]  ## mode 4, cel 588 (0x4406c0)
 var _rotor: Node3D
 var _rotor_deg := 0.0
-var _rotor_mode := -1  ## -1 = not yet built; 4 = the folded, non-spinning single blade
+var _rotor_mode := -1  ## -1 = not yet built; 4 = the folded pair scissoring apart
+var _folded_pivots: Array[Node3D] = []  ## mode 4 only: pivot[1] rotates as the blades unfold
 
 
 func _build_heli_extras() -> void:
@@ -101,37 +108,52 @@ func _update_heli_rotor_mode() -> void:
 	_rotor_mode = mode
 	for c in _rotor.get_children():
 		c.queue_free()
-	var team := "green" if vehicle.player_index() == 1 else "tan"
-	var quads: Array
+	_folded_pivots.clear()
 	if mode == 4:
-		quads = [["vehicle.heli.rotor.c", ROTOR_FOLDED_CORNERS]]
-	else:
-		var w: float = ROTOR_HALF_WIDTHS[mode]
-		quads = [
-			["vehicle.heli.rotor.b." + team, [[w, 0.0, 10.0], [w, -27.2, 10.0], [-w, -27.2, 10.0], [-w, 0.0, 10.0]]],
-			["vehicle.heli.rotor.a." + team, [[w, 27.2, 10.0], [w, 0.0, 10.0], [-w, 0.0, 10.0], [-w, 27.2, 10.0]]],
-		]
+		var s := _pack.get_sprite("vehicle.heli.rotor.c")
+		if s.is_empty():
+			return
+		var tex := _pack.get_texture(int(s.get("page", 0)))
+		for i in 2:
+			var pivot := Node3D.new()
+			_rotor.add_child(pivot)
+			pivot.add_child(_blade_mesh(ROTOR_FOLDED_CORNERS, s, tex))
+			_folded_pivots.append(pivot)
+		_folded_pivots[1].rotation_degrees.y = -vehicle.heli_spinup_progress() * 180.0
+		return
+	var team := "green" if vehicle.player_index() == 1 else "tan"
+	var w: float = ROTOR_HALF_WIDTHS[mode]
+	var quads := [
+		["vehicle.heli.rotor.b." + team, [[w, 0.0, 10.0], [w, -27.2, 10.0], [-w, -27.2, 10.0], [-w, 0.0, 10.0]]],
+		["vehicle.heli.rotor.a." + team, [[w, 27.2, 10.0], [w, 0.0, 10.0], [-w, 0.0, 10.0], [-w, 27.2, 10.0]]],
+	]
 	for h in quads:
 		var s := _pack.get_sprite(String(h[0]))
 		if s.is_empty():
 			continue
 		var tex := _pack.get_texture(int(s.get("page", 0)))
-		var mi := MeshInstance3D.new()
-		mi.mesh = _quad(h[1], s, tex)
-		var mat := StandardMaterial3D.new()
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.albedo_texture = tex
-		mi.material_override = mat
-		_rotor.add_child(mi)
+		_rotor.add_child(_blade_mesh(h[1], s, tex))
+
+
+func _blade_mesh(corners: Array, s: Dictionary, tex: Texture2D) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = _quad(corners, s, tex)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	mat.albedo_texture = tex
+	mi.material_override = mat
+	return mi
 
 
 func _animate_heli(delta: float) -> void:
 	_update_heli_rotor_mode()
 	if _rotor_mode == 4:
-		return  # mode 4 is the static, non-spinning blade -- document 63
+		if _folded_pivots.size() == 2:
+			_folded_pivots[1].rotation_degrees.y = -vehicle.heli_spinup_progress() * 180.0
+		return  # mode 4 does not spin; it scissors apart instead (document 85 addendum)
 	_rotor_deg = fposmod(_rotor_deg + vehicle.rotor_speed_steps * 5.625 * delta * Vehicle.TICK_HZ, 360.0)
 	_rotor.rotation_degrees.y = -_rotor_deg
 
