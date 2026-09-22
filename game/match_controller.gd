@@ -317,6 +317,8 @@ func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
 	m.position = at
 	mines.append(m)
 	mine_added.emit(m)
+	if vehicle != null:
+		m.beep.connect(vehicle.sound_cue.emit.bind("Button"))   # FUN_00409cd0's fuse beep, sound 0x44b580 (documents 50/60/82)
 	if dropper != null:
 		# PORT CHOICE, not traced: document 82's three "Throw Grenade1" descriptors (Sound/Throw1-3.SDT) are all
 		# named identically and read as launch-sound variants for the MSV's mine layer, but which one plays when
