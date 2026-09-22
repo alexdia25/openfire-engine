@@ -22,6 +22,7 @@ var flag_data: Dictionary = {}          ## document 65: the capture flag's drawi
 var water_tables: Dictionary = {}       ## document 62: coast shapes, boxes for FUN_0042f280
 var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
+var audio: Dictionary = {}            ## cue id -> {file, category, priority} (document 82)
 var tile_size_px: int = 32
 
 
@@ -130,6 +131,12 @@ func load_from(dir: String) -> bool:
 		if gdoc is Dictionary:
 			gates = gdoc.get("gates", {})
 
+	var audio_path := dir.path_join("audio/audio.json")
+	if FileAccess.file_exists(audio_path):
+		var adoc: Variant = _read_json(audio_path)
+		if adoc is Dictionary:
+			audio = adoc
+
 	var expl_path := dir.path_join("effects/explosions.json")
 	if FileAccess.file_exists(expl_path):
 		var edoc: Variant = _read_json(expl_path)
@@ -190,6 +197,20 @@ func get_decoration_parts(coastal_id: int) -> Array:
 ## {hp, base_art, destroyed_coastal, ...} for a coastal id, or {} if unknown.
 func get_coastal_damage(coastal_id: int) -> Dictionary:
 	return coastal_damage.get(str(coastal_id), {})
+
+
+## {file, category, priority} for a sound-cue id (document 82, tools/data/sound_cues.json), or {} if this
+## pack has no audio for it -- a missing cue is silent, not an error (not every traced cue is applied yet).
+func get_sound(cue_id: String) -> Dictionary:
+	return audio.get(cue_id, {})
+
+
+## The pack's own audio/<file> path for a sound-cue id, or "" if it has none.
+func get_sound_path(cue_id: String) -> String:
+	var entry := get_sound(cue_id)
+	if entry.is_empty():
+		return ""
+	return pack_dir.path_join("audio").path_join(String(entry.get("file", "")))
 
 
 func list_levels() -> Array[String]:

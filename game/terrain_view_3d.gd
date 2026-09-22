@@ -69,6 +69,7 @@ var _terrain_vp: SubViewport
 var _tile_renderer: TerrainTileRenderer
 var _decoration_field: DecorationField3D
 var _hud: PlaceholderHud                     ## port-only placeholder (document 66)
+var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
 func _ready() -> void:
@@ -213,9 +214,14 @@ func _spawn_match() -> void:
 	for existing in controller.mines:   # the mines scattered at the start (document 75) were added before this connection
 		_on_mine_added(existing)
 
+	_sound = SoundManager.new()
+	add_child(_sound)
+	_sound.setup(pack)
+
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
 		controller.vehicle.type_changed.connect(_on_player_type_changed)
+		_sound.connect_vehicle(controller.vehicle)
 		var dock_light := DockReadyIndicator3D.new()
 		add_child(dock_light)
 		dock_light.setup(controller, pack)

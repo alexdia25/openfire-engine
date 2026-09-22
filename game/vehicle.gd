@@ -62,8 +62,10 @@ const HIT_MASK := 0x27
 signal shot(spec: Dictionary)
 ## The MSV lays a mine at this world position (document 60).
 signal mine_dropped(position: Vector2)
-## A trigger pull with the weapon slot empty (FUN_004232d0 with sound 0x44b988, "the empty click"; documents 61, 63, 72): no sound is played yet.
+## A trigger pull with the weapon slot empty (FUN_004232d0 with sound 0x44b988, "the empty click"; documents 61, 63, 72). See also `sound_cue`.
 signal empty_click()
+## Fired at a traced sound-cue trigger point (document 82); `id` is a key of tools/data/sound_cues.json / packs/*/audio/audio.json, e.g. "OutAmmo", "Heli".
+signal sound_cue(id: String)
 ## The player pressed a fire button while standing still on the centre of their base pad (FUN_0040b980 tail, test `state+8 & 0x920`, document 77).
 signal dock_requested()
 signal destroyed(vehicle: Vehicle)
@@ -261,6 +263,7 @@ func _spend_ammo(slot: int) -> bool:
 		return true
 	if ammo[slot] < 1:
 		empty_click.emit()
+		sound_cue.emit("OutAmmo")
 		return false
 	ammo[slot] -= 1
 	return true
@@ -834,7 +837,8 @@ func _process_heli_spinup(delta: float) -> void:
 	if heli_spinup_stage == 1:
 		_heli_spinup_progress += HELI_SPINUP_A_RATE * ticks
 		if _heli_spinup_progress >= 1.0:
-			heli_spinup_stage = 2   # sound 0x44b550 here, once the sound pass exists
+			heli_spinup_stage = 2
+			sound_cue.emit("Heli")   # FUN_0040e8c0 -> FUN_0040e930, sound 0x44b550 (document 82)
 	else:
 		rotor_speed_steps = minf(rotor_speed_steps + HELI_SPINUP_B_RATE * ticks, 4.0)
 		if rotor_speed_steps >= 4.0:
