@@ -1196,6 +1196,7 @@ func _open_selection() -> void:
 	selecting = true
 	map_open = false
 	select_anim = SelectorAnim.new()
+	select_anim.sound_cue.connect(vehicle.sound_cue.emit)
 	vehicle.frozen = true
 	selection_changed.emit()
 
