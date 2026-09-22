@@ -9,6 +9,11 @@ extends Control
 ##  - the panel of the cursor's type (frame cel 1940, interior 1942, the vehicle icon, the count of vehicles left, the weapon icons and their capacities: FUN_004116a0);
 ##  - the map window (frame 2090 with the level's radar bitmap) while `M` is pressed; a black fade over everything but the panel (alpha 1 - fade).
 ## The 2x scale, the centring and the "M" key are the port's; the rest are the original's numbers. NOT drawn: the panel's slide-in and the sounds.
+##
+## Fixed (document 80): the pointer used to be mirrored for the right-hand bays (Tank, Jeep) with a negative-width destination Rect2, an invented
+## touch never traced from the code -- Godot's AtlasTexture ignores the scale half of a negative-size draw_texture_rect and draws at native (1x)
+## size instead, so the two right-hand pointers landed far outside their bays. The mirroring is dropped; the pointer is now drawn the same way for
+## all four bays. Whether the original mirrors it at all is unknown (document 78 only read "two red ticks", no flip flag in the traced table).
 
 const S := 2.0
 
@@ -80,16 +85,14 @@ var _glow_at := Vector2(-1000, -1000)
 var _glow: Control
 
 
-## Draws cel `cel` with its top-left at the logical position `p` (320 x 240 units), optionally scaled / mirrored / tinted.
-func _blit(cel: int, p: Vector2, scale := 1.0, flip := false, tint := Color.WHITE) -> void:
+## Draws cel `cel` with its top-left at the logical position `p` (320 x 240 units), optionally scaled / tinted. (A mirror option used to live here
+## for the pointer; dropped, see the header note -- AtlasTexture + a negative-size destination Rect2 doesn't scale correctly in this Godot version.)
+func _blit(cel: int, p: Vector2, scale := 1.0, tint := Color.WHITE) -> void:
 	var at := _atlas(cel)
 	if at.atlas == null:
 		return
 	var sz := at.region.size * scale * S
-	var r := Rect2(_origin + p * S, sz)
-	if flip:
-		r = Rect2(r.position + Vector2(sz.x, 0.0), Vector2(-sz.x, sz.y))
-	draw_texture_rect(at, r, false, tint)
+	draw_texture_rect(at, Rect2(_origin + p * S, sz), false, tint)
 
 
 func _draw() -> void:
@@ -113,14 +116,14 @@ func _draw() -> void:
 		if mc.selecting and mc.selection == t or (mc.undocking and mc.selection == t):
 			_blit(int(cels["box"]), Vector2(hx, hy) + Vector2(e["box"][0], e["box"][1]))
 			var moved := Vector2(anim.d4, anim.d8) if anim != null else Vector2.ZERO
-			_blit(cel_pic, Vector2(hx, hy) + pic + moved + Vector2(2, 3), 0.5)
+			_blit(cel_pic, Vector2(hx, hy) + pic + moved, 0.5)
 			if mc.selecting:
 				var frame := int(Time.get_ticks_msec() / 1000.0 * Vehicle.TICK_HZ) >> 4
-				var pp := Vector2(hx, hy) + Vector2(e["pointer"][0], e["pointer"][1]) + Vector2(0.4, 1.0)
-				_blit(int(cels["pointer"]) + frame % 3, pp, 1.0, float(e["pointer"][0]) > 60.0)
+				var pp := Vector2(hx, hy) + Vector2(e["pointer"][0], e["pointer"][1])
+				_blit(int(cels["pointer"]) + frame % 3, pp)
 				_glow_at = _origin + (Vector2(hx, hy) + Vector2(e["highlight"][0], e["highlight"][1])) * S   # drawn additively by the glow layer
 		elif stock[t] != 0:
-			_blit(cel_pic, Vector2(hx, hy) + pic + Vector2(2, 3), 0.5)
+			_blit(cel_pic, Vector2(hx, hy) + pic, 0.5)
 	# the picture area is 320 x 240 units: what the backdrop's strips put outside it is cut off (the original clips to its screen)
 	draw_rect(Rect2(0.0, 0.0, _origin.x, size.y), Color.BLACK)
 	draw_rect(Rect2(_origin.x + screen.x * S, 0.0, size.x, size.y), Color.BLACK)

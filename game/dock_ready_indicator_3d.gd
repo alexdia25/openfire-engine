@@ -1,12 +1,14 @@
 class_name DockReadyIndicator3D
 extends Node3D
 ## The original's own "you're in position to dock" signal (document 80): `FUN_0040b400`, called once a tick only while a vehicle sits still on its
-## own pad within the docking tolerance and is NOT pressing a fire button, rotates seven colour entries of the pad cel's palette region at a fixed
-## rate (0x2666/65536 a tick, about 9.3 steps a second) -- an animated warning-light border round the hatch. The exact colours it cycles through were
-## not pinned down (the palette layout it indexes did not resolve cleanly to the shared 4-byte-per-entry table; see document 80), so this reproduces
-## only the STRUCTURE that is certain: a border around the home pad that steps through a short colour sequence at that same traced rate, shown only
-## while `MatchController.can_dock` is true (independent of whether fire is actually pressed, exactly like the original's trigger). The colours
-## chosen (a yellow/orange/white hazard-light cycle) and the ring shape are this port's own guess at the look; not the original's actual pixels.
+## own pad within the docking tolerance and is NOT pressing a fire button, rotates seven colour words of the shared palette (entries 12-14, plus two
+## bytes of entry 15) at a fixed rate (0x2666/65536 a tick, ~6.83 ticks a step, about 9.1 steps a second) -- traced down to the exact instructions
+## and independently reproduced in Python (a genuine, deterministic 7-step colour cycle). BUT: pixel-by-pixel inspection of cel 90/91's own raw
+## indexed art (document 80) found it uses NONE of those palette entries anywhere in its 32 x 32 bitmap -- so this animation does NOT touch the
+## hatch's own colours, and what it actually changes on screen (some other, unidentified sprite that happens to share those low palette entries) is
+## NOT KNOWN. This node is therefore a full INVENTION standing in for an effect whose trigger and cadence are real but whose visible target is not:
+## a border around the home pad, shown only while `MatchController.can_dock` is true, cycling a made-up hazard-light palette at the traced cadence.
+## Neither the ring shape nor its colours are the original's.
 
 const STEP_TICKS := 65536.0 / 0x2666   ## ~6.83 ticks a step, from FUN_0040b400's accumulator rate
 const COLOURS := [

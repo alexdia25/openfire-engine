@@ -250,10 +250,14 @@ func _spawn_match() -> void:
 		if OS.get_environment("RF_DEBUG_FLAG") == "carry":
 			controller.flags[1].position = controller.vehicle.position
 			controller._attach_flag(controller.flags[1], controller.vehicle)
-	# Debug-only: RF_DEBUG_SELECT=1 opens the vehicle-choice grid at the start (for screenshots).
+	# Debug-only: RF_DEBUG_SELECT=1 opens the vehicle-choice grid at the start, cursor on Jeep (for screenshots);
+	# RF_DEBUG_SELECT_TYPE=0-3 additionally moves the cursor from Tank to that type (0 Tank, 1 Jeep, 2 MSV, 3 Heli).
 	if OS.get_environment("RF_DEBUG_SELECT") == "1" and controller.vehicle != null:
 		controller.switch_player_vehicle()
-		controller.select_move(1)
+		var moves := {0: [], 1: [1], 2: [1, 2], 3: [2]}   # from Tank: down->Jeep, down+left->MSV, left->Heli
+		var want := int(OS.get_environment("RF_DEBUG_SELECT_TYPE")) if OS.get_environment("RF_DEBUG_SELECT_TYPE") != "" else 1
+		for d in moves.get(want, [1]):
+			controller.select_move(d)
 	# Debug-only: RF_DEBUG_SELECT_CONFIRM=<frame> confirms the choice at that process frame (with RF_DEBUG_SELECT=1), for screenshots of the confirm script.
 	# Debug-only: RF_DEBUG_SELECT_MAP=1 opens the map window.
 	if OS.get_environment("RF_DEBUG_SELECT_MAP") == "1" and controller.vehicle != null:
