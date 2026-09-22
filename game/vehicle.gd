@@ -126,6 +126,10 @@ var vehicle_type := 0
 const FUEL_MAX := 400.0
 const REFUEL_PER_TICK := 0.5
 var fuel: float = FUEL_MAX
+## FUN_0040b980's panel tick (2026-09-22): plays FuelWarn (0x44b688) on a 120-tick cooldown while
+## fuel is below `fuel_max >> 3` -- the traced comparison is `fuel_max << 13` against the raw
+## 16.16 fuel value, which is exactly `(fuel_max << 16) / 8`, i.e. one eighth of a full tank.
+var _fuel_warn_ticks := 0.0
 var moving := false  ## FUN_0040b980's flag: speed != 0 or the heading changed this tick
 var zone_kind := 0   ## kind (b9) of the zone shape the last collision test entered: 1 refuel, 2 rearm, 3 pick-up
 var zone_origin := Vector2.ZERO
@@ -533,6 +537,15 @@ func toggle_swim() -> void:
 		swim_target = 0.0
 
 
+## FUN_0040b980, the panel tick: `if (fuel_max << 13 > fuel) and now >= next_allowed_tick: play FuelWarn; next_allowed_tick = now + 120`.
+## `fuel_max << 13` is `(fuel_max << 16) / 8`, so this is a plain one-eighth-of-a-tank threshold, not a per-type fraction.
+func _process_fuel_warn(delta: float) -> void:
+	_fuel_warn_ticks = maxf(_fuel_warn_ticks - delta * TICK_HZ, 0.0)
+	if fuel < fuel_max / 8.0 and _fuel_warn_ticks <= 0.0:
+		_fuel_warn_ticks = 120.0
+		sound_cue.emit("FuelWarn")
+
+
 func _update_water(delta: float) -> void:
 	if level == null or pack == null:
 		return
@@ -681,6 +694,7 @@ func _process(delta: float) -> void:
 		_update_water(delta)
 	if pack == null or _frames.is_empty() or not alive or frozen:
 		return
+	_process_fuel_warn(delta)
 
 	if _debug_heading != "":
 		heading_deg = float(_debug_heading)
