@@ -61,19 +61,57 @@ func _process(delta: float) -> void:
 ## (0x440708): two halves of a blade bar, cel 584 + team and cel 580 + team, each a quad over corners set 3 (0x4405a0:
 ## x +-13.6, y 0..-27.2 and 0..27.2, z 10), turning about the vertical axis by `vehicle.rotor_speed_steps` steps of 5.625 degrees a tick (state +0x80
 ## grows by state +0x84): 4.0 at full speed, ramped up from 0 during the start-up (document 79).
+##
+## **User-flagged (2026-09-22): "different textures used when the helicopter is in full flight, we
+## aren't using those here."** Document 63's own init callback (`0x403350`) picks a MODE from the
+## rotor speed before choosing which corner set (blade width) to draw: `whole(speed) - 1` clamped to
+## 0-3, or **mode 4 while the start-up value (state+0x58, `Vehicle._heli_spinup_progress`) is below
+## 1** -- exactly `Vehicle.heli_spinup_stage == 1`, document 79's ~56-tick silent phase, before the
+## rotor visibly starts spinning at all. Modes 0-3 are the same two-half-bar quad at increasing half-
+## widths (3.4/3.4/6.8/13.6 -- document 63's "6.8/13.6/27.2 wide" halved for a +-x extent); this file
+## used to always draw at the mode-3 (full-flight) width, correct only once `rotor_speed_steps`
+## reaches 4.0. Mode 4 is a wholly different, single, non-spinning blade (cel 588, "rotor.c",
+## `0x4406c0`) -- a real, separate, previously-unrendered asset, not a width variant. So a freshly
+## spawned or just-undocked Heli was showing the full spinning blur from tick 0, where the original
+## shows this static blade for ~56 ticks, then widens the blur through the ~160-tick ramp
+## (document 79) before finally matching what this file already drew.
+const ROTOR_HALF_WIDTHS := [3.4, 3.4, 6.8, 13.6]  ## modes 0-3, document 63
+const ROTOR_FOLDED_CORNERS := [[3.4, 1.7, 10.0], [3.4, -25.5, 10.0], [-3.4, -25.5, 10.0], [-3.4, 1.7, 10.0]]  ## mode 4, cel 588 (0x4406c0)
 var _rotor: Node3D
 var _rotor_deg := 0.0
+var _rotor_mode := -1  ## -1 = not yet built; 4 = the folded, non-spinning single blade
 
 
 func _build_heli_extras() -> void:
-	var team := "green" if vehicle.player_index() == 1 else "tan"
 	_rotor = Node3D.new()
 	add_child(_rotor)
-	var halves := [
-		["vehicle.heli.rotor.b." + team, [[13.6, 0.0, 10.0], [13.6, -27.2, 10.0], [-13.6, -27.2, 10.0], [-13.6, 0.0, 10.0]]],
-		["vehicle.heli.rotor.a." + team, [[13.6, 27.2, 10.0], [13.6, 0.0, 10.0], [-13.6, 0.0, 10.0], [-13.6, 27.2, 10.0]]],
-	]
-	for h in halves:
+	_update_heli_rotor_mode()
+
+
+func _heli_rotor_mode() -> int:
+	if vehicle.heli_spinup_stage == 1:
+		return 4
+	return clampi(int(floorf(vehicle.rotor_speed_steps)) - 1, 0, 3)
+
+
+func _update_heli_rotor_mode() -> void:
+	var mode := _heli_rotor_mode()
+	if mode == _rotor_mode:
+		return
+	_rotor_mode = mode
+	for c in _rotor.get_children():
+		c.queue_free()
+	var team := "green" if vehicle.player_index() == 1 else "tan"
+	var quads: Array
+	if mode == 4:
+		quads = [["vehicle.heli.rotor.c", ROTOR_FOLDED_CORNERS]]
+	else:
+		var w: float = ROTOR_HALF_WIDTHS[mode]
+		quads = [
+			["vehicle.heli.rotor.b." + team, [[w, 0.0, 10.0], [w, -27.2, 10.0], [-w, -27.2, 10.0], [-w, 0.0, 10.0]]],
+			["vehicle.heli.rotor.a." + team, [[w, 27.2, 10.0], [w, 0.0, 10.0], [-w, 0.0, 10.0], [-w, 27.2, 10.0]]],
+		]
+	for h in quads:
 		var s := _pack.get_sprite(String(h[0]))
 		if s.is_empty():
 			continue
@@ -91,6 +129,9 @@ func _build_heli_extras() -> void:
 
 
 func _animate_heli(delta: float) -> void:
+	_update_heli_rotor_mode()
+	if _rotor_mode == 4:
+		return  # mode 4 is the static, non-spinning blade -- document 63
 	_rotor_deg = fposmod(_rotor_deg + vehicle.rotor_speed_steps * 5.625 * delta * Vehicle.TICK_HZ, 360.0)
 	_rotor.rotation_degrees.y = -_rotor_deg
 
