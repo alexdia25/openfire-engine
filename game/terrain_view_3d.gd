@@ -284,17 +284,19 @@ func _spawn_match() -> void:
 
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
-		enemy.destroyed.connect(_on_vehicle_destroyed)
+		enemy.wrecked.connect(_on_vehicle_wrecked)
 		enemy.drowned.connect(_on_vehicle_drowned)
 	if controller.vehicle != null:
-		controller.vehicle.destroyed.connect(_on_vehicle_destroyed)
+		controller.vehicle.wrecked.connect(_on_vehicle_wrecked)
 		controller.vehicle.drowned.connect(_on_vehicle_drowned)
-		# Debug-only: RF_DEBUG_WRECK=1 drops a tan and a green wreck next to the player for screenshots.
+		# Debug-only: RF_DEBUG_WRECK=1 drops one wreck of each vehicle type (falling from height for
+		# the Heli) next to the player for screenshots.
 		if OS.get_environment("RF_DEBUG_WRECK") == "1":
-			for i in 2:
+			for i in 4:
 				var w := Wreck3D.new()
 				add_child(w)
-				w.setup(pack, ["tan", "green"][i], controller.vehicle.position + Vector2(-70.0 + i * 140.0, 40.0), 30.0)
+				var h := 60.0 if i == 3 else 0.0
+				w.setup(pack, ["tan", "green", "tan", "green"][i], controller.vehicle.position + Vector2(-105.0 + i * 70.0, 40.0), 30.0, i, h)
 
 	# Debug-only: RF_DEBUG_MARKERS=1 shows the spawn/candidate debug markers (none of it real art,
 	# see debug_marker_renderer.gd's header). Off by default (flipped from the old opt-out
@@ -355,11 +357,14 @@ func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 			Vector3(o.x, o.y, o.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX), float(f.get("yaw", 0.0)))
 
 
-## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, document 48) where it died.
-func _on_vehicle_destroyed(v: Vehicle) -> void:
+## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, documents 48/87), falling from its
+## death height rather than appearing on the ground at once. `info` is `Vehicle._die()`'s snapshot,
+## taken before a respawn can reset the same node's fields (the player's vehicle is reused, not
+## replaced, between lives).
+func _on_vehicle_wrecked(info: Dictionary) -> void:
 	var w := Wreck3D.new()
 	add_child(w)
-	w.setup(pack, v.team, v.position, v.heading_deg)
+	w.setup(pack, info["team"], info["position"], info["heading_deg"], info["vehicle_type"], info["z"])
 
 
 func _on_projectile_spawned(projectile: Projectile) -> void:

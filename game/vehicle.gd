@@ -69,6 +69,11 @@ signal sound_cue(id: String)
 ## The player pressed a fire button while standing still on the centre of their base pad (FUN_0040b980 tail, test `state+8 & 0x920`, document 77).
 signal dock_requested()
 signal destroyed(vehicle: Vehicle)
+## A snapshot at the exact moment of death (document 87), for spawning the falling wreck: `destroyed`
+## itself is unsafe for that when the listener order lets a respawn reset this same node's fields
+## (`position`/`z`/etc.) before a later listener reads them, since the player's vehicle is one
+## persistent node reused across lives, not a fresh object per life.
+signal wrecked(info: Dictionary)
 signal type_changed(vehicle: Vehicle)
 
 @export var pack_path: String = "res://packs/original_pc"
@@ -487,8 +492,7 @@ func _move(heading_before: float, delta: float) -> void:
 		if fuel <= 0.0:
 			fuel = 0.0
 			if alive:
-				alive = false
-				destroyed.emit(self)
+				_die()
 			return
 	var rad := deg_to_rad(heading_deg)
 	var step := Vector2(cos(rad), sin(rad)) * speed * delta
@@ -602,9 +606,19 @@ func take_damage(damage: float) -> bool:
 	hp -= damage - armor
 	hit_flash_remaining = HIT_FLASH_SEC
 	if hp <= 0.0:
-		alive = false
-		destroyed.emit(self)
+		_die()
 	return true
+
+
+## FUN_0040c460's death branch (document 47) always takes the same path regardless of cause (hit
+## points or, per document 55's fuel comment, running dry): spawn a wreck object (class `0x4453e8`)
+## at the vehicle's own position/height and destroy the vehicle itself at once. `wrecked` carries a
+## value snapshot so the wreck's fall (document 87) is unaffected by whatever a `destroyed` listener
+## does to this same node afterwards (the player's vehicle respawns in place).
+func _die() -> void:
+	wrecked.emit({"position": position, "heading_deg": heading_deg, "team": team, "vehicle_type": vehicle_type, "z": z})
+	alive = false
+	destroyed.emit(self)
 
 
 ## The collision polygon in world coordinates (the Tank's shape at 0x43e8f8).
@@ -973,8 +987,7 @@ func _process_heli(delta: float) -> void:
 		fuel -= absf(speed) * delta / 32.0
 		if fuel <= 0.0:
 			fuel = 0.0
-			alive = false
-			destroyed.emit(self)
+			_die()
 			return
 	var target := position + heli_vel * ticks
 	if blocked_test.is_valid() and blocked_test.call(self, target, heading_deg):
