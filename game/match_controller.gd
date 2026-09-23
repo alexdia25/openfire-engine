@@ -1113,7 +1113,7 @@ func _begin_dock() -> void:
 	_pad_centre = (Vector2(_tile_of(vehicle.position)) + Vector2(0.5, 0.5)) * pack.tile_size_px
 	if vehicle.vehicle_type == 3:
 		# the automatic landing (FUN_0040eb00 -> 0x40eb40 -> 0x40ec30): height falls 0.5 a tick while position and heading slide to the pad centre and
-		# heading 135 degrees. NOT reproduced: the rotor spin-down (0x40ecd0), the folded model and the gear stage (0x40ede0).
+		# heading 135 degrees; the rotor spin-down (0x40ecd0) and the gear stage (0x40ede0), dock_state 3/4 below, follow once the fall is done (2026-09-23).
 		dock_state = 1
 		_land_from = vehicle.position
 		_land_heading_from = vehicle.heading_deg
@@ -1159,6 +1159,20 @@ func _update_dock(delta: float) -> void:
 		vehicle.heading_deg = fposmod(45.0 + wrapf(_land_heading_from - 45.0, -180.0, 180.0) * f, 360.0)
 		if vehicle.z <= 0.0:
 			vehicle.position = _pad_centre
+			vehicle.heli_landing_gear_progress = 1.0
+			dock_state = 3
+		return
+	if dock_state == 3:
+		# FUN_0040ecd0: the rotor spins down (the same rate as the start-up ramp, reversed) once
+		# actually on the ground, not during the descent -- confirmed by the transition condition
+		# in the descent's own tail (0x40ec5e) firing only once the fall timer itself is spent.
+		if vehicle.process_heli_landing_rotor(delta):
+			dock_state = 4
+		return
+	if dock_state == 4:
+		# FUN_0040ede0: a second timer, the same rate as the start-up's own silent-phase timer,
+		# reversed -- "the gear stage" (NEXT_STEPS' own name for it, document 77's open item).
+		if vehicle.process_heli_landing_gear(delta):
 			_do_dock()
 		return
 	# dock_state == 2: FUN_0042efc0 / 0042f054 -- the vehicle visibly sinks at a constant rate; the view starts

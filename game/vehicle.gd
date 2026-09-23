@@ -802,6 +802,31 @@ var heli_spinup_stage := 0        ## 0 done/flying, 1 blade accel (silent), 2 ro
 var _heli_spinup_progress := 0.0  ## stage 1's accumulator (0..1)
 var rotor_speed_steps := 4.0      ## the renderer's rotor speed (document 63's constant 4.0), ramped by stage 2
 
+## Landing (2026-09-23), the reverse of the start-up above, called by MatchController once the automatic
+## descent (document 77) reaches the ground: FUN_0040ecd0 decrements rotor_speed_steps at the SAME rate
+## the start-up ramps it up (HELI_SPINUP_B_RATE), but only down to a floor of 0.5 (0x8000), not to 0 --
+## then plays "Servo" once there (the original also checks the blade's own angle is close to a resting
+## position before finishing; that exact-tick alignment is NOT reproduced, a port choice, since nothing
+## in this file's rendering distinguishes one rotor angle from another as "settled"). FUN_0040ede0 then
+## runs a second timer down from 1.0 at HELI_SPINUP_A_RATE (the start-up's own silent-phase rate,
+## reversed) before the vehicle is released to actually dock.
+const HELI_ROTOR_LANDING_FLOOR := 0.5
+var heli_landing_gear_progress := 1.0
+
+
+func process_heli_landing_rotor(delta: float) -> bool:
+	if rotor_speed_steps <= HELI_ROTOR_LANDING_FLOOR:
+		return true
+	rotor_speed_steps = maxf(rotor_speed_steps - HELI_SPINUP_B_RATE * delta * TICK_HZ, HELI_ROTOR_LANDING_FLOOR)
+	if rotor_speed_steps <= HELI_ROTOR_LANDING_FLOOR:
+		sound_cue.emit("Servo")
+	return false
+
+
+func process_heli_landing_gear(delta: float) -> bool:
+	heli_landing_gear_progress = maxf(heli_landing_gear_progress - HELI_SPINUP_A_RATE * delta * TICK_HZ, 0.0)
+	return heli_landing_gear_progress <= 0.0
+
 
 func _start_heli_spinup() -> void:
 	heli_spinup_stage = 1
