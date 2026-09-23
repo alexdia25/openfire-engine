@@ -256,10 +256,11 @@ func _apply_type() -> void:
 		weapon_cooldown_ticks[i] = int(cd[i])
 	if vehicle_type == 3:
 		_start_heli_spinup()
+		sound_cue.emit("Servo")   # FUN_0040b980's panel-activation block reads a per-type "created" sound from record+0x240 (0x44b808 for the Heli) -- fires at creation, distinct from and earlier than the "Heli" chime at stage 1->2 (document 79)
 	else:
 		rotor_speed_steps = 0.0
 	if vehicle_type == 1:
-		sound_cue.emit("JeepStart")   # FUN_0040b980's panel-activation block reads a per-type "created" sound from record+0x240 (0x44b910 for the Jeep); document 82
+		sound_cue.emit("JeepStart")   # same record+0x240 mechanism, 0x44b910 for the Jeep; document 82
 
 
 ## Spends one round of `slot` (the handlers' `ammo -= 1`). False, with the empty click and the slot's cooldown, when it is empty
