@@ -24,6 +24,12 @@ var _watched: Dictionary = {}          ## absolute frame path -> [sprite id, mod
 var _lower_cache: Dictionary = {}      ## lazily read tables of the layers below the mod
 
 
+func _init() -> void:
+	# Announce edits once UndoRedo has counted them (an action's methods run before its version moves), so listeners
+	# see the right dirty / undo / redo state. Covers do, undo and redo alike.
+	undo.version_changed.connect(func(): changed.emit())
+
+
 ## Creates a new, empty mod at `dir` over `base_pack`.
 static func create(dir: String, name: String, base_pack: String = DEFAULT_BASE) -> ModWorkspace:
 	PackWriter.write_json(dir.path_join("pack.json"), {
@@ -176,7 +182,6 @@ func _apply_sprite(sprite_id: String, state: Dictionary) -> void:
 	else:
 		pack.replace_frame(sprite_id, state["image"], state["meta"])
 	_forget_masked_by(sprite_id)
-	changed.emit()
 
 
 static func _meta_of(entry: Dictionary) -> Dictionary:
@@ -308,7 +313,6 @@ func _apply_team(table: Dictionary, key: String, value: Variant, setter: Callabl
 	else:
 		table[key] = value
 	setter.call(key, runtime_value)
-	changed.emit()
 
 
 func _lower_table(rel: String, doc_key: String) -> Dictionary:
