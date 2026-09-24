@@ -1213,6 +1213,20 @@ var _land_z0 := 1.0
 ## PORT-ONLY option (kept from the earlier placeholder): the `V` key docks and opens the choice at once without the sinking, on the pad.
 var quick_swap_enabled := true
 
+## The pad's pit and hatch (document 89). While a lift object exists (docked, choosing, confirming, rising) the pad tile's art is 0x5c (92, fully transparent:
+## FUN_0042f110 at 0x42f225 and 0x42ef0a write it, FUN_0042ec50 restores 90 / 91) and the object draws a pit with a two-leaf lid. The leaves are drawn
+## `0.3 * age + 5` units either side of the centre and not at all once `0.3 * age >= 18` (FUN_0042ea10). The dock counts its 70-tick timer DOWN (the leaves
+## slide shut over the sinking vehicle); the undock counts UP from the moment the confirm script releases the hold (they slide apart while the vehicle rises
+## from -32 to 0 at the same 0.3 a tick, ~107 ticks: FUN_0042ef20).
+const PAD_HOLE_ART := 0x5c                      ## the tile art the pad has while open
+const PAD_LEAF_START := 5.0                     ## FUN_0042ea10: 0x50000
+const PAD_LEAF_HIDE := 18.0                     ## FUN_0042ea10: 0x120000
+const PAD_RISE_START := -32.0                   ## FUN_0042eef0: 0xffe00000
+signal pad_art_changed(tile: Vector2i)
+var pad_open := false                           ## the pad tile is a hole and the pit is drawn
+var pad_age := 0.0                              ## the lift object's `+0x68`, in ticks (down while docking, up while rising)
+var pad_rising := false                         ## the undocked vehicle is rising out of the pit
+
 
 func can_dock(v: Vehicle) -> bool:
 	if v != vehicle or v.moving or not v.alive or dock_state != 0 or selecting or undocking or match_finished:
@@ -1252,6 +1266,8 @@ func _do_dock() -> void:
 	vehicle.speed = 0.0
 	dock_state = 2
 	_dock_timer = DOCK_SINK_TICKS
+	pad_age = DOCK_SINK_TICKS
+	_set_pad_open(true)
 	vehicle.sound_cue.emit("Raise")   # dock.handler = 0x42efc0; dock.timer = 0x46; sound 0x44b7d8 (document 82)
 
 
@@ -1263,12 +1279,19 @@ func _update_dock(delta: float) -> void:
 		select_anim.step(ticks)
 		if select_anim.finished:
 			undocking = false
-			vehicle.frozen = false
-			vehicle.z = 0.0
 			view_fade = 0.0
+			_begin_pad_rise()
 			selection_changed.emit()
 	elif view_fade < 1.0 and dock_state == 0 and death_phase == 0:
 		view_fade = minf(view_fade + SelectorAnim.FADE_PER_TICK * ticks, 1.0)
+	if pad_rising:
+		# FUN_0042ef20: z += 0.3 a tick until it reaches 0; then FUN_0042ec50 restores the pad art and the real vehicle is released
+		vehicle.z = minf(vehicle.z + DOCK_SINK_RATE * ticks, 0.0)
+		pad_age += ticks
+		if vehicle.z >= 0.0:
+			pad_rising = false
+			vehicle.frozen = false
+			_set_pad_open(false)
 	if dock_state == 0:
 		return
 	if dock_state == 1:
@@ -1298,6 +1321,7 @@ func _update_dock(delta: float) -> void:
 	# fading once it passes -16, and it is only removed once BOTH it has reached -32 AND the 70-tick timer is spent.
 	vehicle.z -= DOCK_SINK_RATE * ticks
 	_dock_timer = maxf(_dock_timer - ticks, 0.0)
+	pad_age = _dock_timer
 	if vehicle.z <= DOCK_FADE_DEPTH:
 		view_fade = maxf(view_fade - SelectorAnim.FADE_PER_TICK * ticks, 0.0)
 	if vehicle.z <= DOCK_MIN_DEPTH and _dock_timer <= 0.0:
@@ -1305,6 +1329,33 @@ func _update_dock(delta: float) -> void:
 		vehicle.docked = true
 		dock_state = 0
 		_open_selection()
+
+
+## Swaps the pad tile between the hole (0x5c) and the team's own pad art (0x5b - (team == 0): 90 / 91), and tells the terrain view to redraw it.
+func _set_pad_open(open: bool) -> void:
+	pad_open = open
+	var t := _tile_of(_pad_centre)
+	level.set_art_id(t.x, t.y, PAD_HOLE_ART if open else HOME_ART_BASE + vehicle.player_index())
+	pad_art_changed.emit(t)
+
+
+func pad_position() -> Vector2:
+	return _pad_centre
+
+
+func _begin_pad_rise() -> void:
+	_set_pad_open(true)   # already open after a dock; the port-only quick swap (V) skips the dock, so open it here
+	pad_age = 0.0
+	pad_rising = true
+	vehicle.z = PAD_RISE_START
+
+
+## The lid's leaf offset from the centre in units (FUN_0042ea10), or -1 while the leaves are not drawn (retracted, or no pit).
+func pad_leaf_offset() -> float:
+	if not pad_open:
+		return -1.0
+	var off := DOCK_SINK_RATE * pad_age
+	return -1.0 if off >= PAD_LEAF_HIDE else off + PAD_LEAF_START
 
 
 func switch_player_vehicle() -> void:

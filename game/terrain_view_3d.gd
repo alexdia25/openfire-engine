@@ -159,6 +159,9 @@ func _build_terrain_ground() -> void:
 	# project's tile pipeline) -- render once and stop, instead of re-drawing an identical
 	# image every frame.
 	sub_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	# document 89: the open home pad is a real hole in the ground (transparent tile art 92); every other tile has an opaque underlay
+	# (TerrainTileRenderer), so only that tile becomes see-through under the alpha scissor below
+	sub_vp.transparent_bg = true
 	add_child(sub_vp)
 
 	_tile_renderer = TerrainTileRenderer.new()
@@ -184,6 +187,8 @@ func _build_terrain_ground() -> void:
 	# The source art is hard-edged pixel art (tools/convert_car.py's atlas, section 2.4.2) --
 	# nearest filtering keeps tile edges crisp instead of linear-blurring them.
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	mat.alpha_scissor_threshold = 0.5
 	ground.material_override = mat
 	# PlaneMesh is centred on its own origin; the 2D scenes place (0,0) at the level's
 	# top-left corner with +X right/+Y down, so shift this node to match: world X -> node X,
@@ -220,6 +225,7 @@ func _spawn_match() -> void:
 	controller.flag_spawned.connect(_on_flag_spawned)
 	controller.target_hit.connect(_on_target_hit)
 	controller.tile_destroyed.connect(_on_tile_destroyed)
+	controller.pad_art_changed.connect(_on_pad_art_changed)
 	controller.tile_crushed.connect(_on_tile_crushed)
 	controller.gate_created.connect(_on_gate_created)
 	controller.gate_removed.connect(_on_gate_removed)
@@ -240,6 +246,9 @@ func _spawn_match() -> void:
 		var dock_light := DockReadyIndicator3D.new()
 		add_child(dock_light)
 		dock_light.setup(controller, pack)
+		var pit := HangarPit3D.new()
+		add_child(pit)
+		pit.setup(controller, pack)
 		var start_type: int = ["tank", "jeep", "msv", "heli"].find(OS.get_environment("RF_VEHICLE"))
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
@@ -436,6 +445,12 @@ func _on_gate_removed(g: Gate) -> void:
 		view.queue_free()
 		_gate_views.erase(g.tile)
 	_decoration_field.refresh()
+
+
+## The home pad swapped between its hatch art and the transparent hole (document 89): the level's art grid was already changed by MatchController.
+func _on_pad_art_changed(_tile: Vector2i) -> void:
+	_tile_renderer.queue_redraw()
+	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
 func _on_tile_destroyed(tile: Vector2i) -> void:

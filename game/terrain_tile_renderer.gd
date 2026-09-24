@@ -18,6 +18,10 @@ extends Node2D
 ## real Node3D layer now, `game/decoration_field_3d.gd`, built alongside this node instead of
 ## inside it -- see that file for the current technique.
 
+## The one tile art that is a real hole (document 89): the home pad's open state, art 92 = "structure.hangar_pit_surround" (a hazard border on three sides, transparent centre). Every other tile gets an
+## opaque clear-colour underlay first, so the baked texture (whose viewport is now transparent) looks exactly as it did when the viewport cleared to that colour.
+const HOLE_SPRITE_ID := "structure.hangar_pit_surround"
+
 var pack: Pack
 var level: LevelData
 
@@ -33,10 +37,13 @@ func _draw() -> void:
 		return
 
 	var tile := pack.tile_size_px
+	var clear := RenderingServer.get_default_clear_color()
 	for y in level.height:
 		for x in level.width:
 			var art_id := level.get_art_id(x, y)
 			var sprite_id := pack.get_tile_sprite_id(art_id)
+			if sprite_id != HOLE_SPRITE_ID:
+				draw_rect(Rect2(x * tile, y * tile, tile, tile), clear)
 			if sprite_id == "":
 				continue
 			var sprite := pack.get_sprite(sprite_id)
