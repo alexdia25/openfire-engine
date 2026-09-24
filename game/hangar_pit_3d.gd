@@ -4,22 +4,27 @@ extends Node3D
 ## Every number below is read from the lift object's drawing descriptors, class `0x44db40` / `0x44db90` slot `+0x14` = `0x44dab0`, whose `+4` chain is the pit
 ## (`0x44dab0`, callback `0x42ebb0`), the vehicle (`0x44d8f8`, `0x42eae0`) and the leaves (`0x44d890`, `0x42ea10`):
 ##  - four pit walls, a 28 x 28 shaft from z 0 down to -31 (corners `0x44d940`, parts `0x44d9d0`: north `pit_wall.02`, west `.03`, east and south `.01`), and the 32 x 4
-##    hazard strip along the front edge (part 4, corners 8-11);
+##    hazard strip along the front edge (part 4, corners 8-11, y -16 to -12; drawn a second time, 3 high, over the leaves by 0x42ea10);
 ##  - the plate under the vehicle, 32 x 30 (`0x44d8d8`, cel `0x33d`, flag 8 = team variant), which is at the OBJECT's height, so it rises and sinks with the vehicle;
 ##  - the two leaves, 16 x 31 each (corners `0x44d7d0`, cels `0x336` / `0x338`, flag 8), at z 0, `0.3 * age + 5` units either side of the centre
 ##    (MatchController.pad_leaf_offset), not drawn once `0.3 * age >= 18`.
 ## UNTRACED, port choices: object space is taken as the world's axes (the undock object's heading is 180 degrees and the original's rotation of the pit walls was not
-## read), and whether the walls move with the object's height (here they are fixed at the ground: the physical reading). The hazard border and rim seen around the
-## open pit in the footage are not identified (the strip above is only the front edge), and nothing is drawn between the walls and the tile's edge (a 2-unit ring).
+## read), and whether the walls move with the object's height (here they are fixed at the ground: the physical reading). The hazard border around the open pit is the
+## pad tile's own art 92 (2 wide on the west, east and south, open on the north where the strip is), not part of this object: the original queues that tile again after
+## the mechanism, so it covers it.
 
 const WALL_DEPTH := 31.0
 const HALF := 14.0
 const PAD_HALF := 16.0        ## the pad tile's half width: the leaves are cut off here (the mechanism is underground, nothing shows outside the original texture)
 const LEAF_HALF_W := 8.0
-## The leaves and the plate sit just BELOW the ground plane (y 0) so the tile's opaque hazard border (art 92, part of the ground texture) covers them where they reach the
-## tile's edge, and only the hole in its centre shows them: they slide under the border. The plate stays under the leaves. Port choice (user direction), not traced.
-const LEAF_Y := -0.1
-const PLATE_MAX_Y := -0.15
+## Draw order, read from the callbacks (document 89, "The border is drawn again over the mechanism"): pit walls + front strip (0x42ebb0), the plate (0x42eae0), the leaves
+## and a second strip over them (0x42ea10), and last the pad tile's own art (the border) queued AGAIN over all of it. In 3D that is: everything below sits just under the
+## ground plane (y 0), where the tile's opaque hazard border (art 92) covers it and only the hole in the tile shows it. The order among them is the original's; the
+## 0.1 steps are the port's (a painter's order becomes depth layers).
+const STRIP_OVER_Y := -0.1     ## the second strip, over the leaves
+const LEAF_Y := -0.2
+const PLATE_MAX_Y := -0.3      ## the plate, never higher than this (it is at the object's height, which reaches 0)
+const STRIP_Y := -0.4          ## the pit's own strip (part 4 of 0x44dab0's parts), under the plate
 
 var mc: MatchController
 var pack: Pack
@@ -27,6 +32,7 @@ var _team := -1
 var _plate: MeshInstance3D
 var _leaf_left: MeshInstance3D
 var _leaf_right: MeshInstance3D
+var _strip_over: MeshInstance3D
 var _leaf_ids: Array[String] = ["", ""]
 var _leaf_off := -2.0
 var _static: Array[MeshInstance3D] = []
@@ -51,6 +57,7 @@ func _process(_delta: float) -> void:
 	var off := mc.pad_leaf_offset()
 	_leaf_left.visible = off >= 0.0
 	_leaf_right.visible = off >= 0.0
+	_strip_over.visible = off >= 0.0
 	if off >= 0.0 and off != _leaf_off:
 		_leaf_off = off
 		_leaf_left.mesh = _leaf_mesh(_leaf_ids[0], -off)
@@ -71,7 +78,7 @@ func _build(team: int) -> void:
 		for i in w[1]:
 			quad.append(c[i])
 		add_child(_quad(String(w[0]), quad))
-	add_child(_quad("structure.hangar_hazard_strip.01", _rect(-16, -16, 16, -12, 0.08)))
+	add_child(_quad("structure.hangar_hazard_strip.01", _rect(-16, -16, 16, -12, STRIP_Y)))
 	_plate = _quad(pack.team_variant(["structure.hangar_lift_plate.tan", "structure.hangar_lift_plate.green"], colour), _rect(-16, -15, 16, 15, 0.0))
 	add_child(_plate)
 	_leaf_ids = [pack.team_variant(["structure.hangar_leaf.left.tan", "structure.hangar_leaf.left.green"], colour),
@@ -81,6 +88,8 @@ func _build(team: int) -> void:
 	_leaf_right = _quad(_leaf_ids[1], _rect(-8, -15, 8, 16, LEAF_Y))
 	add_child(_leaf_left)
 	add_child(_leaf_right)
+	_strip_over = _quad("structure.hangar_hazard_strip.01", _rect(-16, -15, 16, -12, STRIP_OVER_Y))   # 0x42ea10's third draw: cel 0x33f, corners 0x44d800
+	add_child(_strip_over)
 
 
 ## Corners (top-left, top-right, bottom-right, bottom-left) of a flat rectangle in the original's (x, y) with y down the screen, at height h.
