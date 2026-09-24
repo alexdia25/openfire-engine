@@ -69,6 +69,7 @@ var _terrain_vp: SubViewport
 var _tile_renderer: TerrainTileRenderer
 var _decoration_field: DecorationField3D
 var _hud: PlaceholderHud                     ## port-only placeholder (document 66)
+var _last_death_phase := 0                   ## debug print (RF_DEBUG_KILL)
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
@@ -124,6 +125,11 @@ func _ready() -> void:
 		# physics, not a fixed tick count) -- a fixed frame delay alone can miss or overshoot it.
 		if OS.get_environment("RF_DEBUG_SCREENSHOT_WAIT_SELECTING") == "1":
 			while controller == null or not controller.selecting:
+				await get_tree().process_frame
+		# RF_DEBUG_SCREENSHOT_WAIT_DEATH=<phase> waits for the loss sequence (document 88) to reach that phase (with RF_DEBUG_KILL).
+		var death_wait := OS.get_environment("RF_DEBUG_SCREENSHOT_WAIT_DEATH")
+		if death_wait != "":
+			while controller == null or controller.death_phase != int(death_wait):
 				await get_tree().process_frame
 		var wait_frames := 2
 		var wait_env := OS.get_environment("RF_DEBUG_SCREENSHOT_DELAY_FRAMES")
@@ -592,6 +598,17 @@ func _process(delta: float) -> void:
 			var fp := pair.split(":")
 			if int(fp[0]) == Engine.get_process_frames():
 				controller.debug_swap_vehicle(int(fp[1]))
+
+	# Debug-only: RF_DEBUG_KILL=<frame> kills the player at that process frame, for screenshots of the loss sequence (document 88).
+	if OS.get_environment("RF_DEBUG_KILL") != "" and controller != null and controller.vehicle != null 			and Engine.get_process_frames() == int(OS.get_environment("RF_DEBUG_KILL")):
+		controller.vehicle.hp = 0.5
+		controller.vehicle.take_damage(100.0)
+		if OS.get_environment("RF_DEBUG_KILL_SPEED") != "":
+			Engine.time_scale = float(OS.get_environment("RF_DEBUG_KILL_SPEED"))  # (RF_DEBUG_KILL_SPEED=4 runs the sequence four times faster)
+
+	if OS.get_environment("RF_DEBUG_KILL") != "" and controller != null and controller.death_phase != _last_death_phase:
+		_last_death_phase = controller.death_phase
+		print("[death] frame ", Engine.get_process_frames(), " phase -> ", _last_death_phase, " view_fade ", snappedf(controller.view_fade, 0.01))
 
 	# Vehicle drives its own movement/input/firing entirely (its _process() runs
 	# independently, same as in the flat 2D scene) -- this scene only needs to read the

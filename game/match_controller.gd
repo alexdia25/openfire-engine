@@ -281,6 +281,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 
 
 func _process(delta: float) -> void:
+	_update_death(delta)
 	_update_dock(delta)
 	_update_flags(delta)
 	_update_mines(delta)
@@ -723,6 +724,104 @@ func _drop_carried_flags(v: Vehicle) -> void:
 
 func _on_player_destroyed(v: Vehicle) -> void:
 	_drop_carried_flags(v)
+	if death_phase != 0:
+		return  # already in the loss sequence (a drowning and a hit landing together)
+	death_phase = 1
+	_death_ticks = 0.0
+	_death_acc = 0.0
+	skull_scale_raw = SKULL_SCALE_START_RAW
+	skull_angle_raw = 0
+	skull_timer_raw = 0
+	skull_alpha = 1.0
+
+
+## The loss sequence (document 88), the player's mode state machine from `FUN_0040c7e0` (the wreck's init schedules it) to the vehicle choice. Whole ticks:
+## 1 the wreck lies there for the type's delay (record +0x260: 120, the Heli 200); 2 the skull spins in over the live view for 30 (FUN_004184d0); 3 the view fades to black at
+## 1310/65536 a tick and the skull laughs (`Laugh`) once it is dark (FUN_00418830); 4 the mouth animation runs 60 table steps at 0.3 a tick, 201 ticks (FUN_004188c0), then
+## FUN_0040b260 asks whether any vehicle is left (none = the match is lost, at once); 5 the skull fades out at 0x11eb/65536 a tick (FUN_004189a0) and the choice opens
+## (FUN_00418290 -> FUN_00417ad0). PORT CHOICE: the choice is still the placeholder respawn below, not the traced grid.
+func _update_death(delta: float) -> void:
+	if death_phase == 0:
+		return
+	_death_acc += delta * Vehicle.TICK_HZ
+	while _death_acc >= 1.0 - 1e-6 and death_phase != 0:
+		_death_acc = maxf(_death_acc - 1.0, 0.0)
+		_death_tick()
+
+
+func _death_tick() -> void:
+	if death_phase == 1:
+		_death_ticks += 1.0
+		if _death_ticks >= DEATH_WAIT_TICKS[vehicle.vehicle_type]:
+			death_phase = 2
+			_death_ticks = 0.0
+		return
+	_skull_step()
+	if death_phase == 2:
+		_death_ticks += 1.0
+		if _death_ticks > DEATH_SKULL_LEAD_TICKS:
+			death_phase = 3
+	elif death_phase == 3:
+		view_fade = maxf(view_fade - DEATH_DARKEN_PER_TICK, 0.0)
+		if view_fade <= 0.0:
+			death_phase = 4
+			vehicle.sound_cue.emit("Laugh")   # FUN_00418830: `PUSH 0x44b790; CALL FUN_004232d0`, the moment the darkening ends
+	elif death_phase == 4:
+		skull_timer_raw += SKULL_TIMER_RATE_RAW
+		if skull_timer_raw > 0x3bffff:
+			if not _any_stock():
+				death_phase = 0
+				match_finished = true
+				winner_idx = -2
+				vehicle.frozen = true
+				out_of_vehicles.emit()
+				return
+			skull_timer_raw = 0
+			skull_alpha = 1.0
+			death_phase = 5
+	elif death_phase == 5:
+		skull_alpha -= DEATH_SKULL_FADE_PER_TICK
+		if skull_alpha <= 0.0:
+			skull_alpha = 0.0
+			death_phase = 0
+			_finish_player_death()
+
+
+## FUN_00418510's per-tick state: the scale grows 0x666 a tick to 0x13333 (1.2) and the angle turns 0x28000 of 0x400000 a tick until the scale is full, then the turn ends
+## upright (angle 0) at the first wrap.
+func _skull_step() -> void:
+	if skull_scale_raw < SKULL_SCALE_MAX_RAW:
+		skull_scale_raw = mini(skull_scale_raw + SKULL_SCALE_STEP_RAW, SKULL_SCALE_MAX_RAW)
+	if skull_scale_raw != SKULL_SCALE_MAX_RAW or skull_angle_raw != 0:
+		var a := skull_angle_raw + SKULL_SPIN_RAW
+		if a < 0x400000 or skull_scale_raw < SKULL_SCALE_MAX_RAW:
+			skull_angle_raw = a & 0x3fffff
+		else:
+			skull_angle_raw = 0
+
+
+## The skull's mouth-open frame (1 closed .. 7 widest): the traced table indexed by the animation timer's whole part.
+func skull_frame() -> int:
+	return SKULL_FRAMES[mini(skull_timer_raw >> 16, SKULL_FRAMES.size() - 1)]
+
+
+## The skull's screen rotation in degrees: the whole part of the angle is one of 64 steps.
+func skull_angle_deg() -> float:
+	return float(skull_angle_raw >> 16) * 5.625
+
+
+func skull_scale() -> float:
+	return float(skull_scale_raw) / 65536.0
+
+
+func _any_stock() -> bool:
+	for i in 4:
+		if vehicle_stock[i] != 0:
+			return true
+	return false
+
+
+func _finish_player_death() -> void:
 	# PLACEHOLDER (untraced): the replacement is the same type when the stock allows, else the first type in stock; none left = lost
 	var t := vehicle.vehicle_type
 	if not _take_stock(t):
@@ -1066,6 +1165,26 @@ var select_anim: SelectorAnim = null
 var undocking := false      ## the confirm script is playing; the new vehicle is on the pad but held (`state +0x70 = 1`) until it ends
 var map_open := false       ## the map window of state 0x4180d0 (the level's radar bitmap in a 144 x 144 frame)
 var view_fade := 1.0        ## the game view's own fade-in after the choice (0x4183e0, 0.07 a tick)
+## The loss sequence (document 88): phase 0 none, 1 the wreck lies, 2 the skull spins in, 3 the view darkens, 4 the skull laughs, 5 the skull fades.
+const DEATH_WAIT_TICKS := [120.0, 120.0, 120.0, 200.0]   ## vehicle type record +0x260 (0x78, 0x78, 0x78, 0xc8)
+const DEATH_SKULL_LEAD_TICKS := 30.0                     ## FUN_00418440: `+0xc8 = now + 0x1e`
+const DEATH_DARKEN_PER_TICK := 1310.0 / 65536.0          ## FUN_00418830
+const DEATH_SKULL_FADE_PER_TICK := 4587.0 / 65536.0      ## FUN_004189a0: 0x11eb
+const SKULL_SCALE_START_RAW := 0x28f
+const SKULL_SCALE_STEP_RAW := 0x666
+const SKULL_SCALE_MAX_RAW := 0x13333
+const SKULL_SPIN_RAW := 0x28000
+const SKULL_TIMER_RATE_RAW := 0x4ccc                     ## DAT_00449268
+## FUN_00418510's mouth table (bytes at 0x449270, one per whole timer step): frame 1 closed .. 7 widest.
+const SKULL_FRAMES := [1, 2, 2, 3, 3, 4, 4, 5, 6, 6, 6, 5, 5, 5, 6, 6, 5, 4, 5, 6, 7, 7, 6, 5, 4, 5, 6, 7, 7, 6,
+		4, 5, 6, 7, 6, 5, 3, 4, 5, 7, 7, 7, 6, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0]
+var death_phase := 0
+var skull_scale_raw := SKULL_SCALE_START_RAW
+var skull_angle_raw := 0
+var skull_timer_raw := 0
+var skull_alpha := 1.0
+var _death_ticks := 0.0
+var _death_acc := 0.0
 var selecting := false
 var selection := 0
 signal selection_changed()
@@ -1148,7 +1267,7 @@ func _update_dock(delta: float) -> void:
 			vehicle.z = 0.0
 			view_fade = 0.0
 			selection_changed.emit()
-	elif view_fade < 1.0 and dock_state == 0:
+	elif view_fade < 1.0 and dock_state == 0 and death_phase == 0:
 		view_fade = minf(view_fade + SelectorAnim.FADE_PER_TICK * ticks, 1.0)
 	if dock_state == 0:
 		return

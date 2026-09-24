@@ -46,6 +46,9 @@ func setup(controller: MatchController) -> void:
 	add_child(fade)
 	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_fade = fade
+	var skull := DeathSkullView.new()   # the loss sequence's laughing skull (document 88), above the view fade
+	add_child(skull)
+	skull.setup(controller)
 	_banner = _label(Vector2(60, 90), 40)
 	_banner.visible = false
 
