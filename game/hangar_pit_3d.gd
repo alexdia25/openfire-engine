@@ -14,6 +14,8 @@ extends Node3D
 
 const WALL_DEPTH := 31.0
 const HALF := 14.0
+const PAD_HALF := 16.0        ## the pad tile's half width: the leaves are cut off here (the mechanism is underground, nothing shows outside the original texture)
+const LEAF_HALF_W := 8.0
 
 var mc: MatchController
 var pack: Pack
@@ -21,6 +23,8 @@ var _team := -1
 var _plate: MeshInstance3D
 var _leaf_left: MeshInstance3D
 var _leaf_right: MeshInstance3D
+var _leaf_ids: Array[String] = ["", ""]
+var _leaf_off := -2.0
 var _static: Array[MeshInstance3D] = []
 
 
@@ -43,9 +47,10 @@ func _process(_delta: float) -> void:
 	var off := mc.pad_leaf_offset()
 	_leaf_left.visible = off >= 0.0
 	_leaf_right.visible = off >= 0.0
-	if off >= 0.0:
-		_leaf_left.position.x = -off
-		_leaf_right.position.x = off
+	if off >= 0.0 and off != _leaf_off:
+		_leaf_off = off
+		_leaf_left.mesh = _leaf_mesh(_leaf_ids[0], -off)
+		_leaf_right.mesh = _leaf_mesh(_leaf_ids[1], off)
 	visible = true
 
 
@@ -65,8 +70,11 @@ func _build(team: int) -> void:
 	add_child(_quad("structure.hangar_hazard_strip.01", _rect(-16, -16, 16, -12, 0.08)))
 	_plate = _quad(pack.team_variant(["structure.hangar_lift_plate.tan", "structure.hangar_lift_plate.green"], colour), _rect(-16, -15, 16, 15, 0.0))
 	add_child(_plate)
-	_leaf_left = _quad(pack.team_variant(["structure.hangar_leaf.left.tan", "structure.hangar_leaf.left.green"], colour), _rect(-8, -15, 8, 16, 0.1))
-	_leaf_right = _quad(pack.team_variant(["structure.hangar_leaf.right.tan", "structure.hangar_leaf.right.green"], colour), _rect(-8, -15, 8, 16, 0.1))
+	_leaf_ids = [pack.team_variant(["structure.hangar_leaf.left.tan", "structure.hangar_leaf.left.green"], colour),
+			pack.team_variant(["structure.hangar_leaf.right.tan", "structure.hangar_leaf.right.green"], colour)]
+	_leaf_off = -2.0
+	_leaf_left = _quad(_leaf_ids[0], _rect(-8, -15, 8, 16, 0.1))
+	_leaf_right = _quad(_leaf_ids[1], _rect(-8, -15, 8, 16, 0.1))
 	add_child(_leaf_left)
 	add_child(_leaf_right)
 
@@ -74,6 +82,38 @@ func _build(team: int) -> void:
 ## Corners (top-left, top-right, bottom-right, bottom-left) of a flat rectangle in the original's (x, y) with y down the screen, at height h.
 func _rect(x0: float, y0: float, x1: float, y1: float, h: float) -> Array[Vector3]:
 	return [Vector3(x0, h, y0), Vector3(x1, h, y0), Vector3(x1, h, y1), Vector3(x0, h, y1)]
+
+
+## A leaf 16 wide centred on `centre`, cut off at the pad's own footprint (x = +-PAD_HALF) with its texture cut the same way, or null once it is entirely outside.
+func _leaf_mesh(sprite_id: String, centre: float) -> Mesh:
+	var s := pack.get_sprite(sprite_id)
+	if s.is_empty():
+		return null
+	var x0 := centre - LEAF_HALF_W
+	var x1 := centre + LEAF_HALF_W
+	var cx0 := maxf(x0, -PAD_HALF)
+	var cx1 := minf(x1, PAD_HALF)
+	if cx0 >= cx1:
+		return null
+	var tex := pack.get_texture(int(s.get("page", 0)))
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var sx := float(s["x"])
+	var sy := float(s["y"])
+	var sw := float(s["w"])
+	var sh := float(s["h"])
+	var u0 := (sx + sw * (cx0 - x0) / (x1 - x0)) / tw
+	var u1 := (sx + sw * (cx1 - x0) / (x1 - x0)) / tw
+	var v0 := sy / th
+	var v1 := (sy + sh) / th
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var pts := [Vector3(cx0, 0.1, -15.0), Vector3(cx1, 0.1, -15.0), Vector3(cx1, 0.1, 16.0), Vector3(cx0, 0.1, 16.0)]
+	var uvs := [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]
+	for i in [0, 1, 2, 0, 2, 3]:
+		st.set_uv(uvs[i])
+		st.add_vertex(pts[i])
+	return st.commit()
 
 
 func _quad(sprite_id: String, corners: Array[Vector3]) -> MeshInstance3D:
