@@ -21,6 +21,10 @@ var team_sets: Dictionary = {}
 var _team_set_of: Dictionary = {}   ## green id -> tan id
 var team_colours: Dictionary = {}
 var team_reference := "tan"
+## Masked team art (PORTING_PLAN.md 2.7.7), for art that has one drawing instead of a tan/green pair -- a mod's new
+## vehicle: sprite id -> {mask: sprite id, drawn_as: colour or ""}. The mask is an ordinary sprite; wherever it is opaque
+## the drawing is team paint. Every colour is generated from the drawing, except `drawn_as`, which returns it as drawn.
+var team_masks: Dictionary = {}
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
@@ -164,6 +168,14 @@ func get_sprite_image(sprite_id: String) -> Image:
 ## art (made now if `prepare_team_colours()` hasn't already). Art that isn't team-coloured, or an unknown colour, comes
 ## back unchanged.
 func team_sprite(sprite_id: String, colour: String) -> String:
+	if team_masks.has(sprite_id):
+		if not team_colours.has(colour) or colour == String(team_masks[sprite_id].get("drawn_as", "")):
+			return sprite_id
+		var mid := sprite_id + "@" + colour
+		if not sprites.has(mid):
+			_make_recolour(sprite_id, colour)
+			_upload_dirty_pages()
+		return mid
 	var tan: String = _team_set_of.get(sprite_id, sprite_id)
 	if not team_sets.has(tan):
 		return sprite_id
@@ -181,7 +193,11 @@ func team_sprite(sprite_id: String, colour: String) -> String:
 
 ## For art given as the original's variant list [tan id, green id, ...]: an original colour indexes it exactly as drawn,
 ## any other colour is generated from the tan member. Use this wherever the code used to index such a list by team.
+## Safe for any sprite list, including a single id that isn't team art at all (it comes back unchanged), so callers
+## don't need to know which parts are team-coloured.
 func team_variant(ids: Array, colour: String) -> String:
+	if team_masks.has(String(ids[0])):
+		return team_sprite(String(ids[0]), colour)   # one drawing + a mask: no per-team list to index
 	var c: Dictionary = team_colours.get(colour, {})
 	if c.get("source", "") == "original" or colour == "":
 		var v := int(c.get("variant", 0))
@@ -198,7 +214,12 @@ func is_original_colour(colour: String) -> bool:
 func prepare_team_colours(colours: Array) -> void:
 	for colour in colours:
 		var c: Dictionary = team_colours.get(String(colour), {})
-		if c.is_empty() or c.get("source", "") == "original":
+		if c.is_empty():
+			continue
+		for id in team_masks:   # masked art is generated in every colour it wasn't drawn in, the original two included
+			if String(team_masks[id].get("drawn_as", "")) != String(colour) and not sprites.has(String(id) + "@" + String(colour)):
+				_make_recolour(String(id), String(colour))
+		if c.get("source", "") == "original":
 			continue
 		for tan in team_sets:
 			if not sprites.has(String(tan) + "@" + String(colour)):
@@ -213,30 +234,69 @@ func team_rgb(colour: String) -> Color:
 	return Color.from_hsv(float(hsv[0]), float(hsv[1]), float(hsv[2]))
 
 
-## The recolour itself: every pixel that differs between the tan and green art is team paint; it keeps the tan pixel's
-## saturation and brightness relative to tan's mean and takes the target colour's hue (teams/colours.json "hsv"). Pixels
-## the two teams share (tracks, metal, outlines) are left alone. A port feature: the original only has the two drawings.
-func _make_recolour(tan: String, colour: String) -> void:
-	var base := get_sprite_image(tan)
-	var other := get_sprite_image(String(team_sets[tan]))
-	if base == null or other == null or base.get_size() != other.get_size():
+## The recolour itself. Team paint is, for a tan/green pair, every pixel where the two drawings differ; for masked art,
+## every pixel where the mask is opaque (alpha >= 0.5). Pixels outside it (tracks, metal, outlines) are never touched.
+## A paint pixel takes the target colour's hue and keeps its saturation and brightness relative to the source's mean:
+## for a pair the source is tan and the mean the measured tan mean (teams/colours.json); for masked art the mean is
+## taken from the drawing's own paint pixels, and if the drawing is (nearly) grey its saturation is ignored and the
+## target's used outright, so team paint can be drawn in grey. A port feature: the original only has two drawings.
+func _make_recolour(source: String, colour: String) -> void:
+	var base := get_sprite_image(source)
+	if base == null:
 		return
-	var ref: Array = team_colours.get(team_reference, {}).get("hsv", [0.05, 0.74, 0.37])
+	var paint := Image.create_empty(base.get_width(), base.get_height(), false, Image.FORMAT_L8)
+	var ref: Array
+	var masked := team_masks.has(source)
+	if masked:
+		var mask := get_sprite_image(String(team_masks[source].get("mask", "")))
+		if mask == null or mask.get_size() != base.get_size():
+			push_error("Pack: team mask for %s is missing or not the drawing's size" % source)
+			return
+		var cx := 0.0
+		var cy := 0.0
+		var ss := 0.0
+		var vv := 0.0
+		var n := 0
+		for y in base.get_height():
+			for x in base.get_width():
+				var a := base.get_pixel(x, y)
+				if a.a > 0.0 and mask.get_pixel(x, y).a >= 0.5:
+					paint.set_pixel(x, y, Color.WHITE)
+					cx += cos(a.h * TAU)
+					cy += sin(a.h * TAU)
+					ss += a.s
+					vv += a.v
+					n += 1
+		if n == 0:
+			return
+		ref = [fposmod(atan2(cy, cx) / TAU, 1.0), ss / n, vv / n]
+	else:
+		var other := get_sprite_image(String(team_sets[source]))
+		if other == null or other.get_size() != base.get_size():
+			return
+		for y in base.get_height():
+			for x in base.get_width():
+				var a := base.get_pixel(x, y)
+				if a.a > 0.0 and a != other.get_pixel(x, y):
+					paint.set_pixel(x, y, Color.WHITE)
+		ref = team_colours.get(team_reference, {}).get("hsv", [0.05, 0.74, 0.37])
 	var target: Array = team_colours[colour]["hsv"]
+	var grey_source := masked and float(ref[1]) < 0.15
 	var s_scale := float(target[1]) / maxf(float(ref[1]), 0.001)
 	var v_scale := float(target[2]) / maxf(float(ref[2]), 0.001)
 	var out := base.duplicate() as Image
 	for y in base.get_height():
 		for x in base.get_width():
-			var a := base.get_pixel(x, y)
-			if a.a == 0.0 or a == other.get_pixel(x, y):
+			if paint.get_pixel(x, y).r < 0.5:
 				continue
-			out.set_pixel(x, y, Color.from_hsv(float(target[0]), clampf(a.s * s_scale, 0.0, 1.0), clampf(a.v * v_scale, 0.0, 1.0), a.a))
-	var entry: Dictionary = sprites[tan].duplicate()
+			var a := base.get_pixel(x, y)
+			var sat := float(target[1]) if grey_source else clampf(a.s * s_scale, 0.0, 1.0)
+			out.set_pixel(x, y, Color.from_hsv(float(target[0]), sat, clampf(a.v * v_scale, 0.0, 1.0), a.a))
+	var entry: Dictionary = sprites[source].duplicate()
 	entry["source"] = "generated"
 	entry["team_colour"] = colour
 	_place_frame(entry, out)
-	sprites[tan + "@" + colour] = entry
+	sprites[source + "@" + colour] = entry
 
 
 ## A pack id's directory: a sibling of `beside` first, then under res://packs.
@@ -330,7 +390,13 @@ func _load_layer(dir: String) -> bool:
 	_overlay(flag_data, _layer_doc(dir, "markers/flag.json"))
 
 	# Team colours (PORTING_PLAN.md 2.7.7): a mod can add team sets (its own art) and colours, per id.
-	_overlay(team_sets, _layer_doc(dir, "sprites/team_sets.json").get("pairs", {}))
+	var team_doc := _layer_doc(dir, "sprites/team_sets.json")
+	_overlay(team_sets, team_doc.get("pairs", {}))
+	var masks: Dictionary = team_doc.get("masks", {})
+	for id in masks:   # a bare mask id is shorthand for {mask: id}
+		if masks[id] is String:
+			masks[id] = {"mask": masks[id]}
+	_overlay(team_masks, masks)
 	for tan in team_sets:
 		_team_set_of[String(team_sets[tan])] = tan
 	var cdoc := _layer_doc(dir, "teams/colours.json")

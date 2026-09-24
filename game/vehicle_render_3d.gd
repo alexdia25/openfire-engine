@@ -27,7 +27,7 @@ func setup(v: Vehicle, pack: Pack) -> void:
 	var t: Dictionary = pack.vehicle_types.get(str(v.vehicle_type), {})
 	for part in t.get("parts", []):
 		var ids: Array = part["sprite_ids"]
-		var s := pack.get_sprite(pack.team_variant(ids, v.art_colour()) if ids.size() > 1 else String(ids[0]))
+		var s := pack.get_sprite(pack.team_variant(ids, v.art_colour()))
 		if s.is_empty():
 			_parts.append({})
 			continue

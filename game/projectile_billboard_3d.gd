@@ -113,7 +113,7 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 		var shadow: bool = key == "shadow_descriptor"
 		for part in pack.projectile_descriptors.get(String(t[key]), []):
 			var ids: Array = part["sprite_ids"]
-			var sp := pack.get_sprite(pack.team_variant(ids, projectile.art_colour()) if ids.size() > 1 else String(ids[0]))
+			var sp := pack.get_sprite(pack.team_variant(ids, projectile.art_colour()))
 			if sp.is_empty():
 				continue
 			var tex := pack.get_texture(int(sp.get("page", 0)))
