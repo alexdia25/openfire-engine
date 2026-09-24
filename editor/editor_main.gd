@@ -4,7 +4,8 @@ extends Control
 ## Run:  godot --path . res://editor/editor_main.tscn
 ##
 ## Debug / screenshot switches (like the game's RF_DEBUG_*): RF_EDITOR_MOD=<dir> opens that mod; RF_EDITOR_TAB=<index>
-## picks a tab; RF_EDITOR_SELECT=<sprite id> selects a sprite; RF_EDITOR_COLOUR=<name> selects a colour;
+## picks a tab; RF_EDITOR_SELECT=<sprite id> selects a sprite; RF_EDITOR_COLOUR=<name> selects a colour (Team colours
+## tab and vehicle preview); RF_EDITOR_VEHICLE=<type> picks the previewed vehicle;
 ## RF_EDITOR_SCREENSHOT=<png> (+ RF_EDITOR_DELAY_FRAMES) saves a screenshot and quits.
 
 const SETTINGS := "user://editor.cfg"
@@ -17,6 +18,8 @@ var _redo_btn: Button
 var _tabs: TabContainer
 var _assets: AssetsPanel
 var _colours: ColoursPanel
+var _vehicles: VehiclePreviewPanel
+var _validate_tab: Control
 var _findings: ItemList
 var _dir_dialog: FileDialog
 var _dir_action := Callable()
@@ -64,11 +67,15 @@ func _ready() -> void:
 	_assets = AssetsPanel.new()
 	_assets.name = "Assets"
 	_tabs.add_child(_assets)
+	_vehicles = VehiclePreviewPanel.new()
+	_vehicles.name = "Vehicles"
+	_tabs.add_child(_vehicles)
 	_colours = ColoursPanel.new()
 	_colours.name = "Team colours"
 	_tabs.add_child(_colours)
 	var validate := VBoxContainer.new()
 	validate.name = "Validate"
+	_validate_tab = validate
 	_tabs.add_child(validate)
 	_findings = ItemList.new()
 	_findings.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -78,8 +85,7 @@ func _ready() -> void:
 			_tabs.current_tab = 0
 			_assets.select(id))
 	validate.add_child(_findings)
-	for placeholder in [["Vehicles", "The vehicle editor: phase E1 (viewer) and E3-E4 (editing), after vehicle definitions land (PORTING_PLAN 2.7.6 steps 3-5)."],
-			["Maps", "The map editor: phase E1 (viewer) and E2 (editing). See docs/EDITOR_PLAN.md section 5."]]:
+	for placeholder in [["Maps", "The map editor: phase E1 (viewer) and E2 (editing). See docs/EDITOR_PLAN.md section 5."]]:
 		var l := Label.new()
 		l.name = placeholder[0]
 		l.text = placeholder[1]
@@ -139,6 +145,7 @@ func _open_mod(dir: String) -> void:
 	ws.changed.connect(_on_changed)
 	_assets.setup(ws)
 	_colours.setup(ws)
+	_vehicles.setup(ws)
 	var cfg := ConfigFile.new()
 	cfg.load(SETTINGS)
 	cfg.set_value("editor", "last_mod", dir)
@@ -172,7 +179,7 @@ func _on_changed() -> void:
 		var i := _findings.add_item("%s   %s" % ["ERROR" if f["level"] == "error" else "warning", f["message"]])
 		_findings.set_item_metadata(i, f["sprite_id"])
 		_findings.set_item_custom_fg_color(i, Color(1.0, 0.45, 0.4) if f["level"] == "error" else Color(1.0, 0.85, 0.45))
-	_tabs.set_tab_title(2, "Validate (%d)" % found.size() if not found.is_empty() else "Validate")
+	_tabs.set_tab_title(_tabs.get_tab_idx_from_control(_validate_tab), "Validate (%d)" % found.size() if not found.is_empty() else "Validate")
 
 
 func _notification(what: int) -> void:
@@ -193,6 +200,10 @@ func _debug_hooks() -> void:
 	if colour != "":
 		_colours._selected = colour
 		_colours._refresh()
+		_vehicles.select_colour(colour)
+	var vtype := OS.get_environment("RF_EDITOR_VEHICLE")
+	if vtype != "":
+		_vehicles.select_type(int(vtype))
 	var shot := OS.get_environment("RF_EDITOR_SCREENSHOT")
 	if shot != "":
 		var frames := int(OS.get_environment("RF_EDITOR_DELAY_FRAMES")) if OS.get_environment("RF_EDITOR_DELAY_FRAMES") != "" else 10

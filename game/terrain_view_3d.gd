@@ -375,22 +375,15 @@ func _on_match_over(winner_idx: int) -> void:
 
 
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
-	if v.vehicle_type != 0:
-		var gen := VehicleRender3D.new()
-		add_child(gen)
-		gen.setup(v, pack)
-		return gen
-	if not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
-		v.shot.connect(_on_muzzle_flash.bind(v))
-	if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
-		var b := VehicleBillboard3D.new()
-		add_child(b)
-		b.setup(v, pack)
-		return b
-	var box := VehicleBoxRender3D.new()
-	add_child(box)
-	box.setup(v, pack)
-	return box
+	if v.vehicle_type == 0:
+		if not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
+			v.shot.connect(_on_muzzle_flash.bind(v))
+		if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
+			var b := VehicleBillboard3D.new()
+			add_child(b)
+			b.setup(v, pack)
+			return b
+	return VehicleRender3D.create_for(v, pack, self)
 
 
 ## The Tank's muzzle flash (document 52): record 0x445138, spawned by the fire handler FUN_0040d240 attached

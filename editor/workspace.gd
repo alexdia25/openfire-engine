@@ -27,7 +27,11 @@ var _lower_cache: Dictionary = {}      ## lazily read tables of the layers below
 func _init() -> void:
 	# Announce edits once UndoRedo has counted them (an action's methods run before its version moves), so listeners
 	# see the right dirty / undo / redo state. Covers do, undo and redo alike.
-	undo.version_changed.connect(func(): changed.emit())
+	undo.version_changed.connect(_announce)
+
+
+func _announce() -> void:
+	changed.emit()
 
 
 ## Creates a new, empty mod at `dir` over `base_pack`.
@@ -70,6 +74,7 @@ func reload() -> bool:
 ## Call when the mod is closed; the workspace is unusable afterwards.
 func close() -> void:
 	if undo != null:
+		undo.version_changed.disconnect(_announce)   # closing is not an edit: nobody should hear about it
 		undo.clear_history()
 		undo.free()
 		undo = null

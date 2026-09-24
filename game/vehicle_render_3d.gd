@@ -19,6 +19,21 @@ var _flash := false               ## drawn in variant 2 (the hit flash)
 var _anim_key: Variant = null   ## last animation state drawn (rebuild the animated parts only when it changes)
 
 
+## The game's presentation of a vehicle, added under `parent`: the Tank's own box renderer (VehicleBoxRender3D, which
+## adds the separately drawn turret) or this descriptor renderer for every other type. Shared by the game scene and the
+## mod tool's vehicle preview, so both draw a vehicle the same way (EDITOR_PLAN.md principle 3).
+static func create_for(v: Vehicle, pack: Pack, parent: Node) -> Node3D:
+	if v.vehicle_type == 0:
+		var box := VehicleBoxRender3D.new()
+		parent.add_child(box)
+		box.setup(v, pack)
+		return box
+	var gen := VehicleRender3D.new()
+	parent.add_child(gen)
+	gen.setup(v, pack)
+	return gen
+
+
 func setup(v: Vehicle, pack: Pack) -> void:
 	vehicle = v
 	_pack = pack
