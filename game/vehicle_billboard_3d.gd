@@ -115,7 +115,7 @@ func _process(_delta: float) -> void:
 		# placeholder box's own rotation for internal consistency -- never against what
 		# _frames[0]'s actual pixels depict. They depict the vehicle's front-indicator nub
 		# pointing toward the *bottom* of the raw, unrotated cel, not toward the cel's own
-		# right edge -- confirmed by direct atlas inspection (`vehicle.hovercraft.rotation.
+		# right edge -- confirmed by direct atlas inspection (`vehicle.tank.rotation.
 		# tan.01`, cel 218) and by the user, who noticed driving forward moved the vehicle 90
 		# degrees away from where its front visibly pointed. The +90 correction was found by
 		# comparing a straight (turn=0) RF_DEBUG_DRIVE run's real movement direction against

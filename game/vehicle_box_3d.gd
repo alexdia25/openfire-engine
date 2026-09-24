@@ -71,7 +71,7 @@ extends Node3D
 ## visual comparison. Cel 202's own "+1" (203) measures genuinely greener (a real pair); 212's
 ## (213) measures byte-identical (not a real pair) -- both confirmed this session.
 ##
-## `vehicle.hovercraft.rotation.tan.01-09` (game/vehicle_billboard_3d.gd's GROUND_DECAL
+## `vehicle.tank.rotation.tan.01-09` (game/vehicle_billboard_3d.gd's GROUND_DECAL
 ## texture, cels 218-226) turned out never to be referenced by this real descriptor at all --
 ## a reasonable guess made before any of this was traced, not the game's actual Tank art.
 ## GROUND_DECAL is kept as a fallback (`RF_DEBUG_VEHICLE_RENDER=ground_decal`) since it's
@@ -104,12 +104,12 @@ const GROUND_CLEARANCE_PX := 2.0
 ##   "side_x" -- vertical, texture faces +X or -X (left/right tread)
 ##   "side_z" -- vertical, texture faces +Z or -Z (front/back detail)
 const FACES := [
-	{"sprites": ["vehicle.hovercraft.hull.01", "vehicle.hovercraft.hull.02", "vehicle.hovercraft.p167.yellow"], "_cel": 167, "center": Vector3(0, 0, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
-	{"sprites": ["vehicle.hovercraft.hull.04", "vehicle.hovercraft.hull.05", "vehicle.hovercraft.p172.yellow"], "_cel": 172, "center": Vector3(0, 13.333, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
-	{"sprites": ["vehicle.hovercraft.track.01", "vehicle.hovercraft.track.02", "vehicle.hovercraft.p182.yellow"], "_cel": 182, "center": Vector3(-18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": -1},
-	{"sprites": ["vehicle.hovercraft.track.01", "vehicle.hovercraft.track.02", "vehicle.hovercraft.p182.yellow"], "_cel": 182, "center": Vector3(18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": 1},
-	{"sprites": ["vehicle.hovercraft.hull.10", "vehicle.hovercraft.hull.21", "vehicle.hovercraft.p187.yellow"], "_cel": 187, "center": Vector3(0, 6.667, -22), "half": Vector2(8, 6.667), "axis": "side_z", "sign": -1},
-	{"sprites": ["vehicle.hovercraft.hull.10", "vehicle.hovercraft.hull.21", "vehicle.hovercraft.p187.yellow"], "_cel": 187, "center": Vector3(0, 6.667, 27), "half": Vector2(8, 6.667), "axis": "side_z", "sign": 1},
+	{"sprites": ["vehicle.tank.hull.01", "vehicle.tank.hull.02", "vehicle.tank.p167.yellow"], "_cel": 167, "center": Vector3(0, 0, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
+	{"sprites": ["vehicle.tank.hull.04", "vehicle.tank.hull.05", "vehicle.tank.p172.yellow"], "_cel": 172, "center": Vector3(0, 13.333, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
+	{"sprites": ["vehicle.tank.track.01", "vehicle.tank.track.02", "vehicle.tank.p182.yellow"], "_cel": 182, "center": Vector3(-18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": -1},
+	{"sprites": ["vehicle.tank.track.01", "vehicle.tank.track.02", "vehicle.tank.p182.yellow"], "_cel": 182, "center": Vector3(18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": 1},
+	{"sprites": ["vehicle.tank.hull.10", "vehicle.tank.hull.21", "vehicle.tank.p187.yellow"], "_cel": 187, "center": Vector3(0, 6.667, -22), "half": Vector2(8, 6.667), "axis": "side_z", "sign": -1},
+	{"sprites": ["vehicle.tank.hull.10", "vehicle.tank.hull.21", "vehicle.tank.p187.yellow"], "_cel": 187, "center": Vector3(0, 6.667, 27), "half": Vector2(8, 6.667), "axis": "side_z", "sign": 1},
 ]
 
 ## The Tank's real, SEPARATE turret+barrel descriptor (`0x0043e9b8`, document 39) -- a
@@ -141,28 +141,28 @@ const FACES := [
 ## a confirmed team pair -- unknown, not guessed, same as the hull's own unresolved decals were.
 ## 212 has no team variant at all (213 measures byte-identical to it, confirmed this session).
 const TURRET_PARTS := [
-	{"sprites": ["vehicle.hovercraft.turret.top.01", "vehicle.hovercraft.turret.top.01", "vehicle.hovercraft.p177.yellow"], "_cel": 177, "corners": [
+	{"sprites": ["vehicle.tank.turret.top.01", "vehicle.tank.turret.top.01", "vehicle.tank.p177.yellow"], "_cel": 177, "corners": [
 		Vector3(-13.33, 24, -16), Vector3(13.33, 24, -16), Vector3(13.33, 24, 16), Vector3(-13.33, 24, 16),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.p192.yellow"], "_cel": 192, "corners": [
+	{"sprites": ["vehicle.tank.turret.side.01", "vehicle.tank.turret.side.01", "vehicle.tank.p192.yellow"], "_cel": 192, "corners": [
 		Vector3(-8, 24, -13.33), Vector3(-8, 24, 16), Vector3(-8, 13.33, 10.67), Vector3(-8, 13.33, -10),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.p192.yellow"], "_cel": 192, "corners": [
+	{"sprites": ["vehicle.tank.turret.side.01", "vehicle.tank.turret.side.01", "vehicle.tank.p192.yellow"], "_cel": 192, "corners": [
 		Vector3(8, 24, -13.33), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(8, 13.33, -10),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.back.01", "vehicle.hovercraft.turret.back.01", "vehicle.hovercraft.p197.yellow"], "_cel": 197, "corners": [
+	{"sprites": ["vehicle.tank.turret.back.01", "vehicle.tank.turret.back.01", "vehicle.tank.p197.yellow"], "_cel": 197, "corners": [
 		Vector3(-8, 24, 16), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(-8, 13.33, 10.67),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.front.01", "vehicle.hovercraft.turret.front.01", "vehicle.hovercraft.p207.yellow"], "_cel": 207, "corners": [
+	{"sprites": ["vehicle.tank.turret.front.01", "vehicle.tank.turret.front.01", "vehicle.tank.p207.yellow"], "_cel": 207, "corners": [
 		Vector3(-8, 24, -13.33), Vector3(8, 24, -13.33), Vector3(8, 13.33, -10), Vector3(-8, 13.33, -10),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.barrel.01", "vehicle.hovercraft.turret.barrel.02", "vehicle.hovercraft.p202.yellow"], "_cel": 202, "corners": [
+	{"sprites": ["vehicle.tank.turret.barrel.01", "vehicle.tank.turret.barrel.02", "vehicle.tank.p202.yellow"], "_cel": 202, "corners": [
 		Vector3(8, 18.67, -14), Vector3(5.87, 18.67, -32), Vector3(0, 24, -32), Vector3(0, 24, -14),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.barrel.01", "vehicle.hovercraft.turret.barrel.02", "vehicle.hovercraft.p202.yellow"], "_cel": 202, "corners": [
+	{"sprites": ["vehicle.tank.turret.barrel.01", "vehicle.tank.turret.barrel.02", "vehicle.tank.p202.yellow"], "_cel": 202, "corners": [
 		Vector3(-8, 18.67, -14), Vector3(-5.87, 18.67, -32), Vector3(0, 24, -32), Vector3(0, 24, -14),
 	]},
-	{"sprites": ["vehicle.hovercraft.turret.muzzle_ring.01", "vehicle.hovercraft.turret.muzzle_ring.01", "vehicle.hovercraft.p212.yellow"], "_cel": 212, "corners": [
+	{"sprites": ["vehicle.tank.turret.muzzle_ring.01", "vehicle.tank.turret.muzzle_ring.01", "vehicle.tank.p212.yellow"], "_cel": 212, "corners": [
 		Vector3(-2.67, 22.93, -32), Vector3(2.67, 22.93, -32), Vector3(2.67, 17.33, -32), Vector3(-2.67, 17.33, -32),
 	]},
 ]

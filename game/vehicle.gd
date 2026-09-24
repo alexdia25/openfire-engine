@@ -150,7 +150,7 @@ var frozen := false  ## the match is over: no input, no movement
 func setup(shared_pack: Pack) -> void:
 	pack = shared_pack
 	_apply_type()
-	var prefix := "vehicle.hovercraft.rotation.%s." % team
+	var prefix := "vehicle.tank.rotation.%s." % team
 	for id in pack.sprites.keys():
 		if id.begins_with(prefix):
 			_frames.append(id)
