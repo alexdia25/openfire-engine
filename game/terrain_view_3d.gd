@@ -189,6 +189,9 @@ func _build_terrain_ground() -> void:
 	# document 89: the open home pad is a real hole in the ground (transparent tile art 92); every other tile has an opaque underlay
 	# (TerrainTileRenderer), so only that tile becomes see-through under the alpha scissor below
 	sub_vp.transparent_bg = true
+	# incremental re-renders (TerrainTileRenderer.mark_tile): keep the previous contents, only redraw the tiles that changed. NEVER, not ONCE: ONCE clears again on every
+	# later render. The first render draws an opaque underlay on every tile, so nothing depends on the initial contents.
+	sub_vp.render_target_clear_mode = SubViewport.CLEAR_MODE_NEVER
 	add_child(sub_vp)
 
 	_tile_renderer = TerrainTileRenderer.new()
@@ -475,8 +478,8 @@ func _on_gate_removed(g: Gate) -> void:
 
 
 ## The home pad swapped between its hatch art and the transparent hole (document 89): the level's art grid was already changed by MatchController.
-func _on_pad_art_changed(_tile: Vector2i) -> void:
-	_tile_renderer.queue_redraw()
+func _on_pad_art_changed(tile: Vector2i) -> void:
+	_tile_renderer.mark_tile(tile)
 	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
@@ -522,7 +525,7 @@ func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
 	level.set_art_id(tile.x, tile.y, art)
 	controller.tile_state_applied(tile)
 	_decoration_field.refresh()
-	_tile_renderer.queue_redraw()
+	_tile_renderer.mark_tile(tile)
 	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
