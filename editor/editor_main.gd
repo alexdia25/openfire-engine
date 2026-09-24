@@ -5,7 +5,8 @@ extends Control
 ##
 ## Debug / screenshot switches (like the game's RF_DEBUG_*): RF_EDITOR_MOD=<dir> opens that mod; RF_EDITOR_TAB=<index>
 ## picks a tab; RF_EDITOR_SELECT=<sprite id> selects a sprite; RF_EDITOR_COLOUR=<name> selects a colour (Team colours
-## tab and vehicle preview); RF_EDITOR_VEHICLE=<type> picks the previewed vehicle;
+## tab and vehicle preview); RF_EDITOR_VEHICLE=<type> picks the previewed vehicle; RF_EDITOR_LEVEL=<id> the map shown, RF_EDITOR_SIDES=red,blue its side
+## colours, RF_EDITOR_LAYERS=Water,Roads its overlays;
 ## RF_EDITOR_SCREENSHOT=<png> (+ RF_EDITOR_DELAY_FRAMES) saves a screenshot and quits.
 
 const SETTINGS := "user://editor.cfg"
@@ -19,6 +20,7 @@ var _tabs: TabContainer
 var _assets: AssetsPanel
 var _colours: ColoursPanel
 var _vehicles: VehiclePreviewPanel
+var _maps: MapViewPanel
 var _validate_tab: Control
 var _findings: ItemList
 var _dir_dialog: FileDialog
@@ -85,13 +87,10 @@ func _ready() -> void:
 			_tabs.current_tab = 0
 			_assets.select(id))
 	validate.add_child(_findings)
-	for placeholder in [["Maps", "The map editor: phase E1 (viewer) and E2 (editing). See docs/EDITOR_PLAN.md section 5."]]:
-		var l := Label.new()
-		l.name = placeholder[0]
-		l.text = placeholder[1]
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.modulate = Color(1, 1, 1, 0.6)
-		_tabs.add_child(l)
+	_maps = MapViewPanel.new()
+	_maps.name = "Maps"
+	_tabs.add_child(_maps)
+	_tabs.move_child(_maps, 2)   # Assets, Vehicles, Maps, Team colours, Validate
 
 	_dir_dialog = FileDialog.new()
 	_dir_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
@@ -146,6 +145,7 @@ func _open_mod(dir: String) -> void:
 	_assets.setup(ws)
 	_colours.setup(ws)
 	_vehicles.setup(ws)
+	_maps.setup(ws)
 	if OS.get_environment("RF_EDITOR_MOD") == "":   # a test or screenshot run must not change what the user reopens
 		var cfg := ConfigFile.new()
 		cfg.load(SETTINGS)
@@ -202,6 +202,13 @@ func _debug_hooks() -> void:
 		_colours._selected = colour
 		_colours._refresh()
 		_vehicles.select_colour(colour)
+	var lv := OS.get_environment("RF_EDITOR_LEVEL")
+	if lv != "":
+		_maps.select_level(lv)
+	if OS.get_environment("RF_EDITOR_SIDES") != "":
+		_maps.show_sides_as(Array(OS.get_environment("RF_EDITOR_SIDES").split(",")))
+	if OS.get_environment("RF_EDITOR_LAYERS") != "":
+		_maps.show_layers(Array(OS.get_environment("RF_EDITOR_LAYERS").split(",")))
 	var vtype := OS.get_environment("RF_EDITOR_VEHICLE")
 	if vtype != "":
 		_vehicles.select_type(int(vtype))
