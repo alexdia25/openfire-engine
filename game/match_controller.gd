@@ -744,7 +744,7 @@ func _on_player_destroyed(v: Vehicle) -> void:
 ## 1 the wreck lies there for the type's delay (record +0x260: 120, the Heli 200); 2 the skull spins in over the live view for 30 (FUN_004184d0); 3 the view fades to black at
 ## 1310/65536 a tick and the skull laughs (`Laugh`) once it is dark (FUN_00418830); 4 the mouth animation runs 60 table steps at 0.3 a tick, 201 ticks (FUN_004188c0), then
 ## FUN_0040b260 asks whether any vehicle is left (none = the match is lost, at once); 5 the skull fades out at 0x11eb/65536 a tick (FUN_004189a0) and the choice opens
-## (FUN_00418290 -> FUN_00417ad0). PORT CHOICE: the choice is still the placeholder respawn below, not the traced grid.
+## (FUN_00418290 -> FUN_00417ad0), the same grid as after a dock (`_finish_player_death`). The "any vehicle left?" test is about JEEPS only (`_jeep_left`, document 95).
 func _update_death(delta: float) -> void:
 	if death_phase == 0:
 		return
@@ -774,7 +774,7 @@ func _death_tick() -> void:
 	elif death_phase == 4:
 		skull_timer_raw += SKULL_TIMER_RATE_RAW
 		if skull_timer_raw > 0x3bffff:
-			if not _any_stock():
+			if not _jeep_left():
 				death_phase = 0
 				match_finished = true
 				winner_idx = -2
@@ -819,30 +819,24 @@ func skull_scale() -> float:
 	return float(skull_scale_raw) / 65536.0
 
 
-func _any_stock() -> bool:
-	for i in 4:
-		if vehicle_stock[i] != 0:
-			return true
-	return false
+## FUN_0040b260's one-player answer (document 95): the player is not lost while they have a Jeep, in stock (byte +0xb9, 255 = unlimited) or alive under them, because only a
+## Jeep can carry the flag home (document 57); Tanks, MSVs and Helis left do not count. The dead vehicle is not counted (the check runs after it is gone).
+func _jeep_left() -> bool:
+	return vehicle_stock[1] != 0
 
 
+## The end of the loss sequence (document 95): FUN_00418290, installed by phase 5, opens the vehicle CHOICE (FUN_00417ad0) on the black screen, the cursor on the first type
+## with stock left (FUN_00418290 scans the four stock bytes; `_open_selection` does the same). The dead vehicle's stock was already spent when it was created, so nothing
+## is taken here; `confirm_selection` spends the chosen one and runs the same undock script and rise as after a dock. The wreck's own object is not modelled separately
+## (the vehicle body is reused), so it disappears at this point, under the black screen.
 func _finish_player_death() -> void:
-	# PLACEHOLDER (untraced): the replacement is the same type when the stock allows, else the first type in stock; none left = lost
-	var t := vehicle.vehicle_type
-	if not _take_stock(t):
-		t = -1
-		for i in 4:
-			if _take_stock(i):
-				t = i
-				break
-		if t < 0:
-			match_finished = true
-			winner_idx = -2
-			vehicle.frozen = true
-			out_of_vehicles.emit()
-			return
-		vehicle.set_vehicle_type(t)
-	vehicle.respawn(_player_spawn_px)
+	var t := _tile_of(_player_spawn_px)
+	_pad_centre = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
+	vehicle.respawn(_pad_centre)
+	vehicle.z = DOCK_MIN_DEPTH   # held under the pad like a docked vehicle until the choice is confirmed
+	vehicle.docked = true
+	view_fade = 0.0
+	_open_selection()
 
 
 ## Spends one vehicle of type `t` (false when none is left; 255 is unlimited and never counts down).

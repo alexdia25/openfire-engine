@@ -73,10 +73,17 @@ func _label(pos: Vector2, size: int) -> Label:
 	return l
 
 
+## The loss (document 95): with no vehicle left the loss sequence ends by starting the end-of-match handler with no winner (FUN_0040b370(-1) = FUN_004225d0), whose only
+## steps for that case are two fades to black and leaving the level: no message, no banner. The screen is already black here (the loss sequence's darkening), so
+## the port shows only the restart hint (the original returns to the front end, which the port does not have).
 func show_lost() -> void:
 	_finished = true
-	_banner.text = "OUT OF VEHICLES  -  placeholder message
-press Enter to play again"
+	_banner.text = "press Enter to play again"
+	_banner.position = Vector2(60, 0)
+	_banner.anchor_top = 1.0
+	_banner.anchor_bottom = 1.0
+	_banner.offset_top = -80.0
+	_banner.add_theme_font_size_override("font_size", 18)
 	_banner.visible = true
 
 
