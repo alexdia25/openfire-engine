@@ -146,10 +146,11 @@ func _open_mod(dir: String) -> void:
 	_assets.setup(ws)
 	_colours.setup(ws)
 	_vehicles.setup(ws)
-	var cfg := ConfigFile.new()
-	cfg.load(SETTINGS)
-	cfg.set_value("editor", "last_mod", dir)
-	cfg.save(SETTINGS)
+	if OS.get_environment("RF_EDITOR_MOD") == "":   # a test or screenshot run must not change what the user reopens
+		var cfg := ConfigFile.new()
+		cfg.load(SETTINGS)
+		cfg.set_value("editor", "last_mod", dir)
+		cfg.save(SETTINGS)
 	_on_changed()
 
 
