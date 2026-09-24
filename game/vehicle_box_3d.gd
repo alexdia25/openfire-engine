@@ -136,24 +136,23 @@ const FACES := [
 ## here is a genuine rectangle or simple planar quad relative to the turret's own geometry, and
 ## renders cleanly with the same `_build_warped_mesh()` this file already has.
 ##
-## Team colour: only cel 202's pair (203) is a confirmed real tan->green shift (measured this
-## session). 177/192/197/207's own "+1" cels are already flagged in the registry as NOT part of
-## a confirmed team pair -- unknown, not guessed, same as the hull's own unresolved decals were.
+## Team colour: every turret part has flag 8 (add the team variant; part table 0x43e7c0, document 91), so the green turret is cel + 1: 178 / 193 / 198 / 208 (the
+## registry had them as hull parts, an old pixel check wrongly called them blue) and 203 for the barrel.
 ## 212 has no team variant at all (213 measures byte-identical to it, confirmed this session).
 const TURRET_PARTS := [
-	{"sprites": ["vehicle.tank.turret.top.01", "vehicle.tank.turret.top.01", "vehicle.tank.p177.yellow"], "_cel": 177, "corners": [
+	{"sprites": ["vehicle.tank.turret.top.01", "vehicle.tank.turret.top.02", "vehicle.tank.p177.yellow"], "_cel": 177, "corners": [
 		Vector3(-13.33, 24, -16), Vector3(13.33, 24, -16), Vector3(13.33, 24, 16), Vector3(-13.33, 24, 16),
 	]},
-	{"sprites": ["vehicle.tank.turret.side.01", "vehicle.tank.turret.side.01", "vehicle.tank.p192.yellow"], "_cel": 192, "corners": [
+	{"sprites": ["vehicle.tank.turret.side.01", "vehicle.tank.turret.side.02", "vehicle.tank.p192.yellow"], "_cel": 192, "corners": [
 		Vector3(-8, 24, -13.33), Vector3(-8, 24, 16), Vector3(-8, 13.33, 10.67), Vector3(-8, 13.33, -10),
 	]},
-	{"sprites": ["vehicle.tank.turret.side.01", "vehicle.tank.turret.side.01", "vehicle.tank.p192.yellow"], "_cel": 192, "corners": [
+	{"sprites": ["vehicle.tank.turret.side.01", "vehicle.tank.turret.side.02", "vehicle.tank.p192.yellow"], "_cel": 192, "corners": [
 		Vector3(8, 24, -13.33), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(8, 13.33, -10),
 	]},
-	{"sprites": ["vehicle.tank.turret.back.01", "vehicle.tank.turret.back.01", "vehicle.tank.p197.yellow"], "_cel": 197, "corners": [
+	{"sprites": ["vehicle.tank.turret.back.01", "vehicle.tank.turret.back.02", "vehicle.tank.p197.yellow"], "_cel": 197, "corners": [
 		Vector3(-8, 24, 16), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(-8, 13.33, 10.67),
 	]},
-	{"sprites": ["vehicle.tank.turret.front.01", "vehicle.tank.turret.front.01", "vehicle.tank.p207.yellow"], "_cel": 207, "corners": [
+	{"sprites": ["vehicle.tank.turret.front.01", "vehicle.tank.turret.front.02", "vehicle.tank.p207.yellow"], "_cel": 207, "corners": [
 		Vector3(-8, 24, -13.33), Vector3(8, 24, -13.33), Vector3(8, 13.33, -10), Vector3(-8, 13.33, -10),
 	]},
 	{"sprites": ["vehicle.tank.turret.barrel.01", "vehicle.tank.turret.barrel.02", "vehicle.tank.p202.yellow"], "_cel": 202, "corners": [
