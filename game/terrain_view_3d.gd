@@ -54,12 +54,24 @@ const CAMERA_HFOV_DEG := 56.63
 ## approach-to-target every frame.
 const CAMERA_SMOOTHING_SPEED := 6.0
 
+## The swoop-in when a vehicle leaves the base (document 90; game/camera_swoop.gd has the traced easing). The eased FRACTIONS (1 at the start, 0 at the end) are the
+## original's; these two are how far they push the port's camera, PORT CHOICES read off the reference footage (the pad looks about four times smaller at the start, and
+## the view is much more top-down) because the original's camera height/pitch units were not mapped onto this camera. Switch: GameSettings.camera_swoop_in.
+const SWOOP_START_ZOOM := 4.0
+
+## Godot's default near plane (0.05) spends nearly all the depth precision on the first few units in front of the camera, so the pad's layers (the ground, the leaves 0.1
+## above it, the strip, the plate) z-fought as soon as the swoop put the camera far up. The camera is never closer than ~200 units to anything it draws.
+const CAMERA_NEAR_PLANE := 10.0
+const SWOOP_START_TILT_DEG := 70.0
+
 @export var pack_path: String = "res://packs/original_pc"
 @export var level_id: String = "RFMAP001"
 
 var pack: Pack
 var level: LevelData
 var camera: Camera3D
+var _swoop: CameraSwoop = null
+var _was_rising := false
 var controller: MatchController
 var _gate_views: Dictionary = {}  ## Vector2i -> GateView3D
 var billboard: Node3D                         ## player vehicle's 3D presentation -- VehicleBoxRender3D by default, VehicleBillboard3D if RF_DEBUG_VEHICLE_RENDER=billboard
@@ -107,6 +119,7 @@ func _ready() -> void:
 	_build_decorations()
 	_spawn_match()
 	_build_light()
+	GameSettings.load_settings()
 	_build_camera()
 
 	# Debug-only: RF_DEBUG_DESTROY_TILE="x,y" runs the same tile-destroyed step a projectile hit
@@ -542,6 +555,7 @@ func _build_camera() -> void:
 	camera = Camera3D.new()
 	camera.keep_aspect = Camera3D.KEEP_WIDTH
 	camera.fov = CAMERA_HFOV_DEG
+	camera.near = CAMERA_NEAR_PLANE
 	add_child(camera)
 	_apply_tilt()
 	_place_camera_immediately()
@@ -561,8 +575,8 @@ func _build_camera() -> void:
 ## must not do). Re-called every frame; cheap, and correct even if camera_tilt_deg changes
 ## live. rotation_degrees.x = -camera_tilt_deg was verified empirically (screenshot) to tilt
 ## the view down toward the ground, not up and away from it.
-func _apply_tilt() -> void:
-	camera.rotation_degrees = Vector3(-camera_tilt_deg, 0.0, 0.0)
+func _apply_tilt(tilt_deg: float = camera_tilt_deg) -> void:
+	camera.rotation_degrees = Vector3(-tilt_deg, 0.0, 0.0)
 
 
 func _place_camera_immediately() -> void:
@@ -594,14 +608,14 @@ func _camera_track_position() -> Vector2:
 ## regression from, the flat scene's existing behaviour.) The margin reuses the pull-back
 ## distance as a placeholder stand-in for "however far the tilted view actually reaches,"
 ## which Phase 2's screenshot-matching will replace with a real derived value.
-func _camera_target_position(look_at_px: Vector2) -> Vector3:
-	var pull_back := camera_height_px / tan(deg_to_rad(clampf(camera_tilt_deg, 1.0, 89.0)))
+func _camera_target_position(look_at_px: Vector2, height_px: float = camera_height_px, tilt_deg: float = camera_tilt_deg) -> Vector3:
+	var pull_back := height_px / tan(deg_to_rad(clampf(tilt_deg, 1.0, 89.0)))
 	var margin := pull_back
 	var desired_x := look_at_px.x
 	var desired_z := look_at_px.y + pull_back
 	var x := clampf(desired_x, margin, maxf(_map_size_px.x - margin, margin))
 	var z := clampf(desired_z, margin, maxf(_map_size_px.y - margin, margin))
-	return Vector3(x, camera_height_px, z)
+	return Vector3(x, height_px, z)
 
 
 func _process(delta: float) -> void:
@@ -632,9 +646,22 @@ func _process(delta: float) -> void:
 	# independently, same as in the flat 2D scene) -- this scene only needs to read the
 	# result, exactly like terrain_view.gd's own Camera2D follow already does.
 	var track_pos := _camera_track_position()
-	var target_cam_pos := _camera_target_position(track_pos)
-	camera.position = camera.position.lerp(target_cam_pos, 1.0 - exp(-CAMERA_SMOOTHING_SPEED * delta))
-	_apply_tilt()
+	var rising := controller != null and controller.pad_rising
+	if rising and not _was_rising and GameSettings.camera_swoop_in and controller.vehicle != null:
+		_swoop = CameraSwoop.new(controller.vehicle.vehicle_type)
+	_was_rising = rising
+	if _swoop != null:
+		_swoop.advance(delta * Vehicle.TICK_HZ)
+		var height_px := camera_height_px * lerpf(1.0, SWOOP_START_ZOOM, _swoop.height_fraction())
+		var tilt_deg := lerpf(camera_tilt_deg, SWOOP_START_TILT_DEG, _swoop.pitch_fraction())
+		camera.position = _camera_target_position(track_pos, height_px, tilt_deg)
+		_apply_tilt(tilt_deg)
+		if _swoop.done:
+			_swoop = null
+	else:
+		var target_cam_pos := _camera_target_position(track_pos)
+		camera.position = camera.position.lerp(target_cam_pos, 1.0 - exp(-CAMERA_SMOOTHING_SPEED * delta))
+		_apply_tilt()
 
 	if OS.get_environment("RF_DEBUG_CAMERA_LOG") == "1" and Engine.get_process_frames() % 30 == 0:
 		print("frame=%d vehicle_pos=%s camera_pos=%s map_size=%s" % [
