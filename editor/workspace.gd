@@ -45,10 +45,12 @@ static func create(dir: String, name: String, base_pack: String = DEFAULT_BASE) 
 
 func open(dir: String) -> bool:
 	mod_dir = dir
-	manifest = _read(dir.path_join("pack.json"))
-	if manifest.is_empty():
-		push_error("ModWorkspace: no pack.json at %s" % dir)
+	var why := ModLoader.mod_problem(dir)
+	if why != "":
+		# Original content is never edited: a mod is its own folder layered on top (PORTING_PLAN.md 2.7.9).
+		push_error("ModWorkspace: %s cannot be opened as a mod: %s" % [dir, why])
 		return false
+	manifest = _read(dir.path_join("pack.json"))
 	mod_sprites = _read(dir.path_join("sprites/sprites.json")).get("sprites", {})
 	var ts := _read(dir.path_join("sprites/team_sets.json"))
 	mod_pairs = ts.get("pairs", {})

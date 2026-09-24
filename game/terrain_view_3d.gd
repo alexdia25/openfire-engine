@@ -96,13 +96,13 @@ func _ready() -> void:
 		level_id = level_env
 	if _dev_level_override != "":
 		level_id = _dev_level_override
-	var pack_env := OS.get_environment("RF_PACK")  # a pack or mod directory; its base_pack chain loads underneath it (PORTING_PLAN 2.7.4)
-	if pack_env != "":
-		pack_path = pack_env
-	pack = Pack.new()
-	if not pack.load_from(pack_path):
+	# The original content plus the enabled mods on top (or RF_PACK for one run); a bad mod falls back to the original
+	# (ModLoader, PORTING_PLAN 2.7.9).
+	pack = ModLoader.load_game_pack(pack_path)
+	if pack.layers.is_empty():
 		push_error("TerrainView3D: failed to load pack at %s" % pack_path)
 		return
+	pack_path = pack.pack_dir   # the top layer actually loaded (the base, or the last enabled mod)
 
 	level = LevelData.new()
 	if not level.load_from(pack.level_dir(level_id)):

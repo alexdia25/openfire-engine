@@ -13,6 +13,8 @@ const SETTINGS := "user://editor.cfg"
 
 var ws: ModWorkspace
 var _path_label: Label
+var _enabled: CheckBox
+var _message: AcceptDialog
 var _save_btn: Button
 var _undo_btn: Button
 var _redo_btn: Button
@@ -55,6 +57,11 @@ func _ready() -> void:
 	_path_label.modulate = Color(1, 1, 1, 0.65)
 	_path_label.clip_text = true
 	bar.add_child(_path_label)
+	_enabled = CheckBox.new()
+	_enabled.text = "Enabled in game"
+	_enabled.tooltip_text = "Load this mod on top of the original content when the game starts. Mods never replace the original: with none enabled the game runs the original content."
+	_enabled.toggled.connect(func(on): if ws != null: ModLoader.set_enabled(ws.mod_dir, on))
+	bar.add_child(_enabled)
 	_bar_button(bar, "New mod...", func(): _ask_dir(_new_mod))
 	_bar_button(bar, "Open mod...", func(): _ask_dir(_open_mod))
 	_bar_button(bar, "Open folder", func(): OS.shell_open(ws.mod_dir))
@@ -92,6 +99,8 @@ func _ready() -> void:
 	_tabs.add_child(_maps)
 	_tabs.move_child(_maps, 2)   # Assets, Vehicles, Maps, Team colours, Validate
 
+	_message = AcceptDialog.new()
+	add_child(_message)
 	_dir_dialog = FileDialog.new()
 	_dir_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
 	_dir_dialog.access = FileDialog.ACCESS_FILESYSTEM
@@ -134,6 +143,12 @@ func _bar_button(bar: HBoxContainer, text: String, action: Callable, ctrl_key :=
 
 
 func _open_mod(dir: String) -> void:
+	var why := ModLoader.mod_problem(dir)
+	if why != "":
+		_message.title = "Not a mod"
+		_message.dialog_text = "%s\ncannot be opened as a mod: %s.\n\nOriginal content is never edited. Use New mod... to make a mod that\nloads on top of it; anything the mod changes is its own copy." % [dir, why]
+		_message.popup_centered()
+		return
 	var next := ModWorkspace.new()
 	if not next.open(dir):
 		next.close()
@@ -166,6 +181,8 @@ func _ask_dir(action: Callable) -> void:
 
 
 func _on_changed() -> void:
+	GameSettings.load_settings()
+	_enabled.set_pressed_no_signal(ws.mod_dir in GameSettings.enabled_mods)
 	_path_label.text = "   %s  %s%s" % [ws.manifest.get("name", ""), ws.mod_dir, "   (unsaved changes)" if ws.is_dirty() else ""]
 	_save_btn.disabled = not ws.is_dirty()
 	_undo_btn.disabled = not ws.undo.has_undo()
