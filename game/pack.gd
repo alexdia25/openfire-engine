@@ -1,5 +1,9 @@
 class_name Pack
 extends RefCounted
+
+## A sprite's pixels or metadata changed after load (`replace_frame()`, `forget_team_colour()`): renderers holding a
+## texture region for it should look it up again. The mod tool (EDITOR_PLAN.md 3, 3.1) is the main source of these.
+signal sprite_changed(sprite_id: String)
 ## Loads a content pack (PORTING_PLAN.md section 2.4.2) from an arbitrary directory at
 ## runtime -- never via res://'s import pipeline (see packs/.gdignore). This is the only
 ## thing allowed to read pack files; nothing else in game/ should touch packs/ directly.
@@ -25,6 +29,7 @@ var team_reference := "tan"
 ## vehicle: sprite id -> {mask: sprite id, drawn_as: colour or ""}. The mask is an ordinary sprite; wherever it is opaque
 ## the drawing is team paint. Every colour is generated from the drawing, except `drawn_as`, which returns it as drawn.
 var team_masks: Dictionary = {}
+var _sprite_layer: Dictionary = {}   ## sprite id -> directory of the layer that last supplied (or amended) it
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
@@ -153,6 +158,101 @@ func _upload_dirty_pages() -> void:
 		else:
 			(atlas_textures[page] as ImageTexture).update(_page_images[page])
 	_dirty_pages.clear()
+
+
+## Replaces (or adds) one sprite's pixels while running, without reloading the pack: written over its old region when
+## it still fits, otherwise packed anew; metadata such as the pivot is kept unless `entry_changes` says otherwise.
+## Generated team colours of that sprite are dropped so they are remade from the new pixels. For the mod tool's import,
+## "open in image editor" live reload and (later) pixel editing (EDITOR_PLAN.md 3.1).
+func replace_frame(sprite_id: String, img: Image, entry_changes: Dictionary = {}) -> void:
+	if img.get_format() != Image.FORMAT_RGBA8:
+		img = img.duplicate() as Image
+		img.convert(Image.FORMAT_RGBA8)
+	var entry: Dictionary = sprites.get(sprite_id, {"pivot_x": img.get_width() / 2.0, "pivot_y": img.get_height() / 2.0,
+			"pivot_source": "default_center", "kind": "sprite"})
+	entry = entry.duplicate()
+	entry.merge(entry_changes, true)
+	if entry.has("page") and int(entry.get("w", 0)) >= img.get_width() and int(entry.get("h", 0)) >= img.get_height():
+		var page := int(entry["page"])
+		var region := Rect2i(int(entry["x"]), int(entry["y"]), int(entry["w"]), int(entry["h"]))
+		_page_images[page].fill_rect(region, Color(0, 0, 0, 0))
+		_page_images[page].blit_rect(img, Rect2i(Vector2i.ZERO, img.get_size()), region.position)
+		entry["w"] = img.get_width()
+		entry["h"] = img.get_height()
+		_dirty_pages[page] = true
+	else:
+		_place_frame(entry, img)
+	sprites[sprite_id] = entry
+	_upload_dirty_pages()
+	_forget_generated_from(sprite_id)
+	sprite_changed.emit(sprite_id)
+
+
+## Changes a sprite's metadata only (pivot, kind ...), e.g. from the mod tool's pivot setter.
+func amend_sprite(sprite_id: String, entry_changes: Dictionary) -> void:
+	if not sprites.has(sprite_id):
+		return
+	var entry: Dictionary = sprites[sprite_id].duplicate()
+	entry.merge(entry_changes, true)
+	sprites[sprite_id] = entry
+	sprite_changed.emit(sprite_id)
+
+
+## Removes a sprite added at runtime (the mod tool undoing a new sprite).
+func remove_sprite(sprite_id: String) -> void:
+	if sprites.erase(sprite_id):
+		_forget_generated_from(sprite_id)
+		sprite_changed.emit(sprite_id)
+
+
+## Runtime setters for the team tables (the mod tool; `null` removes). Each drops the generated sprites it invalidates.
+func set_team_colour(colour: String, def: Variant) -> void:
+	if def == null:
+		team_colours.erase(colour)
+	else:
+		team_colours[colour] = def
+	forget_team_colour(colour)
+
+
+func set_team_mask(sprite_id: String, def: Variant) -> void:
+	if def == null:
+		team_masks.erase(sprite_id)
+	else:
+		team_masks[sprite_id] = def
+	_forget_generated_from(sprite_id)
+
+
+func set_team_pair(tan: String, green: Variant) -> void:
+	if team_sets.has(tan):
+		_team_set_of.erase(String(team_sets[tan]))
+	if green == null:
+		team_sets.erase(tan)
+	else:
+		team_sets[tan] = String(green)
+		_team_set_of[String(green)] = tan
+	_forget_generated_from(tan)
+
+
+## Which layer directory supplied a sprite ("" for one made at runtime, e.g. a generated team colour).
+func sprite_layer(sprite_id: String) -> String:
+	return String(_sprite_layer.get(sprite_id, ""))
+
+
+## Drops every generated sprite of one colour (its definition changed); the next `team_sprite()` or
+## `prepare_team_colours()` makes them again. Their old page space is simply left unused.
+func forget_team_colour(colour: String) -> void:
+	for id in sprites.keys():
+		if String(id).ends_with("@" + colour):
+			sprites.erase(id)
+			sprite_changed.emit(id)
+
+
+func _forget_generated_from(sprite_id: String) -> void:
+	var tan: String = _team_set_of.get(sprite_id, sprite_id)
+	for id in sprites.keys():
+		if String(id).begins_with(tan + "@") or String(id).begins_with(sprite_id + "@"):
+			sprites.erase(id)
+			sprite_changed.emit(id)
 
 
 ## A sprite's pixels, copied out of its page.
@@ -352,15 +452,22 @@ func _load_layer(dir: String) -> bool:
 			atlas_textures.append(ImageTexture.create_from_image(img))
 			_page_images.append(img)
 		var layer_sprites: Dictionary = sprites_doc.get("sprites", {})
-		for id in layer_sprites:
+		for id in layer_sprites.keys():
 			var entry: Variant = layer_sprites[id]
 			if entry is Dictionary:
 				entry = entry.duplicate()
 				if entry.has("file"):   # a loose frame: packed into a page once every layer is known (_pack_loose_frames)
 					entry["_file"] = dir.path_join("sprites").path_join(String(entry["file"]))
-				else:
+				elif entry.has("page"):
 					entry["page"] = int(entry.get("page", 0)) + page_offset
+				elif sprites.get(id) is Dictionary:
+					# Metadata only (no image of its own): amends the entry below, e.g. a mod moving a pivot without
+					# shipping a copy of the original frame.
+					var merged: Dictionary = sprites[id].duplicate()
+					merged.merge(entry, true)
+					entry = merged
 			layer_sprites[id] = entry
+			_sprite_layer[id] = dir
 		_overlay(sprites, layer_sprites)
 
 	var tdoc := _layer_doc(dir, "terrain/tileset.json")
