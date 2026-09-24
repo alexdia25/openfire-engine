@@ -7,8 +7,10 @@ extends RefCounted
 var pack_dir: String = ""   ## the top layer's directory
 var layers: Array[String] = []   ## every layer's directory, base first (section 2.7.4)
 var manifest: Dictionary = {}   ## the top layer's pack.json
-var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x, pivot_y}
-var atlas_textures: Array[Texture2D] = []
+var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x, pivot_y, kind}
+var atlas_textures: Array[Texture2D] = []   ## the layers' own atlas pages, then the pages packed from loose frames
+const PACKED_PAGE_SIZE := 2048
+const PACKED_PADDING := 1   ## transparent pixels between packed frames, so nearest sampling never picks up a neighbour
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
@@ -68,9 +70,66 @@ func load_stack(dirs: Array[String]) -> bool:
 	for dir in dirs:
 		if not _load_layer(dir):
 			return false
+	if not _pack_loose_frames():
+		return false
 	if atlas_textures.is_empty():
 		push_error("Pack.load_stack: no layer provides sprites/sprites.json")
 		return false
+	return true
+
+
+## Loads every loose-frame sprite that survived the layering (an overridden frame is never read) and shelf-packs them,
+## tallest first, into PACKED_PAGE_SIZE pages appended after the layers' own pages; each entry gets its page / x / y, and
+## w / h from the image itself, so a replacement frame may be any size (PORTING_PLAN.md 2.7.5).
+func _pack_loose_frames() -> bool:
+	var frames: Array = []
+	for id in sprites:
+		var entry: Dictionary = sprites[id]
+		if not entry.has("_file"):
+			continue
+		var img := Image.new()
+		var err := img.load(String(entry["_file"]))
+		if err != OK:
+			push_error("Pack: failed to load sprite frame %s (error %d)" % [entry["_file"], err])
+			return false
+		if img.get_format() != Image.FORMAT_RGBA8:
+			img.convert(Image.FORMAT_RGBA8)
+		if img.get_width() > PACKED_PAGE_SIZE or img.get_height() > PACKED_PAGE_SIZE:
+			push_error("Pack: sprite frame %s is larger than a page" % entry["_file"])
+			return false
+		frames.append([id, img])
+	frames.sort_custom(func(a, b): return a[1].get_height() > b[1].get_height() or (a[1].get_height() == b[1].get_height() and a[0] < b[0]))
+	var page: Image = null
+	var x := 0
+	var y := 0
+	var shelf_h := 0
+	for f in frames:
+		var img: Image = f[1]
+		var w := img.get_width()
+		var h := img.get_height()
+		if page != null and x + w > PACKED_PAGE_SIZE:
+			x = 0
+			y += shelf_h + PACKED_PADDING
+			shelf_h = 0
+		if page == null or y + h > PACKED_PAGE_SIZE:
+			if page != null:
+				atlas_textures.append(ImageTexture.create_from_image(page))
+			page = Image.create_empty(PACKED_PAGE_SIZE, PACKED_PAGE_SIZE, false, Image.FORMAT_RGBA8)
+			x = 0
+			y = 0
+			shelf_h = 0
+		page.blit_rect(img, Rect2i(0, 0, w, h), Vector2i(x, y))
+		var entry: Dictionary = sprites[f[0]]
+		entry.erase("_file")
+		entry["page"] = atlas_textures.size()
+		entry["x"] = x
+		entry["y"] = y
+		entry["w"] = w
+		entry["h"] = h
+		x += w + PACKED_PADDING
+		shelf_h = maxi(shelf_h, h)
+	if page != null:
+		atlas_textures.append(ImageTexture.create_from_image(page))
 	return true
 
 
@@ -128,7 +187,10 @@ func _load_layer(dir: String) -> bool:
 			var entry: Variant = layer_sprites[id]
 			if entry is Dictionary:
 				entry = entry.duplicate()
-				entry["page"] = int(entry.get("page", 0)) + page_offset
+				if entry.has("file"):   # a loose frame: packed into a page once every layer is known (_pack_loose_frames)
+					entry["_file"] = dir.path_join("sprites").path_join(String(entry["file"]))
+				else:
+					entry["page"] = int(entry.get("page", 0)) + page_offset
 			layer_sprites[id] = entry
 		_overlay(sprites, layer_sprites)
 

@@ -86,7 +86,11 @@ extends Node3D
 ## "0 = +X" convention, were matched empirically (screenshot against a real driven forward
 ## movement), the same way document 30 and the GROUND_DECAL facing fix both had to be.
 
-const TEAM_COLOUR_CEL_OFFSET := {"tan": 0, "green": 1}
+## Every part names its art as three sprite ids -- [tan, green, hit flash] -- rather than a cel number plus offsets
+## (PORTING_PLAN.md 2.7.5): in the original those are cel, cel + 1 (the team variant a flag-8 part adds) and
+## cel + 2 (variant 2, the hit flash, document 59). Turret parts with no green cel repeat the tan id; the barrel's
+## green is its traced team pair (203). `_cel` is the ART.CAR index, kept for provenance only -- nothing looks it up.
+const VARIANT_FLASH := 2
 
 ## Ground clearance so the bottom face doesn't clip into the terrain plane -- not a traced
 ## value (matches VehicleBillboard3D's own placeholder HEIGHT_PX reasoning).
@@ -100,12 +104,12 @@ const GROUND_CLEARANCE_PX := 2.0
 ##   "side_x" -- vertical, texture faces +X or -X (left/right tread)
 ##   "side_z" -- vertical, texture faces +Z or -Z (front/back detail)
 const FACES := [
-	{"cel": 167, "center": Vector3(0, 0, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
-	{"cel": 172, "center": Vector3(0, 13.333, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
-	{"cel": 182, "center": Vector3(-18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": -1},
-	{"cel": 182, "center": Vector3(18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": 1},
-	{"cel": 187, "center": Vector3(0, 6.667, -22), "half": Vector2(8, 6.667), "axis": "side_z", "sign": -1},
-	{"cel": 187, "center": Vector3(0, 6.667, 27), "half": Vector2(8, 6.667), "axis": "side_z", "sign": 1},
+	{"sprites": ["vehicle.hovercraft.hull.01", "vehicle.hovercraft.hull.02", "vehicle.hovercraft.p167.yellow"], "_cel": 167, "center": Vector3(0, 0, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
+	{"sprites": ["vehicle.hovercraft.hull.04", "vehicle.hovercraft.hull.05", "vehicle.hovercraft.p172.yellow"], "_cel": 172, "center": Vector3(0, 13.333, 0), "half": Vector2(32, 32), "axis": "top", "sign": 1},
+	{"sprites": ["vehicle.hovercraft.track.01", "vehicle.hovercraft.track.02", "vehicle.hovercraft.p182.yellow"], "_cel": 182, "center": Vector3(-18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": -1},
+	{"sprites": ["vehicle.hovercraft.track.01", "vehicle.hovercraft.track.02", "vehicle.hovercraft.p182.yellow"], "_cel": 182, "center": Vector3(18, 6.667, 0), "half": Vector2(32, 6.667), "axis": "side_x", "sign": 1},
+	{"sprites": ["vehicle.hovercraft.hull.10", "vehicle.hovercraft.hull.21", "vehicle.hovercraft.p187.yellow"], "_cel": 187, "center": Vector3(0, 6.667, -22), "half": Vector2(8, 6.667), "axis": "side_z", "sign": -1},
+	{"sprites": ["vehicle.hovercraft.hull.10", "vehicle.hovercraft.hull.21", "vehicle.hovercraft.p187.yellow"], "_cel": 187, "center": Vector3(0, 6.667, 27), "half": Vector2(8, 6.667), "axis": "side_z", "sign": 1},
 ]
 
 ## The Tank's real, SEPARATE turret+barrel descriptor (`0x0043e9b8`, document 39) -- a
@@ -137,28 +141,28 @@ const FACES := [
 ## a confirmed team pair -- unknown, not guessed, same as the hull's own unresolved decals were.
 ## 212 has no team variant at all (213 measures byte-identical to it, confirmed this session).
 const TURRET_PARTS := [
-	{"cel": 177, "team_pair": -1, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.top.01", "vehicle.hovercraft.turret.top.01", "vehicle.hovercraft.p177.yellow"], "_cel": 177, "corners": [
 		Vector3(-13.33, 24, -16), Vector3(13.33, 24, -16), Vector3(13.33, 24, 16), Vector3(-13.33, 24, 16),
 	]},
-	{"cel": 192, "team_pair": -1, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.p192.yellow"], "_cel": 192, "corners": [
 		Vector3(-8, 24, -13.33), Vector3(-8, 24, 16), Vector3(-8, 13.33, 10.67), Vector3(-8, 13.33, -10),
 	]},
-	{"cel": 192, "team_pair": -1, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.turret.side.01", "vehicle.hovercraft.p192.yellow"], "_cel": 192, "corners": [
 		Vector3(8, 24, -13.33), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(8, 13.33, -10),
 	]},
-	{"cel": 197, "team_pair": -1, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.back.01", "vehicle.hovercraft.turret.back.01", "vehicle.hovercraft.p197.yellow"], "_cel": 197, "corners": [
 		Vector3(-8, 24, 16), Vector3(8, 24, 16), Vector3(8, 13.33, 10.67), Vector3(-8, 13.33, 10.67),
 	]},
-	{"cel": 207, "team_pair": -1, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.front.01", "vehicle.hovercraft.turret.front.01", "vehicle.hovercraft.p207.yellow"], "_cel": 207, "corners": [
 		Vector3(-8, 24, -13.33), Vector3(8, 24, -13.33), Vector3(8, 13.33, -10), Vector3(-8, 13.33, -10),
 	]},
-	{"cel": 202, "team_pair": 203, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.barrel.01", "vehicle.hovercraft.turret.barrel.02", "vehicle.hovercraft.p202.yellow"], "_cel": 202, "corners": [
 		Vector3(8, 18.67, -14), Vector3(5.87, 18.67, -32), Vector3(0, 24, -32), Vector3(0, 24, -14),
 	]},
-	{"cel": 202, "team_pair": 203, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.barrel.01", "vehicle.hovercraft.turret.barrel.02", "vehicle.hovercraft.p202.yellow"], "_cel": 202, "corners": [
 		Vector3(-8, 18.67, -14), Vector3(-5.87, 18.67, -32), Vector3(0, 24, -32), Vector3(0, 24, -14),
 	]},
-	{"cel": 212, "team_pair": -1, "corners": [
+	{"sprites": ["vehicle.hovercraft.turret.muzzle_ring.01", "vehicle.hovercraft.turret.muzzle_ring.01", "vehicle.hovercraft.p212.yellow"], "_cel": 212, "corners": [
 		Vector3(-2.67, 22.93, -32), Vector3(2.67, 22.93, -32), Vector3(2.67, 17.33, -32), Vector3(-2.67, 17.33, -32),
 	]},
 ]
@@ -224,7 +228,7 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	var debug_part_map := OS.get_environment("RF_DEBUG_PART_MAP") == "1"
 	var debug_colors := [Color.RED, Color.ORANGE, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.PURPLE, Color.WHITE]
 
-	# Built once, not per-frame like the Sprite3D faces' _apply_cel: a vehicle's team never
+	# Built once, not per-frame like the Sprite3D faces' _apply_sprite: a vehicle's team never
 	# changes after spawn, and rebuilding a SurfaceTool mesh every frame (unlike just swapping
 	# a Sprite3D's texture/region) would be real, needless per-frame cost for no visual benefit.
 	_turret_pivot = Node3D.new()
@@ -234,11 +238,11 @@ func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 		var mesh_instance := MeshInstance3D.new()
 		_turret_pivot.add_child(mesh_instance)
 		_turret_meshes.append(mesh_instance)
-		var cel := _turret_cel(part)
+		var sprite_id := _part_sprite(part)
 		if debug_part_map:
-			_build_warped_mesh(mesh_instance, part["corners"], cel, debug_colors[i])
+			_build_warped_mesh(mesh_instance, part["corners"], sprite_id, debug_colors[i])
 		else:
-			_build_warped_mesh(mesh_instance, part["corners"], cel)
+			_build_warped_mesh(mesh_instance, part["corners"], sprite_id)
 
 	_refresh()
 
@@ -273,8 +277,8 @@ func _quad_normal(corners: Array) -> Vector3:
 ## simple quads: pick whichever diagonal produces two triangles that both wind the same way as
 ## the quad's own overall normal (see _quad_normal above) -- the wrong diagonal always produces
 ## at least one triangle winding the opposite way.
-func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, cel_index: int, debug_color: Color = Color.TRANSPARENT) -> void:
-	var s := pack.get_sprite(_sprite_id(cel_index))
+func _build_warped_mesh(mesh_instance: MeshInstance3D, corners: Array, sprite_id: String, debug_color: Color = Color.TRANSPARENT) -> void:
+	var s := pack.get_sprite(sprite_id)
 	if s.is_empty():
 		return
 	var tex := pack.get_texture(int(s.get("page", 0)))
@@ -396,29 +400,15 @@ func _process(_delta: float) -> void:
 	_refresh()
 
 
-## The cel a turret part is drawn with: the hit flash is variant 2 (base cel + 2, document 59), otherwise the
-## traced team pair.
-func _turret_cel(part: Dictionary) -> int:
-	if _flash:
-		return int(part["cel"]) + 2
-	if part["team_pair"] != -1 and vehicle.team == "green":
-		return part["team_pair"]
-	return part["cel"]
+## The sprite a part is drawn with: variant 2 during the hit flash (document 59), otherwise the team's.
+func _part_sprite(part: Dictionary) -> String:
+	var ids: Array = part["sprites"]
+	return String(ids[VARIANT_FLASH if _flash else vehicle.player_index()])
 
 
 func _rebuild_turret_parts() -> void:
 	for i in _turret_meshes.size():
-		_build_warped_mesh(_turret_meshes[i], _turret_corners(i), _turret_cel(TURRET_PARTS[i]))
-
-
-## Sprite id of a cel: the named ones, else the variant-2 ("yellow") id of the base cel it came from.
-func _sprite_id(cel: int) -> String:
-	if _CEL_NAMES.has(cel):
-		return _CEL_NAMES[cel]
-	for base in [167, 172, 182, 187, 177, 192, 197, 207, 202, 212]:
-		if cel == base + 2:
-			return "vehicle.hovercraft.p%d.yellow" % base
-	return ""
+		_build_warped_mesh(_turret_meshes[i], _turret_corners(i), _part_sprite(TURRET_PARTS[i]))
 
 
 func _refresh() -> void:
@@ -427,19 +417,15 @@ func _refresh() -> void:
 	if vehicle.flashing() != _flash:
 		_flash = vehicle.flashing()
 		_rebuild_turret_parts()
-	var offset: int = 2 if _flash else TEAM_COLOUR_CEL_OFFSET.get(vehicle.team, 0)
 	for i in FACES.size():
-		var cel: int = FACES[i]["cel"] + offset
-		_apply_cel(_sprites[i], cel)
+		_apply_sprite(_sprites[i], _part_sprite(FACES[i]))
 		# The variant-2 cels are half-size images (32 x 32 for a 64 x 64 face); the original draws every part
 		# stretched to its four corners, so the same face is drawn twice as big per pixel.
 		_sprites[i].pixel_size = 2.0 if _flash else 1.0
 
 
-func _apply_cel(sprite: Sprite3D, cel_index: int) -> void:
-	# Cel indices aren't sprite ids -- the pack only exposes sprite ids (section 2.4.2), so
-	# this reverse-maps the handful of real cels this file cares about. See _CEL_NAMES below.
-	var s := pack.get_sprite(_sprite_id(cel_index))
+func _apply_sprite(sprite: Sprite3D, sprite_id: String) -> void:
+	var s := pack.get_sprite(sprite_id)
 	if s.is_empty():
 		return
 	var tex := pack.get_texture(int(s.get("page", 0)))
@@ -448,25 +434,3 @@ func _apply_cel(sprite: Sprite3D, cel_index: int) -> void:
 	sprite.texture = tex
 	sprite.region_enabled = true
 	sprite.region_rect = Rect2(s.get("x", 0), s.get("y", 0), s.get("w", 0), s.get("h", 0))
-
-
-## The only real cels this file ever needs -- named directly rather than searching the whole
-## registry by cel-index-as-string, since Pack only indexes sprites by their registry id, not
-## by raw ART.CAR index.
-const _CEL_NAMES := {
-	167: "vehicle.hovercraft.hull.01",
-	168: "vehicle.hovercraft.hull.02",
-	172: "vehicle.hovercraft.hull.04",
-	173: "vehicle.hovercraft.hull.05",
-	177: "vehicle.hovercraft.turret.top.01",
-	182: "vehicle.hovercraft.track.01",
-	183: "vehicle.hovercraft.track.02",
-	187: "vehicle.hovercraft.hull.10",
-	188: "vehicle.hovercraft.hull.21",  # registry correction, document 37 -- see that cel's own note
-	192: "vehicle.hovercraft.turret.side.01",
-	197: "vehicle.hovercraft.turret.back.01",
-	202: "vehicle.hovercraft.turret.barrel.01",
-	203: "vehicle.hovercraft.turret.barrel.02",  # renamed from turret_detail.01, document 39 -- see that cel's own note
-	207: "vehicle.hovercraft.turret.front.01",
-	212: "vehicle.hovercraft.turret.muzzle_ring.01",
-}

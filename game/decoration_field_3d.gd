@@ -21,7 +21,8 @@ extends Node3D
 ## Flag-8 parts (building walls etc.) shift their cel by the tile's variant (0 = tan, 1 = green),
 ## carried per decoration from the level's tile table (see tools/convert_rfm.py).
 
-const EFFECT_PAGE := 1
+## Effect-mask sprites (document 9) are the ones whose pack entry says `"kind": "effect"` (they used to be recognised by
+## living on atlas page 1; pages are now packed at load time, PORTING_PLAN.md 2.7.5).
 const SHADOW_ALPHA := 5.0 / 32.0
 
 var pack: Pack
@@ -43,7 +44,7 @@ func refresh() -> void:
 
 func _build() -> void:
 	var tile := pack.tile_size_px
-	var builders := {}  # page index -> SurfaceTool
+	var builders := {}  # [page index, kind] -> SurfaceTool
 	for entry in level.decorations:
 		var parts: Array = pack.get_decoration_parts(int(entry.get("coastal_id", 0)))
 		var cx := (float(entry.get("x", 0)) + 0.5) * tile
@@ -61,21 +62,22 @@ func _build() -> void:
 			if s.is_empty():
 				continue
 			var page := int(s.get("page", 0))
-			if not builders.has(page):
+			var key := [page, String(s.get("kind", "sprite"))]
+			if not builders.has(key):
 				var st := SurfaceTool.new()
 				st.begin(Mesh.PRIMITIVE_TRIANGLES)
-				builders[page] = st
+				builders[key] = st
 			var off: Array = part.get("offset", [0.0, 0.0])
 			var j := jit if part.get("jitter", false) else Vector2.ZERO
 			var zoff: float = part.get("zoff", 0.0)
 			var corners: Array[Vector3] = []
 			for c in part["corners"]:
 				corners.append(Vector3(cx + j.x + off[0] + c[0], c[2] + zoff + 0.5, cz + j.y + off[1] + c[1]))
-			_add_quad(builders[page], corners, s, pack.get_texture(page))
+			_add_quad(builders[key], corners, s, pack.get_texture(page))
 
-	for page in builders:
-		var tex := pack.get_texture(page)
-		var st: SurfaceTool = builders[page]
+	for key in builders:
+		var tex := pack.get_texture(int(key[0]))
+		var st: SurfaceTool = builders[key]
 		var mi := MeshInstance3D.new()
 		mi.mesh = st.commit()
 		var mat := StandardMaterial3D.new()
@@ -83,7 +85,7 @@ func _build() -> void:
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mat.albedo_texture = tex
-		if page == EFFECT_PAGE:
+		if key[1] == "effect":
 			# Effect-mask cels (document 9): PRE0 13 = darken row 4 of the game's 32-row table, where
 			# row k scales each colour channel by (31 - k) / 32 (FUN_00424420) -- 27/32 for row 4,
 			# i.e. black at 5/32. (The original then snaps to the nearest palette index; ignored.)
