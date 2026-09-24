@@ -45,8 +45,7 @@ func _process(_delta: float) -> void:
 			Engine.time_scale = 1.0
 			var shot := OS.get_environment("RF_DEBUG_AUTOPLAY_SHOT")  # save the banner frame to this path, then quit
 			if shot != "":
-				for i in 30:
-					await get_tree().process_frame
+				await get_tree().create_timer(2.5).timeout   # the win sequence (document 92): 1 s fade to black, then the ribbon fades in over 0.5 s
 				get_viewport().get_texture().get_image().save_png(shot)
 				get_tree().quit()
 		return

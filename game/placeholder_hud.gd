@@ -15,6 +15,7 @@ var _fade: ColorRect
 var _stock: Label
 var _keys: Label
 var _banner: Label
+var _ribbon: WinRibbon
 var _finished := false
 
 
@@ -51,6 +52,9 @@ func setup(controller: MatchController) -> void:
 	var skull := DeathSkullView.new()   # the loss sequence's laughing skull (document 88), above the view fade
 	add_child(skull)
 	skull.setup(controller)
+	_ribbon = WinRibbon.new()   # the victory ribbon (document 92), above everything
+	add_child(_ribbon)
+	_ribbon.setup(controller.pack)
 	_banner = _label(Vector2(60, 90), 40)
 	_banner.visible = false
 
@@ -78,7 +82,16 @@ press Enter to play again"
 
 func show_win(winner_idx: int) -> void:
 	_finished = true
-	_banner.text = "%s WINS  -  flag captured\npress Enter to play again" % ("TAN" if winner_idx == 0 else "GREEN")
+	if _ribbon.start(winner_idx):   # the original's sequence: fade to black, then the winner's ribbon (document 92)
+		_banner.text = "press Enter to play again"
+		_banner.position = Vector2(60, 0)
+		_banner.anchor_top = 1.0
+		_banner.anchor_bottom = 1.0
+		_banner.offset_top = -80.0
+		_banner.add_theme_font_size_override("font_size", 18)
+		_banner.move_to_front()
+	else:
+		_banner.text = "%s WINS  -  flag captured\npress Enter to play again" % ("TAN" if winner_idx == 0 else "GREEN")
 	_banner.visible = true
 
 
