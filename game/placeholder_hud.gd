@@ -24,7 +24,7 @@ func setup(controller: MatchController) -> void:
 	_objective = _label(Vector2(12, 34), 16)
 	_stock = _label(Vector2(12, 58), 14)
 	_keys = _label(Vector2(12, 0), 13)
-	_keys.text = "arrows drive   space fire   dock: stand still on your pad centre + fire (V = quick swap, port-only); in the grid: arrows, Space   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun"
+	_keys.text = "arrows drive   space fire   dock: stand still on your pad centre + fire (V = quick swap, port-only); in the grid: arrows, Space   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun   [ ] previous / next level (dev)"
 	_keys.anchor_top = 1.0
 	_keys.anchor_bottom = 1.0
 	_keys.offset_top = -26.0

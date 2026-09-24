@@ -85,10 +85,17 @@ var _last_death_phase := 0                   ## debug print (RF_DEBUG_KILL)
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
+## Dev tool: `]` / PageDown loads the next level, `[` / PageUp the previous one (wrapping), by reloading the scene with that level id. Debug builds only. Survives the
+## reload as a static, so the pack's level list is the only source of the order (Pack.list_levels(), sorted).
+static var _dev_level_override := ""
+
+
 func _ready() -> void:
 	var level_env := OS.get_environment("RF_DEBUG_LEVEL")  # debug-only, e.g. RFMAP117
 	if level_env != "":
 		level_id = level_env
+	if _dev_level_override != "":
+		level_id = _dev_level_override
 	var pack_env := OS.get_environment("RF_PACK")  # a pack or mod directory; its base_pack chain loads underneath it (PORTING_PLAN 2.7.4)
 	if pack_env != "":
 		pack_path = pack_env
@@ -623,6 +630,26 @@ func _camera_target_position(look_at_px: Vector2, height_px: float = camera_heig
 	var x := clampf(desired_x, margin, maxf(_map_size_px.x - margin, margin))
 	var z := clampf(desired_z, margin, maxf(_map_size_px.y - margin, margin))
 	return Vector3(x, height_px, z)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not OS.is_debug_build() or not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	match event.keycode:
+		KEY_BRACKETRIGHT, KEY_PAGEDOWN:
+			_switch_level(1)
+		KEY_BRACKETLEFT, KEY_PAGEUP:
+			_switch_level(-1)
+
+
+func _switch_level(step: int) -> void:
+	var ids := pack.list_levels()
+	if ids.is_empty():
+		return
+	var i := ids.find(level_id)
+	_dev_level_override = ids[posmod(i + step, ids.size())]
+	print("[dev] level %s -> %s" % [level_id, _dev_level_override])
+	get_tree().reload_current_scene()
 
 
 func _process(delta: float) -> void:
