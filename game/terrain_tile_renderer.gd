@@ -42,6 +42,9 @@ func _draw() -> void:
 		for x in level.width:
 			var art_id := level.get_art_id(x, y)
 			var sprite_id := pack.get_tile_sprite_id(art_id)
+			var side := int(pack.tileset.get(str(art_id), {}).get("side", -1))
+			if side >= 0:   # a team-owned tile (the home pads): drawn in its side's colour, PORTING_PLAN.md 2.7.7
+				sprite_id = pack.team_sprite(sprite_id, level.side_colour(side))
 			if sprite_id != HOLE_SPRITE_ID:
 				draw_rect(Rect2(x * tile, y * tile, tile, tile), clear)
 			if sprite_id == "":

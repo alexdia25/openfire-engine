@@ -403,7 +403,7 @@ func _process(_delta: float) -> void:
 ## The sprite a part is drawn with: variant 2 during the hit flash (document 59), otherwise the team's.
 func _part_sprite(part: Dictionary) -> String:
 	var ids: Array = part["sprites"]
-	return String(ids[VARIANT_FLASH if _flash else vehicle.player_index()])
+	return String(ids[VARIANT_FLASH]) if _flash else pack.team_variant(ids, vehicle.art_colour())
 
 
 func _rebuild_turret_parts() -> void:

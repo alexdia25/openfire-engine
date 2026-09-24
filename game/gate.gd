@@ -21,6 +21,7 @@ signal sound_cue(id: String)
 var tile: Vector2i
 var coastal_id: int      ## the id the tile had (43 or 44), restored on removal
 var variant: int         ## the tile's team variant (door panel colour and who may open it)
+var colour := ""         ## the art colour of that side (PORTING_PLAN.md 2.7.7), set by the match
 var data: Dictionary     ## Pack.gates[str(coastal_id)]
 var centre: Vector2
 var open := 0.0

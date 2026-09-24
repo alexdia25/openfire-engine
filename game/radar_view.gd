@@ -51,7 +51,10 @@ func _tile_colour(x: int, y: int) -> Color:
 		var pair: Array = _rd["coastal_colours"].get(str(id), [])
 		if pair.is_empty():
 			return _col(int(_rd["land"]))
-		return _col(int(pair[1] if lv.get_variant(x, y) != 0 else pair[0]))
+		var variant := lv.get_variant(x, y)
+		if variant <= 1 and not mc.pack.is_original_colour(lv.side_colour(variant)):
+			return mc.pack.team_rgb(lv.side_colour(variant))   # a generated colour has no palette entry (PORTING_PLAN.md 2.7.7)
+		return _col(int(pair[1] if variant != 0 else pair[0]))
 	var art := lv.get_art_id(x, y) & 0x7F
 	if art == 1 or art == 2 or (art >= 4 and art <= 0x33):
 		return _col(int(_rd["water"]))

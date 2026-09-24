@@ -102,6 +102,13 @@ func _ready() -> void:
 		push_error("TerrainView3D: failed to load level %s" % level_id)
 		return
 
+	# Team colours (PORTING_PLAN.md 2.7.7): RF_TEAM_COLOURS=red,blue (testing; later a level override or match setup)
+	# recolours side 0 / 1; every generated sprite is made here, at map load, not mid-game.
+	var colours_env := OS.get_environment("RF_TEAM_COLOURS")
+	if colours_env != "":
+		level.side_colours = Array(colours_env.split(","))
+	pack.prepare_team_colours(level.side_colours)
+
 	get_window().title = "Return Fire 3D scaffold -- %s (%s)" % [level.level_name, level_id]
 	_map_size_px = Vector2(level.width, level.height) * pack.tile_size_px
 
@@ -395,7 +402,7 @@ func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 func _on_vehicle_wrecked(info: Dictionary) -> void:
 	var w := Wreck3D.new()
 	add_child(w)
-	w.setup(pack, info["team"], info["position"], info["heading_deg"], info["vehicle_type"], info["z"])
+	w.setup(pack, String(info.get("colour", info["team"])), info["position"], info["heading_deg"], info["vehicle_type"], info["z"])
 
 
 func _on_projectile_spawned(projectile: Projectile) -> void:

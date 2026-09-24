@@ -110,6 +110,11 @@ const TEAM_COLOURS := {
 
 var heading_deg: float = 0.0
 var team: String = "tan"
+var colour := ""   ## art colour of the shooter's side (PORTING_PLAN.md 2.7.7); "" = the team's own
+
+
+func art_colour() -> String:
+	return colour if colour != "" else team
 var _age_sec: float = 0.0
 
 

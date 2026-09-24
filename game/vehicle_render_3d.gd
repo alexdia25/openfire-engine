@@ -25,10 +25,9 @@ func setup(v: Vehicle, pack: Pack) -> void:
 	_type = v.vehicle_type
 	v.visible = false  # logic only, like the box renderer
 	var t: Dictionary = pack.vehicle_types.get(str(v.vehicle_type), {})
-	var variant := v.player_index()
 	for part in t.get("parts", []):
 		var ids: Array = part["sprite_ids"]
-		var s := pack.get_sprite(ids[clampi(variant, 0, ids.size() - 1)])
+		var s := pack.get_sprite(pack.team_variant(ids, v.art_colour()) if ids.size() > 1 else String(ids[0]))
 		if s.is_empty():
 			_parts.append({})
 			continue
@@ -121,11 +120,11 @@ func _update_heli_rotor_mode() -> void:
 			_folded_pivots.append(pivot)
 		_folded_pivots[1].rotation_degrees.y = -vehicle.heli_spinup_progress() * 180.0
 		return
-	var team := "green" if vehicle.player_index() == 1 else "tan"
+	var colour := vehicle.art_colour()
 	var w: float = ROTOR_HALF_WIDTHS[mode]
 	var quads := [
-		["vehicle.heli.rotor.b." + team, [[w, 0.0, 10.0], [w, -27.2, 10.0], [-w, -27.2, 10.0], [-w, 0.0, 10.0]]],
-		["vehicle.heli.rotor.a." + team, [[w, 27.2, 10.0], [w, 0.0, 10.0], [-w, 0.0, 10.0], [-w, 27.2, 10.0]]],
+		[_pack.team_variant(["vehicle.heli.rotor.b.tan", "vehicle.heli.rotor.b.green"], colour), [[w, 0.0, 10.0], [w, -27.2, 10.0], [-w, -27.2, 10.0], [-w, 0.0, 10.0]]],
+		[_pack.team_variant(["vehicle.heli.rotor.a.tan", "vehicle.heli.rotor.a.green"], colour), [[w, 27.2, 10.0], [w, 0.0, 10.0], [-w, 0.0, 10.0], [-w, 27.2, 10.0]]],
 	]
 	for h in quads:
 		var s := _pack.get_sprite(String(h[0]))
@@ -225,16 +224,19 @@ func _redraw_team_parts() -> void:
 		var part: Dictionary = parts[i]
 		if _parts[i].is_empty() or not (int(part["flags"]) & 8):
 			continue
-		var ids: Array = part["sprite_ids"]
-		var v := 2 if _flash else vehicle.player_index()
-		_set_part_sprite(i, String(ids[clampi(v, 0, ids.size() - 1)]), null)
+		_set_part_sprite(i, _team_part_sprite(part["sprite_ids"]), null)
 
 
 func _msv_plate_sprite() -> String:
 	var t: Dictionary = _pack.vehicle_types.get("2", {})
-	var ids: Array = t["parts"][2]["sprite_ids"]
-	var v := 2 if _flash else vehicle.player_index()
-	return String(ids[clampi(v, 0, ids.size() - 1)])
+	return _team_part_sprite(t["parts"][2]["sprite_ids"])
+
+
+## A flag-8 part's sprite: variant 2 (the hit flash, document 59) while flashing, otherwise the vehicle's colour.
+func _team_part_sprite(ids: Array) -> String:
+	if _flash and ids.size() > 2:
+		return String(ids[2])
+	return _pack.team_variant(ids, vehicle.art_colour())
 
 
 func _update_ring(scale: float, swim: Dictionary) -> void:

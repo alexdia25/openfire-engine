@@ -59,12 +59,12 @@ func setup(pack: Pack, team: String, at: Vector2, heading_deg: float, vehicle_ty
 	_height = start_height
 	_falling = start_height > 0.0
 	if vehicle_type == 3:
-		_add_quad(pack, HELI_DECAL.get(team, HELI_DECAL["tan"]), 0.4, false, HELI_HALF, HELI_CENTER)
+		_add_quad(pack, pack.team_variant([HELI_DECAL["tan"], HELI_DECAL["green"]], team), 0.4, false, HELI_HALF, HELI_CENTER)
 	else:
 		var s: Dictionary = SETS.get(vehicle_type, SETS[0])
 		_add_quad(pack, s["shadow"], 0.4, true, Vector2(SHADOW_SIZE, SHADOW_SIZE) * 0.5)
-		_add_quad(pack, s["a"].get(team, s["a"]["tan"]), 0.6, false, Vector2(DECAL_SIZE, DECAL_SIZE) * 0.5)
-		_add_quad(pack, s["b"].get(team, s["b"]["tan"]), 2.6, false, Vector2(DECAL_SIZE, DECAL_SIZE) * 0.5)
+		_add_quad(pack, pack.team_variant([s["a"]["tan"], s["a"]["green"]], team), 0.6, false, Vector2(DECAL_SIZE, DECAL_SIZE) * 0.5)
+		_add_quad(pack, pack.team_variant([s["b"]["tan"], s["b"]["green"]], team), 2.6, false, Vector2(DECAL_SIZE, DECAL_SIZE) * 0.5)
 	position.y = _height
 
 

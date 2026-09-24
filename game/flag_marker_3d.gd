@@ -63,7 +63,10 @@ func _show(key: String, visible_now: bool, part: Dictionary, frame: int) -> void
 		return
 	p["shown"] = frame
 	var ids: Array = part["sprite_ids"]
-	var s := pack.get_sprite(String(ids[clampi(frame, 0, ids.size() - 1)]))
+	var sid := String(ids[clampi(frame, 0, ids.size() - 1)])
+	if ids.size() == 26 and not pack.is_original_colour(flag.colour):
+		sid = pack.team_sprite(String(ids[frame % 13]), flag.colour)   # 13 tan then 13 green frames (document 65); PORTING_PLAN.md 2.7.7
+	var s := pack.get_sprite(sid)
 	if s.is_empty():
 		return
 	var tex := pack.get_texture(int(s.get("page", 0)))

@@ -13,6 +13,11 @@ var spawn_points: Array = []
 var candidate_pools: Dictionary = {}
 var vehicle_params: Dictionary = {}  ## the VHCL chunk / filename brackets: T, J, A, H = vehicles of each type the player has, M (document 73)
 var levl_value: int = 0   ## the LEVL chunk, 0-8 (DAT_00442fc0): the level's difficulty number; with M unset it decides how many mines are scattered (document 75)
+## The colour each side's art is drawn in (PORTING_PLAN.md 2.7.7): side 0 / 1 are the original's two players (tile variant
+## 0 / 1, player index), and all game logic keys on the side; the colour is only what its vehicles, buildings, gates, flag
+## and pad look like. Default the original pair; a level may set `side_colours` (the step-6 override file will), and
+## RF_TEAM_COLOURS=red,blue overrides it for testing (terrain_view_3d.gd). Names are Pack.team_colours keys.
+var side_colours: Array = ["tan", "green"]
 var tile_seed: int = 0  ## sum of raw tile bytes -- seeds the per-tile decoration jitter (document 44)
 var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_parts()
 var _decoration_lookup: Dictionary = {}
@@ -40,6 +45,8 @@ func load_from(level_dir: String) -> bool:
 	decorations = doc.get("decorations", [])
 	tile_seed = int(doc.get("tile_seed", 0))
 	vehicle_params = doc.get("vehicle_params", {})
+	if doc.get("side_colours") is Array:
+		side_colours = doc["side_colours"]
 	levl_value = int(doc.get("levl_value", 0)) if doc.get("levl_value", null) != null else 0
 
 	var af := FileAccess.open(art_path, FileAccess.READ)
@@ -74,6 +81,11 @@ func set_coastal_id(x: int, y: int, coastal_id: int) -> void:
 	var i := _decoration_index(x, y)
 	if i >= 0:
 		decorations[i]["coastal_id"] = coastal_id
+
+
+## The art colour of a side (0 / 1 ...), or "" for a side without one.
+func side_colour(side: int) -> String:
+	return String(side_colours[side]) if side >= 0 and side < side_colours.size() else ""
 
 
 ## The team variant (0 tan, 1 green ...) recorded for this tile's decoration (tile word bits 14-15).

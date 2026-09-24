@@ -113,7 +113,7 @@ func _draw() -> void:
 	for t in 4:
 		var e: Dictionary = _sel["entries"][str(t)]
 		var pic := Vector2(e["picture"][0], e["picture"][1])
-		var pic_id := String(sp["pictures"][t][team])
+		var pic_id := mc.pack.team_variant(sp["pictures"][t], mc.vehicle.art_colour())
 		if mc.selecting and mc.selection == t or (mc.undocking and mc.selection == t):
 			_blit(String(sp["box"]), Vector2(hx, hy) + Vector2(e["box"][0], e["box"][1]))
 			var moved := Vector2(anim.d4, anim.d8) if anim != null else Vector2.ZERO

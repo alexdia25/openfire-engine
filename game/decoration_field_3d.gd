@@ -55,7 +55,11 @@ func _build() -> void:
 				continue
 			var sprite_id: String = part.get("sprite_id", "")
 			if part.has("variant_sprite_ids"):
-				var v: Variant = part["variant_sprite_ids"][clampi(int(entry.get("variant", 0)), 0, 3)]
+				var variant := clampi(int(entry.get("variant", 0)), 0, 3)
+				var v: Variant = part["variant_sprite_ids"][variant]
+				if variant <= 1 and v != null:
+					# team-owned (document 44: variant 0 / 1 is the side): drawn in that side's colour (PORTING_PLAN.md 2.7.7)
+					v = pack.team_variant(part["variant_sprite_ids"], level.side_colour(variant))
 				if v != null:
 					sprite_id = v
 			var s := pack.get_sprite(sprite_id)

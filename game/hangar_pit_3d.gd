@@ -53,7 +53,7 @@ func _build(team: int) -> void:
 	_team = team
 	for n in get_children():
 		n.queue_free()
-	var t := "green" if team == 1 else "tan"
+	var colour := mc.level.side_colour(team)   # PORTING_PLAN.md 2.7.7
 	var c := [Vector3(-HALF, 0, -HALF), Vector3(HALF, 0, -HALF), Vector3(HALF, 0, HALF), Vector3(-HALF, 0, HALF),
 			Vector3(-HALF, -WALL_DEPTH, -HALF), Vector3(HALF, -WALL_DEPTH, -HALF), Vector3(HALF, -WALL_DEPTH, HALF), Vector3(-HALF, -WALL_DEPTH, HALF)]
 	for w in [["structure.hangar_pit_wall.02", [0, 1, 5, 4]], ["structure.hangar_pit_wall.03", [0, 3, 7, 4]],
@@ -63,10 +63,10 @@ func _build(team: int) -> void:
 			quad.append(c[i])
 		add_child(_quad(String(w[0]), quad))
 	add_child(_quad("structure.hangar_hazard_strip.01", _rect(-16, -16, 16, -12, 0.08)))
-	_plate = _quad("structure.hangar_lift_plate." + t, _rect(-16, -15, 16, 15, 0.0))
+	_plate = _quad(pack.team_variant(["structure.hangar_lift_plate.tan", "structure.hangar_lift_plate.green"], colour), _rect(-16, -15, 16, 15, 0.0))
 	add_child(_plate)
-	_leaf_left = _quad("structure.hangar_leaf.left." + t, _rect(-8, -15, 8, 16, 0.1))
-	_leaf_right = _quad("structure.hangar_leaf.right." + t, _rect(-8, -15, 8, 16, 0.1))
+	_leaf_left = _quad(pack.team_variant(["structure.hangar_leaf.left.tan", "structure.hangar_leaf.left.green"], colour), _rect(-8, -15, 8, 16, 0.1))
+	_leaf_right = _quad(pack.team_variant(["structure.hangar_leaf.right.tan", "structure.hangar_leaf.right.green"], colour), _rect(-8, -15, 8, 16, 0.1))
 	add_child(_leaf_left)
 	add_child(_leaf_right)
 

@@ -77,7 +77,14 @@ signal wrecked(info: Dictionary)
 signal type_changed(vehicle: Vehicle)
 
 @export var pack_path: String = "res://packs/original_pc"
-@export var team: String = "tan"  ## "tan" or "green" -- section 4 item 5
+@export var team: String = "tan"  ## the side: "tan" (player 0) or "green" (player 1) -- section 4 item 5; game logic keys on this
+## The colour the vehicle is drawn in (PORTING_PLAN.md 2.7.7), set by the match from LevelData.side_colours; "" = the side's
+## own original colour. Art only: nothing in the simulation reads it.
+var colour := ""
+
+
+func art_colour() -> String:
+	return colour if colour != "" else team
 
 var pack: Pack
 var level: LevelData  ## optional: enables the terrain speed scale
@@ -412,7 +419,7 @@ func _fire() -> void:
 	var rad := deg_to_rad(heading_deg)
 	var fwd := Vector2(cos(rad), sin(rad))
 	var right := Vector2(-fwd.y, fwd.x)
-	var spec := {"team": team, "heading": heading_deg}
+	var spec := {"team": team, "colour": art_colour(), "heading": heading_deg}
 	if vehicle_type == 2 and _salvo_reload > 0.0:
 		return
 	if not _spend_ammo(0):
@@ -616,7 +623,7 @@ func take_damage(damage: float) -> bool:
 ## value snapshot so the wreck's fall (document 87) is unaffected by whatever a `destroyed` listener
 ## does to this same node afterwards (the player's vehicle respawns in place).
 func _die() -> void:
-	wrecked.emit({"position": position, "heading_deg": heading_deg, "team": team, "vehicle_type": vehicle_type, "z": z})
+	wrecked.emit({"position": position, "heading_deg": heading_deg, "team": team, "colour": art_colour(), "vehicle_type": vehicle_type, "z": z})
 	alive = false
 	destroyed.emit(self)
 
@@ -901,7 +908,7 @@ func _heli_weapons(delta: float) -> void:
 	var rad := deg_to_rad(h)
 	var fwd := Vector2(cos(rad), sin(rad))
 	var right := Vector2(-fwd.y, fwd.x)
-	var spec := {"team": team, "heading": h, "type": type, "z": z,
+	var spec := {"team": team, "colour": art_colour(), "heading": h, "type": type, "z": z,
 			"position": position + fwd * mount.y + right * mount.x, "pitch_deg": pitch,
 			"bonus": maxf(speed, 0.0) / TICK_HZ}
 	if type == 6:

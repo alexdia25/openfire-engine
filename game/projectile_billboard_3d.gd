@@ -70,7 +70,7 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 	_mesh.mesh = sphere
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = TEAM_COLOURS.get(projectile.team, Color.WHITE)
+	mat.albedo_color = TEAM_COLOURS.get(projectile.art_colour(), pack.team_rgb(projectile.art_colour()))
 	_mesh.material_override = mat
 	add_child(_mesh)
 
@@ -113,8 +113,7 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 		var shadow: bool = key == "shadow_descriptor"
 		for part in pack.projectile_descriptors.get(String(t[key]), []):
 			var ids: Array = part["sprite_ids"]
-			var variant := 1 if projectile.team == "green" else 0
-			var sp := pack.get_sprite(ids[clampi(variant, 0, ids.size() - 1)])
+			var sp := pack.get_sprite(pack.team_variant(ids, projectile.art_colour()) if ids.size() > 1 else String(ids[0]))
 			if sp.is_empty():
 				continue
 			var tex := pack.get_texture(int(sp.get("page", 0)))
@@ -201,10 +200,11 @@ func _update_missile() -> void:
 	_body.rotation_degrees.y = yaw
 	_shadow.position = Vector3(projectile.position.x + SHADOW_DX * z, 0.5, projectile.position.y + SHADOW_DY * z)
 	_shadow.rotation_degrees.y = yaw
-	var f := projectile.lob_frame() + (12 if projectile.team == "green" else 0)
+	var f := projectile.lob_frame()
 	if f != _shown_frame:
 		_shown_frame = f
-		var sid := "projectile.jeep_missile.%s.%02d" % ["green" if f >= 12 else "tan", (f % 12) + 1]
+		var sid := _pack.team_variant(["projectile.jeep_missile.tan.%02d" % (f + 1), "projectile.jeep_missile.green.%02d" % (f + 1)],
+				projectile.art_colour())
 		var s := _pack.get_sprite(sid)
 		if not s.is_empty():
 			var tex := _pack.get_texture(int(s.get("page", 0)))

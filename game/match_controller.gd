@@ -152,6 +152,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle = Vehicle.new()
 	vehicle.pack_path = pack_path
 	vehicle.team = "tan" if player_team == 0 else "green"
+	vehicle.colour = level.side_colour(player_team)
 	world.add_child(vehicle)
 	vehicle.setup(pack)
 	vehicle.level = level
@@ -176,6 +177,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		var enemy := EnemyVehicle.new()
 		enemy.pack_path = pack_path
 		enemy.team = "tan" if int(other_sp.get("team", 0)) == 0 else "green"
+		enemy.colour = level.side_colour(int(other_sp.get("team", 0)))
 		world.add_child(enemy)
 		enemy.setup(pack)
 		enemy.level = level
@@ -261,6 +263,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 	var p := Projectile.new()
 	p.shooter = shooter
 	world.add_child(p)
+	p.colour = String(spec.get("colour", ""))
 	if spec.get("kind", "") == "missile":
 		p.team = spec["team"]
 		p.heading_deg = float(spec["heading"])
@@ -551,6 +554,7 @@ func _create_gate(v: Vehicle) -> void:
 		return
 	var g := Gate.new()
 	g.setup(t, id, gd, level.get_variant(t.x, t.y), float(pack.tile_size_px), v)
+	g.colour = level.side_colour(g.variant)
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
 	g.sound_cue.connect(v.sound_cue.emit)
@@ -566,6 +570,7 @@ func debug_open_gate(t: Vector2i) -> void:
 		return
 	var g := Gate.new()
 	g.setup(t, id, gd, level.get_variant(t.x, t.y), float(pack.tile_size_px), vehicle)
+	g.colour = level.side_colour(g.variant)
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
 	g.sound_cue.connect(vehicle.sound_cue.emit)
@@ -975,6 +980,7 @@ func _spawn_flag(pool_id: String, at_position: Vector2) -> void:
 		return
 	var flag := FlagMarker.new()
 	flag.owner_idx = idx
+	flag.colour = level.side_colour(idx)
 	flags[idx] = flag
 	world.add_child(flag)
 	flag.setup(pack)

@@ -9,8 +9,18 @@ var layers: Array[String] = []   ## every layer's directory, base first (section
 var manifest: Dictionary = {}   ## the top layer's pack.json
 var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x, pivot_y, kind}
 var atlas_textures: Array[Texture2D] = []   ## the layers' own atlas pages, then the pages packed from loose frames
+var _page_images: Array[Image] = []   ## CPU copy of every page in atlas_textures, same index (read for recolouring, written by the packer)
 const PACKED_PAGE_SIZE := 2048
 const PACKED_PADDING := 1   ## transparent pixels between packed frames, so nearest sampling never picks up a neighbour
+var _shelf := {"page": -1, "x": 0, "y": 0, "h": 0}   ## where the packer's open page continues (PORTING_PLAN.md 2.7.5)
+var _dirty_pages := {}   ## page index -> true: its Image changed since its texture was last uploaded
+## Team colours (PORTING_PLAN.md 2.7.7): tan sprite id -> green sprite id for every sprite whose art is team-coloured,
+## the reverse, and colour name -> {source, variant?, hsv}. "original" colours are the art as drawn (tan variant 0, green
+## variant 1); any other colour is generated from the tan art by `team_sprite()` / `prepare_team_colours()`.
+var team_sets: Dictionary = {}
+var _team_set_of: Dictionary = {}   ## green id -> tan id
+var team_colours: Dictionary = {}
+var team_reference := "tan"
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
 var decoration_types: Dictionary = {} ## "<coastal_id>" -> Array[{sprite_id, flags}]
 var explosions: Dictionary = {}       ## effects/explosions.json: records, coastal_destroy_effect, impact_tables (documents 50-51)
@@ -99,38 +109,134 @@ func _pack_loose_frames() -> bool:
 			return false
 		frames.append([id, img])
 	frames.sort_custom(func(a, b): return a[1].get_height() > b[1].get_height() or (a[1].get_height() == b[1].get_height() and a[0] < b[0]))
-	var page: Image = null
-	var x := 0
-	var y := 0
-	var shelf_h := 0
 	for f in frames:
-		var img: Image = f[1]
-		var w := img.get_width()
-		var h := img.get_height()
-		if page != null and x + w > PACKED_PAGE_SIZE:
-			x = 0
-			y += shelf_h + PACKED_PADDING
-			shelf_h = 0
-		if page == null or y + h > PACKED_PAGE_SIZE:
-			if page != null:
-				atlas_textures.append(ImageTexture.create_from_image(page))
-			page = Image.create_empty(PACKED_PAGE_SIZE, PACKED_PAGE_SIZE, false, Image.FORMAT_RGBA8)
-			x = 0
-			y = 0
-			shelf_h = 0
-		page.blit_rect(img, Rect2i(0, 0, w, h), Vector2i(x, y))
 		var entry: Dictionary = sprites[f[0]]
 		entry.erase("_file")
-		entry["page"] = atlas_textures.size()
-		entry["x"] = x
-		entry["y"] = y
-		entry["w"] = w
-		entry["h"] = h
-		x += w + PACKED_PADDING
-		shelf_h = maxi(shelf_h, h)
-	if page != null:
-		atlas_textures.append(ImageTexture.create_from_image(page))
+		_place_frame(entry, f[1])
+	_upload_dirty_pages()
 	return true
+
+
+## Copies `img` into the packer's open page (a new page when it doesn't fit) and points `entry` at it. The page's texture
+## is re-uploaded by `_upload_dirty_pages()`, so a batch of frames costs one upload per page.
+func _place_frame(entry: Dictionary, img: Image) -> void:
+	var w := img.get_width()
+	var h := img.get_height()
+	if _shelf["page"] >= 0 and int(_shelf["x"]) + w > PACKED_PAGE_SIZE:
+		_shelf["x"] = 0
+		_shelf["y"] = int(_shelf["y"]) + int(_shelf["h"]) + PACKED_PADDING
+		_shelf["h"] = 0
+	if _shelf["page"] < 0 or int(_shelf["y"]) + h > PACKED_PAGE_SIZE:
+		_page_images.append(Image.create_empty(PACKED_PAGE_SIZE, PACKED_PAGE_SIZE, false, Image.FORMAT_RGBA8))
+		atlas_textures.append(null)
+		_shelf = {"page": _page_images.size() - 1, "x": 0, "y": 0, "h": 0}
+	var page := int(_shelf["page"])
+	_page_images[page].blit_rect(img, Rect2i(0, 0, w, h), Vector2i(int(_shelf["x"]), int(_shelf["y"])))
+	_dirty_pages[page] = true
+	entry["page"] = page
+	entry["x"] = int(_shelf["x"])
+	entry["y"] = int(_shelf["y"])
+	entry["w"] = w
+	entry["h"] = h
+	_shelf["x"] = int(_shelf["x"]) + w + PACKED_PADDING
+	_shelf["h"] = maxi(int(_shelf["h"]), h)
+
+
+func _upload_dirty_pages() -> void:
+	for page in _dirty_pages:
+		if atlas_textures[page] == null:
+			atlas_textures[page] = ImageTexture.create_from_image(_page_images[page])
+		else:
+			(atlas_textures[page] as ImageTexture).update(_page_images[page])
+	_dirty_pages.clear()
+
+
+## A sprite's pixels, copied out of its page.
+func get_sprite_image(sprite_id: String) -> Image:
+	var s := get_sprite(sprite_id)
+	if s.is_empty():
+		return null
+	return _page_images[int(s["page"])].get_region(Rect2i(int(s["x"]), int(s["y"]), int(s["w"]), int(s["h"])))
+
+
+## The sprite to draw for team-coloured art in `colour` (PORTING_PLAN.md 2.7.7). `sprite_id` may be the tan or the green
+## member of a team set; an original colour returns the art as drawn, any other colour a sprite generated from the tan
+## art (made now if `prepare_team_colours()` hasn't already). Art that isn't team-coloured, or an unknown colour, comes
+## back unchanged.
+func team_sprite(sprite_id: String, colour: String) -> String:
+	var tan: String = _team_set_of.get(sprite_id, sprite_id)
+	if not team_sets.has(tan):
+		return sprite_id
+	var c: Dictionary = team_colours.get(colour, {})
+	if c.is_empty():
+		return sprite_id
+	if c.get("source", "") == "original":
+		return tan if int(c.get("variant", 0)) == 0 else String(team_sets[tan])
+	var id := tan + "@" + colour
+	if not sprites.has(id):
+		_make_recolour(tan, colour)
+		_upload_dirty_pages()
+	return id
+
+
+## For art given as the original's variant list [tan id, green id, ...]: an original colour indexes it exactly as drawn,
+## any other colour is generated from the tan member. Use this wherever the code used to index such a list by team.
+func team_variant(ids: Array, colour: String) -> String:
+	var c: Dictionary = team_colours.get(colour, {})
+	if c.get("source", "") == "original" or colour == "":
+		var v := int(c.get("variant", 0))
+		return String(ids[clampi(v, 0, ids.size() - 1)])
+	return team_sprite(String(ids[0]), colour)
+
+
+## True for the colours the original art was drawn in (and for "", meaning "not set": the art as drawn).
+func is_original_colour(colour: String) -> bool:
+	return colour == "" or team_colours.get(colour, {}).get("source", "") == "original"
+
+
+## Generates every team set in each of `colours` at once (called when a match is set up, so nothing is made mid-game).
+func prepare_team_colours(colours: Array) -> void:
+	for colour in colours:
+		var c: Dictionary = team_colours.get(String(colour), {})
+		if c.is_empty() or c.get("source", "") == "original":
+			continue
+		for tan in team_sets:
+			if not sprites.has(String(tan) + "@" + String(colour)):
+				_make_recolour(String(tan), String(colour))
+	_upload_dirty_pages()
+
+
+## A representative RGB for a colour (its HSV mean), for things drawn flat in team colour: the placeholder shell tint,
+## a radar blip.
+func team_rgb(colour: String) -> Color:
+	var hsv: Array = team_colours.get(colour, {}).get("hsv", [0.0, 0.0, 0.5])
+	return Color.from_hsv(float(hsv[0]), float(hsv[1]), float(hsv[2]))
+
+
+## The recolour itself: every pixel that differs between the tan and green art is team paint; it keeps the tan pixel's
+## saturation and brightness relative to tan's mean and takes the target colour's hue (teams/colours.json "hsv"). Pixels
+## the two teams share (tracks, metal, outlines) are left alone. A port feature: the original only has the two drawings.
+func _make_recolour(tan: String, colour: String) -> void:
+	var base := get_sprite_image(tan)
+	var other := get_sprite_image(String(team_sets[tan]))
+	if base == null or other == null or base.get_size() != other.get_size():
+		return
+	var ref: Array = team_colours.get(team_reference, {}).get("hsv", [0.05, 0.74, 0.37])
+	var target: Array = team_colours[colour]["hsv"]
+	var s_scale := float(target[1]) / maxf(float(ref[1]), 0.001)
+	var v_scale := float(target[2]) / maxf(float(ref[2]), 0.001)
+	var out := base.duplicate() as Image
+	for y in base.get_height():
+		for x in base.get_width():
+			var a := base.get_pixel(x, y)
+			if a.a == 0.0 or a == other.get_pixel(x, y):
+				continue
+			out.set_pixel(x, y, Color.from_hsv(float(target[0]), clampf(a.s * s_scale, 0.0, 1.0), clampf(a.v * v_scale, 0.0, 1.0), a.a))
+	var entry: Dictionary = sprites[tan].duplicate()
+	entry["source"] = "generated"
+	entry["team_colour"] = colour
+	_place_frame(entry, out)
+	sprites[tan + "@" + colour] = entry
 
 
 ## A pack id's directory: a sibling of `beside` first, then under res://packs.
@@ -181,7 +287,10 @@ func _load_layer(dir: String) -> bool:
 			if err != OK:
 				push_error("Pack.load_from: failed to load atlas page %s (error %d)" % [page_name, err])
 				return false
+			if img.get_format() != Image.FORMAT_RGBA8:
+				img.convert(Image.FORMAT_RGBA8)
 			atlas_textures.append(ImageTexture.create_from_image(img))
+			_page_images.append(img)
 		var layer_sprites: Dictionary = sprites_doc.get("sprites", {})
 		for id in layer_sprites:
 			var entry: Variant = layer_sprites[id]
@@ -219,6 +328,15 @@ func _load_layer(dir: String) -> bool:
 	_overlay(hud_panels, _layer_doc(dir, "hud/panels.json"))
 	_overlay(radar_data, _layer_doc(dir, "hud/radar.json"))
 	_overlay(flag_data, _layer_doc(dir, "markers/flag.json"))
+
+	# Team colours (PORTING_PLAN.md 2.7.7): a mod can add team sets (its own art) and colours, per id.
+	_overlay(team_sets, _layer_doc(dir, "sprites/team_sets.json").get("pairs", {}))
+	for tan in team_sets:
+		_team_set_of[String(team_sets[tan])] = tan
+	var cdoc := _layer_doc(dir, "teams/colours.json")
+	_overlay(team_colours, cdoc.get("colours", {}))
+	if cdoc.has("reference"):
+		team_reference = String(cdoc["reference"])
 
 	# Sound files resolve against the layer that supplied the cue.
 	var adoc := _layer_doc(dir, "audio/audio.json")

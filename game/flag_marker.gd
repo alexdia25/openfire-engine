@@ -23,6 +23,7 @@ const DRIFT_ACCEL := 0x36 / 65536.0
 
 var pack: Pack
 var owner_idx := 0
+var colour := ""   ## the art colour of the owner's side (PORTING_PLAN.md 2.7.7), set by the match
 var carrier: Vehicle = null
 var dropper: Vehicle = null
 var frame_counter := 0.0

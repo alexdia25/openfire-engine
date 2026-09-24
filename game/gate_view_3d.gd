@@ -50,7 +50,10 @@ func _refresh(force: bool) -> void:
 			sid = d["sprite_open"] if opened >= 1 else d["sprite_closed"]
 		else:
 			var ids: Array = part["sprite_ids"]
-			sid = ids[clampi(gate.variant, 0, ids.size() - 1)]
+			if gate.variant <= 1 and ids.size() > 1:
+				sid = _pack.team_variant(ids, gate.colour)   # the side's colour (PORTING_PLAN.md 2.7.7)
+			else:
+				sid = ids[clampi(gate.variant, 0, ids.size() - 1)]
 		var s := _pack.get_sprite(sid)
 		if s.is_empty():
 			(p["mi"] as MeshInstance3D).mesh = null
