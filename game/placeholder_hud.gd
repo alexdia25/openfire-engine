@@ -36,16 +36,18 @@ func setup(controller: MatchController) -> void:
 	panel.offset_left = 12.0
 	panel.offset_top = -168.0 - 30.0
 	panel.offset_bottom = -30.0
-	var select := SelectorScreen.new()   # the docked vehicle-choice screen (documents 76, 78): shown while MatchController.selecting / undocking
-	add_child(select)
-	select.set_anchors_preset(Control.PRESET_FULL_RECT)
-	select.setup(controller)
 	var fade := ColorRect.new()   # the game view's fade-in after the choice (0x4183e0): black at alpha 1 - view_fade
 	fade.color = Color(0, 0, 0, 0)
 	fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(fade)
 	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_fade = fade
+	# The view fade dims the game view and the panel but must sit BELOW the hangar screen: docking fades the view out (view_fade 0, document 81), and the choice screen
+	# then opens with its own fade-in on top of that black.
+	var select := SelectorScreen.new()   # the docked vehicle-choice screen (documents 76, 78): shown while MatchController.selecting / undocking
+	add_child(select)
+	select.set_anchors_preset(Control.PRESET_FULL_RECT)
+	select.setup(controller)
 	var skull := DeathSkullView.new()   # the loss sequence's laughing skull (document 88), above the view fade
 	add_child(skull)
 	skull.setup(controller)
