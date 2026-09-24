@@ -68,12 +68,20 @@ var quad_mode: QuadMode = QuadMode.GROUND_DECAL
 var vehicle: Vehicle
 var pack: Pack
 var sprite: Sprite3D
+var _frames: Array[String] = []   ## the Tank's rotation frames (cels 218-226 / 232-240) for the vehicle's team, sorted
+
+
 
 
 func setup(shared_vehicle: Vehicle, shared_pack: Pack) -> void:
 	vehicle = shared_vehicle
 	pack = shared_pack
 	vehicle.visible = false  # logic only -- see file header
+	var prefix := "vehicle.tank.rotation.%s." % vehicle.team
+	for id in pack.sprites.keys():
+		if String(id).begins_with(prefix):
+			_frames.append(id)
+	_frames.sort()
 
 	# Debug-only override for comparison against the GROUND_DECAL default -- never affects a
 	# normal run (env var unset). "ground_decal" is accepted too, even though it's already the
@@ -136,19 +144,19 @@ func _process(_delta: float) -> void:
 ## flags -- the real yaw already set in _process() is what makes it face the right way, so a
 ## 2D flip on top would double-count the same rotation twice (see the file header).
 func _refresh() -> void:
-	if vehicle == null or vehicle.pack == null or vehicle._frames.is_empty():
+	if vehicle == null or vehicle.pack == null or _frames.is_empty():
 		return
 
 	var sprite_id: String
 	var flip_h := false
 	var flip_v := false
 	if quad_mode == QuadMode.GROUND_DECAL:
-		sprite_id = vehicle._frames[0]  # the fullest real frame, e.g. rotation.tan.01
+		sprite_id = _frames[0]  # the fullest real frame, e.g. rotation.tan.01
 	elif quad_mode == QuadMode.GROUND_DECAL_MULTI:
-		var result := vehicle._frame_for_heading(vehicle.heading_deg)
+		var result := _frame_for_heading(vehicle.heading_deg)
 		sprite_id = result[0]  # flip_h/flip_v deliberately discarded -- see this function's header
 	else:
-		var result := vehicle._frame_for_heading(vehicle.heading_deg)
+		var result := _frame_for_heading(vehicle.heading_deg)
 		sprite_id = result[0]
 		flip_h = result[1]
 		flip_v = result[2]
@@ -165,3 +173,37 @@ func _refresh() -> void:
 	sprite.region_rect = Rect2(s.get("x", 0), s.get("y", 0), s.get("w", 0), s.get("h", 0))
 	sprite.flip_h = flip_h
 	sprite.flip_v = flip_v
+
+
+## (Moved here from vehicle.gd on 2026-09-24 with the 2D view's removal; this fallback is its only user.)
+## Folds any heading into the one real quarter-turn (0-90 deg) this vehicle has actual
+## art for, plus the horizontal/vertical mirror needed to reconstruct the other three
+## quadrants. Returns [sprite_id, flip_h, flip_v].
+##
+## The four quadrants must mirror consistently around the two axes -- quadrant 2 is
+## quadrant 1 flipped left-right, quadrant 4 is quadrant 1 flipped top-bottom, and
+## quadrant 3 (both flips = a 180-degree point reflection) is quadrant 1 turned around.
+## An earlier version of this function got that pairing wrong (flipped the *base*
+## quadrant unnecessarily and left the last quadrant unflipped), which produced a
+## visibly wrong/discontinuous sprite as soon as the vehicle turned far enough to
+## cross a quadrant boundary -- exactly the "sprite looks very wrong after moving" bug.
+func _frame_for_heading(h: float) -> Array:
+	var a := fposmod(h, 360.0)
+	var flip_h := false
+	var flip_v := false
+	var quadrant_angle := a
+	if a <= 90.0:
+		quadrant_angle = a
+	elif a <= 180.0:
+		quadrant_angle = 180.0 - a
+		flip_h = true
+	elif a <= 270.0:
+		quadrant_angle = a - 180.0
+		flip_h = true
+		flip_v = true
+	else:
+		quadrant_angle = 360.0 - a
+		flip_v = true
+	var t := quadrant_angle / 90.0
+	var idx := int(round(t * (_frames.size() - 1)))
+	return [_frames[idx], flip_h, flip_v]

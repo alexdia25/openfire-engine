@@ -14,14 +14,10 @@ extends Node2D
 ##
 ## Phase 4 step 6: also the base class for game/enemy_vehicle.gd's EnemyVehicle --
 ## _get_controls()/_wants_to_fire() are the seam a non-player controller overrides,
-## everything else (movement integration, rendering, firing) is shared.
+## everything else (movement integration, firing) is shared.
 ##
-## Rendering is also a deliberate simplification of section 1.10/2.2's finding that the
-## original does real perspective-projected-quad rendering across 64 discrete headings.
-## This uses the 8-9 real rotation frames per team (cels 218-240) covering one quarter
-## turn, mirrored into the other three quadrants -- a flat-rotation approximation
-## (section 2.2's "knowingly accept a simpler visual target" option), not the projected-
-## quad technique. Good enough to prove movement; revisit for visual fidelity later.
+## Simulation only: this node draws nothing. The 3D renderers (VehicleBoxRender3D, VehicleRender3D) read it each
+## frame; the old flat 2D view and this class's own sprite drawing were removed on 2026-09-24.
 
 const TICK_HZ := 62.5  ## 1000 ms / 16 ms (timeGetTime() >> 4)
 const MAX_SPEED := 1.05 * TICK_HZ           ## 0x10ccc/65536 units/tick = 65.6 px/s (~2 tiles/s)
@@ -88,7 +84,6 @@ func art_colour() -> String:
 
 var pack: Pack
 var level: LevelData  ## optional: enables the terrain speed scale
-var _frames: Array[String] = []
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
@@ -157,11 +152,6 @@ var frozen := false  ## the match is over: no input, no movement
 func setup(shared_pack: Pack) -> void:
 	pack = shared_pack
 	_apply_type()
-	var prefix := "vehicle.tank.rotation.%s." % team
-	for id in pack.sprites.keys():
-		if id.begins_with(prefix):
-			_frames.append(id)
-	_frames.sort()
 
 
 ## Debug-only: RF_DEBUG_DRIVE=1 replaces real input with a fixed forward+turn
@@ -716,18 +706,16 @@ func _process(delta: float) -> void:
 	hit_flash_remaining = maxf(hit_flash_remaining - delta, 0.0)
 	if alive:
 		_update_water(delta)
-	if pack == null or _frames.is_empty() or not alive or frozen:
+	if pack == null or not alive or frozen:
 		return
 	_process_fuel_warn(delta)
 
 	if _debug_heading != "":
 		heading_deg = float(_debug_heading)
-		queue_redraw()
 		return
 
 	if vehicle_type == 3:
 		_process_heli(delta)
-		queue_redraw()
 		return
 
 	var controls := _get_controls()
@@ -752,7 +740,6 @@ func _process(delta: float) -> void:
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
 	_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
 	if _dock_pressed():
-		queue_redraw()
 		return
 	if vehicle_type == 0 or vehicle_type == 2:
 		_tank_tick(delta)
@@ -766,7 +753,6 @@ func _process(delta: float) -> void:
 	if vehicle_type == 2 and mine_layer_enabled and _wants_mine() and _mine_cooldown_remaining <= 0.0:
 		_drop_mine()
 
-	queue_redraw()
 
 
 ## The Heli (vehicle type 3; its drive handler FUN_0040e0e0, document 63). Flight, as traced:
@@ -1019,59 +1005,3 @@ func _terrain_speed_scale() -> float:
 		return 1.0
 	var art := level.get_art_id(t.x, t.y)
 	return ROAD_SPEED_SCALE if art > 0x48 and art < 0x5a else 1.0
-
-
-## Folds any heading into the one real quarter-turn (0-90 deg) this vehicle has actual
-## art for, plus the horizontal/vertical mirror needed to reconstruct the other three
-## quadrants. Returns [sprite_id, flip_h, flip_v].
-##
-## The four quadrants must mirror consistently around the two axes -- quadrant 2 is
-## quadrant 1 flipped left-right, quadrant 4 is quadrant 1 flipped top-bottom, and
-## quadrant 3 (both flips = a 180-degree point reflection) is quadrant 1 turned around.
-## An earlier version of this function got that pairing wrong (flipped the *base*
-## quadrant unnecessarily and left the last quadrant unflipped), which produced a
-## visibly wrong/discontinuous sprite as soon as the vehicle turned far enough to
-## cross a quadrant boundary -- exactly the "sprite looks very wrong after moving" bug.
-func _frame_for_heading(h: float) -> Array:
-	var a := fposmod(h, 360.0)
-	var flip_h := false
-	var flip_v := false
-	var quadrant_angle := a
-	if a <= 90.0:
-		quadrant_angle = a
-	elif a <= 180.0:
-		quadrant_angle = 180.0 - a
-		flip_h = true
-	elif a <= 270.0:
-		quadrant_angle = a - 180.0
-		flip_h = true
-		flip_v = true
-	else:
-		quadrant_angle = 360.0 - a
-		flip_v = true
-	var t := quadrant_angle / 90.0
-	var idx := int(round(t * (_frames.size() - 1)))
-	return [_frames[idx], flip_h, flip_v]
-
-
-func _draw() -> void:
-	if pack == null or _frames.is_empty():
-		return
-	var result := _frame_for_heading(heading_deg)
-	var sprite_id: String = result[0]
-	var flip_h: bool = result[1]
-	var flip_v: bool = result[2]
-
-	var s := pack.get_sprite(sprite_id)
-	if s.is_empty():
-		return
-	var tex := pack.get_texture(int(s.get("page", 0)))
-	if tex == null:
-		return
-	var w: float = s.get("w", 0)
-	var h: float = s.get("h", 0)
-	var src := Rect2(s.get("x", 0), s.get("y", 0), w, h)
-
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(-1.0 if flip_h else 1.0, -1.0 if flip_v else 1.0))
-	draw_texture_rect_region(tex, Rect2(-w * 0.5, -h * 0.5, w, h), src)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -101,12 +101,6 @@ func configure(pack: Pack, type: int) -> void:
 		ballistic = (int(t["flags"]) & 2) != 0
 		pitch_rate = float(t["pitch_rate_raw"]) / 65536.0
 		impact_table = String(t["impact_table"])
-const RADIUS_PX := 3.0
-
-const TEAM_COLOURS := {
-	"tan": Color(0.82, 0.71, 0.55),
-	"green": Color(0.30, 0.55, 0.30),
-}
 
 var heading_deg: float = 0.0
 var team: String = "tan"
@@ -149,8 +143,3 @@ func _process(delta: float) -> void:
 	if _age_sec >= lifetime_sec:
 		queue_free()
 		return
-	queue_redraw()
-
-
-func _draw() -> void:
-	draw_circle(Vector2.ZERO, RADIUS_PX, TEAM_COLOURS.get(team, Color.WHITE))
