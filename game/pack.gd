@@ -4,8 +4,9 @@ extends RefCounted
 ## runtime -- never via res://'s import pipeline (see packs/.gdignore). This is the only
 ## thing allowed to read pack files; nothing else in game/ should touch packs/ directly.
 
-var pack_dir: String = ""
-var manifest: Dictionary = {}
+var pack_dir: String = ""   ## the top layer's directory
+var layers: Array[String] = []   ## every layer's directory, base first (section 2.7.4)
+var manifest: Dictionary = {}   ## the top layer's pack.json
 var sprites: Dictionary = {}          ## sprite id -> {page, x, y, w, h, pivot_x, pivot_y}
 var atlas_textures: Array[Texture2D] = []
 var tileset: Dictionary = {}          ## "<art_id>" -> {sprite_id, terrain_class}
@@ -34,114 +35,146 @@ static func _read_json(path: String) -> Variant:
 	return JSON.parse_string(f.get_as_text())
 
 
+## Loads the pack at `dir` together with its `base_pack` chain (PORTING_PLAN.md section 2.7.4): the base is loaded
+## first and `dir` is layered on top of it. `pack_dir` is the top layer.
 func load_from(dir: String) -> bool:
-	pack_dir = dir
+	var chain: Array[String] = []
+	var d := dir
+	while d != "":
+		if d in chain:
+			push_error("Pack.load_from: base_pack cycle at %s" % d)
+			return false
+		chain.push_front(d)
+		var m: Variant = _read_json(d.path_join("pack.json")) if FileAccess.file_exists(d.path_join("pack.json")) else null
+		if not (m is Dictionary):
+			push_error("Pack.load_from: no pack.json at %s" % d)
+			return false
+		var base: Variant = m.get("base_pack", null)
+		d = _find_pack(String(base), d) if base != null and String(base) != "" else ""
+		if base != null and String(base) != "" and d == "":
+			push_error("Pack.load_from: base pack %s of %s not found" % [base, chain[0]])
+			return false
+	return load_stack(chain)
 
+
+## Loads the given pack directories bottom to top (section 2.7.4): id-keyed tables override per id (a null value removes
+## the id), whole-document tables per top-level key, `projectile_types` whole. Each layer's own `base_pack` is ignored here.
+func load_stack(dirs: Array[String]) -> bool:
+	if dirs.is_empty():
+		push_error("Pack.load_stack: no pack directories")
+		return false
+	layers = dirs.duplicate()
+	pack_dir = dirs[-1]
+	for dir in dirs:
+		if not _load_layer(dir):
+			return false
+	if atlas_textures.is_empty():
+		push_error("Pack.load_stack: no layer provides sprites/sprites.json")
+		return false
+	return true
+
+
+## A pack id's directory: a sibling of `beside` first, then under res://packs.
+static func _find_pack(id: String, beside: String) -> String:
+	for root in [beside.get_base_dir(), "res://packs"]:
+		var candidate: String = String(root).path_join(id)
+		if FileAccess.file_exists(candidate.path_join("pack.json")):
+			return candidate
+	return ""
+
+
+## Per-id overlay: every key of `top` replaces the same key of `into`; a null value removes it.
+static func _overlay(into: Dictionary, top: Variant) -> void:
+	if not (top is Dictionary):
+		return
+	for k in top:
+		if top[k] == null:
+			into.erase(k)
+		else:
+			into[k] = top[k]
+
+
+## The document at dir/rel, or {} when this layer has no such file (every file of a layer is optional).
+static func _layer_doc(dir: String, rel: String) -> Dictionary:
+	var path := dir.path_join(rel)
+	if not FileAccess.file_exists(path):
+		return {}
+	var doc: Variant = _read_json(path)
+	if not (doc is Dictionary):
+		push_error("Pack: malformed %s" % path)
+		return {}
+	return doc
+
+
+func _load_layer(dir: String) -> bool:
 	var manifest_path := dir.path_join("pack.json")
 	if not FileAccess.file_exists(manifest_path):
 		push_error("Pack.load_from: no pack.json at %s" % manifest_path)
 		return false
 	manifest = _read_json(manifest_path)
 
-	var sprites_doc: Variant = _read_json(dir.path_join("sprites/sprites.json"))
-	if not (sprites_doc is Dictionary):
-		push_error("Pack.load_from: sprites.json missing or malformed")
-		return false
-	sprites = sprites_doc.get("sprites", {})
+	var sprites_doc := _layer_doc(dir, "sprites/sprites.json")
+	if not sprites_doc.is_empty():
+		var page_offset := atlas_textures.size()
+		for page_name in sprites_doc.get("atlas_pages", []):
+			var img := Image.new()
+			var err := img.load(dir.path_join("sprites").path_join(page_name))
+			if err != OK:
+				push_error("Pack.load_from: failed to load atlas page %s (error %d)" % [page_name, err])
+				return false
+			atlas_textures.append(ImageTexture.create_from_image(img))
+		var layer_sprites: Dictionary = sprites_doc.get("sprites", {})
+		for id in layer_sprites:
+			var entry: Variant = layer_sprites[id]
+			if entry is Dictionary:
+				entry = entry.duplicate()
+				entry["page"] = int(entry.get("page", 0)) + page_offset
+			layer_sprites[id] = entry
+		_overlay(sprites, layer_sprites)
 
-	atlas_textures.clear()
-	for page_name in sprites_doc.get("atlas_pages", []):
-		var img := Image.new()
-		var err := img.load(dir.path_join("sprites").path_join(page_name))
-		if err != OK:
-			push_error("Pack.load_from: failed to load atlas page %s (error %d)" % [page_name, err])
-			return false
-		atlas_textures.append(ImageTexture.create_from_image(img))
-
-	var tileset_path := dir.path_join("terrain/tileset.json")
-	if FileAccess.file_exists(tileset_path):
-		var tdoc: Variant = _read_json(tileset_path)
-		if tdoc is Dictionary:
-			tileset = tdoc.get("tiles", {})
-			tile_size_px = int(tdoc.get("tile_size_px", 32))
+	var tdoc := _layer_doc(dir, "terrain/tileset.json")
+	_overlay(tileset, tdoc.get("tiles", {}))
+	if tdoc.has("tile_size_px"):
+		tile_size_px = int(tdoc["tile_size_px"])
 
 	# Document 35 (docs/process/): a level's tile coastal id can also be a real decoration --
 	# optional (an older or hand-authored pack need not have this file at all), and, per
 	# tools/build_pack.py's own note, may simply not list every coastal id a level references
 	# -- get_decoration_parts() below treats an unknown id as "no decoration", not an error.
-	var decorations_path := dir.path_join("terrain/decorations.json")
-	if FileAccess.file_exists(decorations_path):
-		var ddoc: Variant = _read_json(decorations_path)
-		if ddoc is Dictionary:
-			decoration_types = ddoc.get("decoration_types", {})
+	_overlay(decoration_types, _layer_doc(dir, "terrain/decorations.json").get("decoration_types", {}))
+	_overlay(coastal_damage, _layer_doc(dir, "terrain/coastal_damage.json").get("coastal", {}))
+	_overlay(coastal_shapes, _layer_doc(dir, "terrain/coastal_shapes.json").get("coastal", {}))
+	_overlay(gates, _layer_doc(dir, "terrain/gates.json").get("gates", {}))
+	_overlay(water_tables, _layer_doc(dir, "terrain/water.json"))
 
-	var damage_path := dir.path_join("terrain/coastal_damage.json")
-	if FileAccess.file_exists(damage_path):
-		var cdoc: Variant = _read_json(damage_path)
-		if cdoc is Dictionary:
-			coastal_damage = cdoc.get("coastal", {})
+	var pdoc := _layer_doc(dir, "vehicles/projectile_types.json")
+	if pdoc.has("types"):
+		projectile_types = pdoc["types"]
+	_overlay(projectile_descriptors, pdoc.get("descriptors", {}))
+	_overlay(vehicle_types, _layer_doc(dir, "vehicles/vehicle_types.json").get("types", {}))
 
-	var shapes_path := dir.path_join("terrain/coastal_shapes.json")
-	if FileAccess.file_exists(shapes_path):
-		var sdoc: Variant = _read_json(shapes_path)
-		if sdoc is Dictionary:
-			coastal_shapes = sdoc.get("coastal", {})
+	_overlay(selector_data, _layer_doc(dir, "hud/selector.json"))
+	_overlay(hud_panels, _layer_doc(dir, "hud/panels.json"))
+	_overlay(radar_data, _layer_doc(dir, "hud/radar.json"))
+	_overlay(flag_data, _layer_doc(dir, "markers/flag.json"))
 
-	var pt_path := dir.path_join("vehicles/projectile_types.json")
-	if FileAccess.file_exists(pt_path):
-		var pdoc: Variant = _read_json(pt_path)
-		if pdoc is Dictionary:
-			projectile_types = pdoc.get("types", [])
-			projectile_descriptors = pdoc.get("descriptors", {})
+	# Sound files resolve against the layer that supplied the cue.
+	var adoc := _layer_doc(dir, "audio/audio.json")
+	for cue in adoc:
+		if adoc[cue] is Dictionary:
+			adoc[cue] = adoc[cue].duplicate()
+			adoc[cue]["_dir"] = dir.path_join("audio")
+	_overlay(audio, adoc)
 
-	var vt_path := dir.path_join("vehicles/vehicle_types.json")
-	if FileAccess.file_exists(vt_path):
-		var vdoc: Variant = _read_json(vt_path)
-		if vdoc is Dictionary:
-			vehicle_types = vdoc.get("types", {})
-
-	var sel_path := dir.path_join("hud/selector.json")
-	if FileAccess.file_exists(sel_path):
-		var sdoc: Variant = _read_json(sel_path)
-		if sdoc is Dictionary:
-			selector_data = sdoc
-	var hp_path := dir.path_join("hud/panels.json")
-	if FileAccess.file_exists(hp_path):
-		var hdoc: Variant = _read_json(hp_path)
-		if hdoc is Dictionary:
-			hud_panels = hdoc
-	var radar_path := dir.path_join("hud/radar.json")
-	if FileAccess.file_exists(radar_path):
-		var rdoc: Variant = _read_json(radar_path)
-		if rdoc is Dictionary:
-			radar_data = rdoc
-	var flag_path := dir.path_join("markers/flag.json")
-	if FileAccess.file_exists(flag_path):
-		var fdoc: Variant = _read_json(flag_path)
-		if fdoc is Dictionary:
-			flag_data = fdoc
-	var water_path := dir.path_join("terrain/water.json")
-	if FileAccess.file_exists(water_path):
-		var wdoc: Variant = _read_json(water_path)
-		if wdoc is Dictionary:
-			water_tables = wdoc
-	var gates_path := dir.path_join("terrain/gates.json")
-	if FileAccess.file_exists(gates_path):
-		var gdoc: Variant = _read_json(gates_path)
-		if gdoc is Dictionary:
-			gates = gdoc.get("gates", {})
-
-	var audio_path := dir.path_join("audio/audio.json")
-	if FileAccess.file_exists(audio_path):
-		var adoc: Variant = _read_json(audio_path)
-		if adoc is Dictionary:
-			audio = adoc
-
-	var expl_path := dir.path_join("effects/explosions.json")
-	if FileAccess.file_exists(expl_path):
-		var edoc: Variant = _read_json(expl_path)
-		if edoc is Dictionary:
-			explosions = edoc
+	# explosions.json holds several id-keyed tables (records, coastal_destroy_effect, ...): merged per id inside each.
+	var edoc := _layer_doc(dir, "effects/explosions.json")
+	for k in edoc:
+		if edoc[k] is Dictionary and explosions.get(k) is Dictionary:
+			_overlay(explosions[k], edoc[k])
+		elif edoc[k] == null:
+			explosions.erase(k)
+		else:
+			explosions[k] = edoc[k]
 
 	return true
 
@@ -210,20 +243,31 @@ func get_sound_path(cue_id: String) -> String:
 	var entry := get_sound(cue_id)
 	if entry.is_empty():
 		return ""
-	return pack_dir.path_join("audio").path_join(String(entry.get("file", "")))
+	return String(entry.get("_dir", pack_dir.path_join("audio"))).path_join(String(entry.get("file", "")))
 
 
+## Level ids across every layer (a mod may add levels), sorted.
 func list_levels() -> Array[String]:
 	var out: Array[String] = []
-	var d := DirAccess.open(pack_dir.path_join("levels"))
-	if d == null:
-		return out
-	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		if d.current_is_dir() and not name.begins_with("."):
-			out.append(name)
-		name = d.get_next()
-	d.list_dir_end()
+	for layer in layers:
+		var d := DirAccess.open(layer.path_join("levels"))
+		if d == null:
+			continue
+		d.list_dir_begin()
+		var name := d.get_next()
+		while name != "":
+			if d.current_is_dir() and not name.begins_with(".") and not name in out:
+				out.append(name)
+			name = d.get_next()
+		d.list_dir_end()
 	out.sort()
 	return out
+
+
+## The directory of a level in the topmost layer that has it, or "" if none does.
+func level_dir(level_id: String) -> String:
+	for i in range(layers.size() - 1, -1, -1):
+		var candidate := layers[i].path_join("levels").path_join(level_id)
+		if DirAccess.dir_exists_absolute(candidate):
+			return candidate
+	return ""

@@ -77,13 +77,16 @@ func _ready() -> void:
 	var level_env := OS.get_environment("RF_DEBUG_LEVEL")  # debug-only, e.g. RFMAP117
 	if level_env != "":
 		level_id = level_env
+	var pack_env := OS.get_environment("RF_PACK")  # a pack or mod directory; its base_pack chain loads underneath it (PORTING_PLAN 2.7.4)
+	if pack_env != "":
+		pack_path = pack_env
 	pack = Pack.new()
 	if not pack.load_from(pack_path):
 		push_error("TerrainView3D: failed to load pack at %s" % pack_path)
 		return
 
 	level = LevelData.new()
-	if not level.load_from(pack_path.path_join("levels").path_join(level_id)):
+	if not level.load_from(pack.level_dir(level_id)):
 		push_error("TerrainView3D: failed to load level %s" % level_id)
 		return
 

@@ -41,7 +41,7 @@ func _ready() -> void:
 		return
 
 	level = LevelData.new()
-	if not level.load_from(pack_path.path_join("levels").path_join(level_id)):
+	if not level.load_from(pack.level_dir(level_id)):
 		push_error("TerrainView: failed to load level %s" % level_id)
 		return
 
