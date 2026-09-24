@@ -16,6 +16,10 @@ const WALL_DEPTH := 31.0
 const HALF := 14.0
 const PAD_HALF := 16.0        ## the pad tile's half width: the leaves are cut off here (the mechanism is underground, nothing shows outside the original texture)
 const LEAF_HALF_W := 8.0
+## The leaves and the plate sit just BELOW the ground plane (y 0) so the tile's opaque hazard border (art 92, part of the ground texture) covers them where they reach the
+## tile's edge, and only the hole in its centre shows them: they slide under the border. The plate stays under the leaves. Port choice (user direction), not traced.
+const LEAF_Y := -0.1
+const PLATE_MAX_Y := -0.15
 
 var mc: MatchController
 var pack: Pack
@@ -43,7 +47,7 @@ func _process(_delta: float) -> void:
 		_build(team)
 	var c := mc.pad_position()
 	position = Vector3(c.x, 0.0, c.y)
-	_plate.position.y = minf(mc.vehicle.z, 0.0) + 0.05
+	_plate.position.y = minf(mc.vehicle.z + 0.05, PLATE_MAX_Y)
 	var off := mc.pad_leaf_offset()
 	_leaf_left.visible = off >= 0.0
 	_leaf_right.visible = off >= 0.0
@@ -73,8 +77,8 @@ func _build(team: int) -> void:
 	_leaf_ids = [pack.team_variant(["structure.hangar_leaf.left.tan", "structure.hangar_leaf.left.green"], colour),
 			pack.team_variant(["structure.hangar_leaf.right.tan", "structure.hangar_leaf.right.green"], colour)]
 	_leaf_off = -2.0
-	_leaf_left = _quad(_leaf_ids[0], _rect(-8, -15, 8, 16, 0.1))
-	_leaf_right = _quad(_leaf_ids[1], _rect(-8, -15, 8, 16, 0.1))
+	_leaf_left = _quad(_leaf_ids[0], _rect(-8, -15, 8, 16, LEAF_Y))
+	_leaf_right = _quad(_leaf_ids[1], _rect(-8, -15, 8, 16, LEAF_Y))
 	add_child(_leaf_left)
 	add_child(_leaf_right)
 
@@ -108,7 +112,7 @@ func _leaf_mesh(sprite_id: String, centre: float) -> Mesh:
 	var v1 := (sy + sh) / th
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var pts := [Vector3(cx0, 0.1, -15.0), Vector3(cx1, 0.1, -15.0), Vector3(cx1, 0.1, 16.0), Vector3(cx0, 0.1, 16.0)]
+	var pts := [Vector3(cx0, LEAF_Y, -15.0), Vector3(cx1, LEAF_Y, -15.0), Vector3(cx1, LEAF_Y, 16.0), Vector3(cx0, LEAF_Y, 16.0)]
 	var uvs := [Vector2(u0, v0), Vector2(u1, v0), Vector2(u1, v1), Vector2(u0, v1)]
 	for i in [0, 1, 2, 0, 2, 3]:
 		st.set_uv(uvs[i])
