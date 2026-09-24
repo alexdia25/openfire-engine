@@ -725,6 +725,13 @@ func _process(delta: float) -> void:
 	var turn := controls.x
 	var turn_before := heading_deg
 	heading_deg = fposmod(heading_deg + turn * turn_rate_deg * delta, 360.0)
+	if vehicle_type == 1:
+		# the Jeep's road-following steering (FUN_0040db80's block at 0x40dd50, document 94): FUN_0040c390 is only called when a throttle is on (the friction bit is
+		# clear), so the road mask keeps its last value while coasting; with no turn key held the heading is pulled along the road
+		if controls.y != 0.0:
+			_road_mask = _road_mask_here()
+		if turn == 0.0 and _road_mask != 0:
+			heading_deg = RoadAssist.steer(_road_mask, heading_deg, position, turn_rate_deg, delta)
 
 	var thrust := controls.y
 	var terrain_scale := _terrain_speed_scale()
@@ -988,6 +995,19 @@ func _process_heli(delta: float) -> void:
 	position = target
 
 
+var _road_mask := 0   ## DAT_0048c7b0: the direction mask of the road piece the Jeep was last driven on (game/road_assist.gd)
+
+
+## FUN_0040c390's other output: the road mask of the tile under the vehicle, 0 in the air, in water, in swim mode or off the roads.
+func _road_mask_here() -> int:
+	if z > 1.0 or water_class != 0 or (vehicle_type == 1 and swim_amount >= 1.0) or level == null or pack == null:
+		return 0
+	var t := Vector2i((position / pack.tile_size_px).floor())
+	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+		return 0
+	return RoadAssist.mask_for_tile(level.get_art_id(t.x, t.y), level.get_coastal_id(t.x, t.y))
+
+
 ## FUN_0040c390: the tile under the vehicle scales its speed caps -- 1.2x on pavement (art ids
 ## 0x49-0x59 exclusive of both ends' neighbours, i.e. 73..89), else 1.0.
 func _terrain_speed_scale() -> float:
@@ -1003,5 +1023,4 @@ func _terrain_speed_scale() -> float:
 	var t := Vector2i((position / pack.tile_size_px).floor())
 	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
 		return 1.0
-	var art := level.get_art_id(t.x, t.y)
-	return ROAD_SPEED_SCALE if art > 0x48 and art < 0x5a else 1.0
+	return ROAD_SPEED_SCALE if RoadAssist.mask_for_tile(level.get_art_id(t.x, t.y), level.get_coastal_id(t.x, t.y)) != 0 else 1.0
