@@ -268,6 +268,9 @@ func _spawn_match() -> void:
 	_sound = SoundManager.new()
 	add_child(_sound)
 	_sound.setup(pack)
+	var music := MusicManager.new()   # the adaptive music (document 98)
+	add_child(music)
+	music.setup(pack, controller)
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)

@@ -13,6 +13,9 @@ static var camera_swoop_in := true
 ## The temporary placeholder HUD (labels) is not affected.
 static var hud_layout := "modern"
 
+## The music (document 98): played from the pack's music/ folder (tools/extract_music.py). `RF_NO_MUSIC=1` mutes it for one run.
+static var music_enabled := true
+
 ## Mods layered over the original content, in load order (later wins), as folder paths (PORTING_PLAN.md 2.7.9; ModLoader).
 ## Empty = the original game exactly as it is.
 static var enabled_mods: Array = []
@@ -24,10 +27,13 @@ static func load_settings() -> void:
 		camera_swoop_in = bool(cfg.get_value("camera", "swoop_in", camera_swoop_in))
 		enabled_mods = Array(cfg.get_value("mods", "enabled", []))
 		hud_layout = String(cfg.get_value("hud", "layout", hud_layout))
+		music_enabled = bool(cfg.get_value("audio", "music", music_enabled))
 	else:
 		save_settings()
 	if OS.get_environment("RF_NO_SWOOP") == "1":
 		camera_swoop_in = false
+	if OS.get_environment("RF_NO_MUSIC") == "1":
+		music_enabled = false
 	if OS.get_environment("RF_HUD") in ["classic", "modern"]:
 		hud_layout = OS.get_environment("RF_HUD")
 
@@ -37,4 +43,5 @@ static func save_settings() -> void:
 	cfg.set_value("camera", "swoop_in", camera_swoop_in)
 	cfg.set_value("mods", "enabled", enabled_mods)
 	cfg.set_value("hud", "layout", hud_layout)
+	cfg.set_value("audio", "music", music_enabled)
 	cfg.save(PATH)
