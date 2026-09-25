@@ -540,7 +540,7 @@ func _load_layer(dir: String) -> bool:
 	if tdoc.has("tile_size_px"):
 		tile_size_px = int(tdoc["tile_size_px"])
 
-	# Document 35 (docs/process/): a level's tile coastal id can also be a real decoration --
+	# Document 35 (on the project wiki): a level's tile coastal id can also be a real decoration --
 	# optional (an older or hand-authored pack need not have this file at all), and, per
 	# tools/build_pack.py's own note, may simply not list every coastal id a level references
 	# -- get_decoration_parts() below treats an unknown id as "no decoration", not an error.
@@ -646,7 +646,7 @@ func get_tile_sprite_id(art_id: int) -> String:
 
 
 ## Array[{sprite_id: String, flags: int}], one entry per real part this coastal id spawns
-## (document 35, docs/process/) -- empty if this id has no known decoration (most don't have
+## (document 35, on the project wiki) -- empty if this id has no known decoration (most don't have
 ## one *yet*, per tools/data/coastal_decorations.json's own gaps, and 6 real ids genuinely
 ## never had one to begin with; both cases are indistinguishable here on purpose, since
 ## "draw nothing" is the correct behaviour either way).

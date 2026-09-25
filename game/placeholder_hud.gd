@@ -2,7 +2,7 @@ class_name PlaceholderHud
 extends CanvasLayer
 ## PORT-ONLY PLACEHOLDER (not the original interface). Plain labels giving a player what the level needs to be played from start to
 ## finish: the current vehicle, hit points and fuel, what to do next, the keys, and after the win a restart key. Every piece of it is
-## a choice of this port (the fuel and radar are now the traced panel, game/hud_panel.gd), listed under "Untraced choices" in docs/process/NEXT_STEPS.md, to be replaced by the traced interface
+## a choice of this port (the fuel and radar are now the traced panel, game/hud_panel.gd), listed under "Untraced choices" in the GitHub issues (https://github.com/alexdia25/openfire/issues), to be replaced by the traced interface
 ## (the per-player panel of document 66: frame cel 1940, vehicle icon cels 2161-2164, weapon counts drawn with the digit cels 2146-2155,
 ## and the radar). The objective texts are not original messages either (the announcer's are in document 66).
 
