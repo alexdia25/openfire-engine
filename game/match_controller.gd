@@ -167,7 +167,10 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 	var vp: Dictionary = level.vehicle_params
-	vehicle_stock = [int(vp.get("T", 3)), int(vp.get("J", 8)), int(vp.get("A", 3)), int(vp.get("H", 3))]
+	# one stock per roster vehicle, from the level's VHCL letter or the roster's default (document 73; vehicles/roster.json)
+	vehicle_stock = []
+	for entry in pack.vehicle_roster:
+		vehicle_stock.append(int(vp.get(String(entry.get("stock_key", "")), int(entry.get("default_stock", 0)))))
 	_take_stock(vehicle.vehicle_type)   # the first vehicle is created like any other
 	vehicle.mine_layer_enabled = vehicle.mine_layer_enabled or players > 1
 
@@ -757,7 +760,7 @@ func _update_death(delta: float) -> void:
 func _death_tick() -> void:
 	if death_phase == 1:
 		_death_ticks += 1.0
-		if _death_ticks >= DEATH_WAIT_TICKS[vehicle.vehicle_type]:
+		if _death_ticks >= float(pack.vehicle_value(vehicle.vehicle_type, "stats.death_wait_ticks", 120)):
 			death_phase = 2
 			_death_ticks = 0.0
 		return
@@ -841,6 +844,8 @@ func _finish_player_death() -> void:
 
 ## Spends one vehicle of type `t` (false when none is left; 255 is unlimited and never counts down).
 func _take_stock(t: int) -> bool:
+	if t < 0 or t >= vehicle_stock.size():
+		return true   # not a roster vehicle (a mod's extra definition): no stock to count
 	if vehicle_stock[t] == 255:
 		return true
 	if vehicle_stock[t] <= 0:
@@ -850,7 +855,7 @@ func _take_stock(t: int) -> bool:
 
 
 func _return_stock(t: int) -> void:
-	if vehicle_stock[t] != 255:
+	if t >= 0 and t < vehicle_stock.size() and vehicle_stock[t] != 255:
 		vehicle_stock[t] = mini(vehicle_stock[t] + 1, 254)
 
 
@@ -1160,13 +1165,12 @@ func flag_action(v: Vehicle) -> void:
 ## is created and one is taken from its stock, and the type's confirm script runs (the picture slides onto the lift, the lift rises, the view fades out; SelectorAnim).
 ## PORT-ONLY: the keys are the arrows and Space / Enter, M shows the map (the original's other buttons lead to the map window, state 0x4180d0), and no cancel exists.
 const SELECT_NEIGHBOURS := [[0, 1, 3, 0], [0, 1, 2, 1], [3, 2, 2, 1], [3, 2, 3, 0]]   ## [up, down, left, right] for Tank, Jeep, MSV, Heli
-const SCRIPT_NAMES := ["Tank", "Jeep", "MSV", "Heli"]
 var select_anim: SelectorAnim = null
 var undocking := false      ## the confirm script is playing; the new vehicle is on the pad but held (`state +0x70 = 1`) until it ends
 var map_open := false       ## the map window of state 0x4180d0 (the level's radar bitmap in a 144 x 144 frame)
 var view_fade := 1.0        ## the game view's own fade-in after the choice (0x4183e0, 0.07 a tick)
 ## The loss sequence (document 88): phase 0 none, 1 the wreck lies, 2 the skull spins in, 3 the view darkens, 4 the skull laughs, 5 the skull fades.
-const DEATH_WAIT_TICKS := [120.0, 120.0, 120.0, 200.0]   ## vehicle type record +0x260 (0x78, 0x78, 0x78, 0xc8)
+## The wait before it is the vehicle definition's stats.death_wait_ticks (record +0x260: 120, 120, 120, 200).
 const DEATH_SKULL_LEAD_TICKS := 30.0                     ## FUN_00418440: `+0xc8 = now + 0x1e`
 const DEATH_DARKEN_PER_TICK := 1310.0 / 65536.0          ## FUN_00418830
 const DEATH_SKULL_FADE_PER_TICK := 4587.0 / 65536.0      ## FUN_004189a0: 0x11eb
@@ -1197,7 +1201,7 @@ signal selection_changed()
 ## (0.3) units a tick: once past -16 units the view starts fading out, and the object is destroyed only once it has both reached -32 units AND a separate 70-tick
 ## timer has run out (the slower of the two: -32 units at 0.3/tick takes ~107 ticks, so in practice the depth, not the timer, decides). A confirm then creates the
 ## new vehicle on the pad at once, heading 180 degrees (the Heli 135), and the view fades in.
-const DOCK_TOLERANCE := [4.0, 9.0, 4.0, 32.0]   ## by type: record +0x254
+## The dock tolerance is the vehicle definition's stats.dock_tolerance (record +0x254: 4, 9, 4, 32).
 const DOCK_SINK_RATE := 0x4CCC / 65536.0        ## units of depth a tick (FUN_0042efc0/0042f054's shared constant)
 const DOCK_FADE_DEPTH := -16.0                  ## the view starts fading out once the object passes this depth
 const DOCK_MIN_DEPTH := -32.0                   ## the object is not removed above this depth even if the timer has run out
@@ -1236,7 +1240,7 @@ func can_dock(v: Vehicle) -> bool:
 		return false
 	var centre := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
 	var d := v.position - centre
-	var tol: float = DOCK_TOLERANCE[v.vehicle_type]
+	var tol := float(pack.vehicle_value(v.vehicle_type, "stats.dock_tolerance", 4.0))
 	return d.x >= -tol and d.x <= tol and d.y >= -tol and d.y <= tol
 
 
@@ -1425,7 +1429,7 @@ func confirm_selection() -> void:
 	if sel.is_empty():
 		select_anim.finished = true
 	else:
-		select_anim.start_script(sel["scripts"][SCRIPT_NAMES[selection]])
+		select_anim.start_script(sel["scripts"][String(pack.vehicle_value(selection, "selector.script", ""))])
 	selection_changed.emit()
 
 

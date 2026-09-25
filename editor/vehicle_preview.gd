@@ -148,11 +148,10 @@ func _check(parent: Control, text: String) -> CheckBox:
 
 func _fill_pickers() -> void:
 	_type_pick.clear()
-	var keys: Array = ws.pack.vehicle_types.keys()
-	keys.sort_custom(func(a, b): return int(a) < int(b) if String(a).is_valid_int() and String(b).is_valid_int() else String(a) < String(b))
-	for k in keys:
-		_type_pick.add_item("%s  (type %s)" % [ws.pack.vehicle_types[k].get("name", "?"), k])
-		_type_pick.set_item_metadata(_type_pick.item_count - 1, int(k))
+	for i in ws.pack.vehicle_order.size():   # the vehicle definitions, roster first (PORTING_PLAN 2.7.2)
+		var def := ws.pack.vehicle_def(i)
+		_type_pick.add_item("%s  (%s)" % [def.get("name", "?"), def.get("id", "")])
+		_type_pick.set_item_metadata(_type_pick.item_count - 1, i)
 	var keep := _colour_pick.get_item_text(_colour_pick.selected) if _colour_pick.selected >= 0 else "tan"
 	_colour_pick.clear()
 	_colours = ws.pack.team_colours.keys()
@@ -256,12 +255,20 @@ func _slider(label: String, lo: float, hi: float, value: float, apply: Callable,
 
 
 func _update_stats() -> void:
-	var t: Dictionary = ws.pack.vehicle_types.get(str(vehicle.vehicle_type), {})
-	var ammo: Array = t.get("ammo", [0, 0])
-	_stats.text = "%s\nhit points %s   armour %s   fuel %s\nforward %.2f / reverse %.2f units a tick   turn %.2f steps a tick\nammunition %s / %s   parts %d\n(from the pack's vehicle table; traced, documents 45-63)" % [
-		t.get("name", "?"), t.get("hit_points"), snappedf(float(t.get("armor", 0.0)), 0.01), t.get("fuel"),
-		float(t.get("max_forward_per_tick", 0.0)), absf(float(t.get("max_reverse_per_tick", 0.0))),
-		float(t.get("turn_steps_per_tick", 0.0)), ammo[0], ammo[1], t.get("parts", []).size()]
+	var d := ws.pack.vehicle_def(vehicle.vehicle_type)
+	var st: Dictionary = d.get("stats", {})
+	var dr: Dictionary = d.get("drive", {})
+	var ammo: Array = d.get("weapons", {}).get("ammo", [0, 0])
+	var lines := [
+		"%s  (%s)" % [d.get("name", "?"), d.get("id", "")],
+		"hit points %s   armour %s   fuel %s   dock tolerance %s" % [st.get("hit_points"), snappedf(float(st.get("armor", 0.0)), 0.01),
+				st.get("fuel"), st.get("dock_tolerance")],
+		"forward %.2f / reverse %.2f units a tick   turn %.2f steps a tick" % [float(dr.get("max_forward_per_tick", 0.0)),
+				absf(float(dr.get("max_reverse_per_tick", 0.0))), float(dr.get("turn_steps_per_tick", 0.0))],
+		"ammunition %s / %s   parts %d   created sound %s" % [ammo[0], ammo[1], d.get("render", {}).get("parts", []).size(),
+				d.get("events", {}).get("on_create", {}).get("sound", "none")],
+		"(the vehicle definition; %s)" % d.get("_source", "")]
+	_stats.text = "\n".join(lines)
 
 
 func _process(delta: float) -> void:

@@ -12,7 +12,7 @@ const START_PITCH := 64.0                          ## 0x400000
 const NORMAL_PITCH := 24.0                         ## 0x180000
 const HEIGHT_TRIPLE := [0x1999 / 65536.0, 0xccc / 65536.0, 3.0]    ## rig +0x48: {accel 0.1, brake 0.05, max 3.0}
 const PITCH_TRIPLE := [0xa3d / 65536.0, 0x28f / 65536.0, 1.0]      ## rig +0x54: {accel 0.04, brake 0.01, max 1.0}
-const HEIGHT_BY_TYPE := [-170.0, -170.0, -170.0, -100.0]           ## the table at 0x4452c0, by vehicle type (index min(type, 3))
+## The height it swoops to is per vehicle: the definition's camera.swoop_height (the table at 0x4452c0: -170, -170, -170, -100).
 
 var _height: CameraEase
 var _pitch: CameraEase
@@ -20,8 +20,8 @@ var _acc := 0.0
 var done := false
 
 
-func _init(vehicle_type: int) -> void:
-	_height = CameraEase.new(START_HEIGHT, float(HEIGHT_BY_TYPE[clampi(vehicle_type, 0, 3)]), HEIGHT_TRIPLE)
+func _init(target_height: float) -> void:
+	_height = CameraEase.new(START_HEIGHT, target_height, HEIGHT_TRIPLE)
 	_pitch = CameraEase.new(START_PITCH, NORMAL_PITCH, PITCH_TRIPLE)
 
 

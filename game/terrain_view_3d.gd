@@ -709,7 +709,7 @@ func _process(delta: float) -> void:
 	var track_pos := _camera_track_position()
 	var rising := controller != null and controller.pad_rising
 	if rising and not _was_rising and GameSettings.camera_swoop_in and controller.vehicle != null:
-		_swoop = CameraSwoop.new(controller.vehicle.vehicle_type)
+		_swoop = CameraSwoop.new(float(pack.vehicle_value(controller.vehicle.vehicle_type, "camera.swoop_height", -170.0)))
 	_was_rising = rising
 	if _swoop != null:
 		_swoop.advance(delta * Vehicle.TICK_HZ)

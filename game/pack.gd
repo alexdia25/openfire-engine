@@ -36,7 +36,17 @@ var explosions: Dictionary = {}       ## effects/explosions.json: records, coast
 var coastal_shapes: Dictionary = {}      ## "<coastal_id>" -> {jitter, shapes[]} (document 53)
 var projectile_types: Array = []       ## 12 entries (documents 46, 58)
 var projectile_descriptors: Dictionary = {}  ## "0x454580" -> parts with sprite ids
-var vehicle_types: Dictionary = {}    ## "0".."3" -> stats, collision shape, parts (document 57)
+## Vehicle definitions (PORTING_PLAN.md 2.7.2, step 3): id -> the vehicles/<id>/vehicle.json of the topmost layer that has
+## it. `vehicle_order` gives each a runtime index: the roster first (the original four in bay order, so Tank = 0 ... Heli = 3
+## as the traced code expects), then any other definition by id. `vehicle_def(index)` / `vehicle_index(id)` look them up.
+var vehicle_defs: Dictionary = {}
+var vehicle_roster: Array = []        ## vehicles/roster.json "vehicles": [{id, stock_key, default_stock}], from the top layer that has one
+var vehicle_order: Array[String] = []
+## The flat per-type view the code used before definitions ("0".."3" -> stats, shape, parts ...), built from the
+## definitions so existing readers keep working until step 4 moves them onto `vehicle_def()`. A layer's old-style
+## vehicles/vehicle_types.json still applies on top of it, per key.
+var vehicle_types: Dictionary = {}
+var _legacy_vehicle_types: Dictionary = {}
 var radar_data: Dictionary = {}         ## document 69: radar palette indices, their RGB, the flag blip
 var hud_panels: Dictionary = {}         ## document 70: the four vehicles' panel layouts
 var selector_data: Dictionary = {}      ## document 78: the docked vehicle-choice screen
@@ -91,6 +101,7 @@ func load_stack(dirs: Array[String]) -> bool:
 			return false
 	if not _pack_loose_frames():
 		return false
+	_build_vehicle_view()
 	if atlas_textures.is_empty():
 		push_error("Pack.load_stack: no layer provides sprites/sprites.json")
 		return false
@@ -399,6 +410,60 @@ func _make_recolour(source: String, colour: String) -> void:
 	sprites[source + "@" + colour] = entry
 
 
+func _build_vehicle_view() -> void:
+	vehicle_order.clear()
+	for entry in vehicle_roster:
+		var id := String(entry.get("id", ""))
+		if vehicle_defs.has(id) and not id in vehicle_order:
+			vehicle_order.append(id)
+	var rest: Array = vehicle_defs.keys()
+	rest.sort()
+	for id in rest:
+		if not String(id) in vehicle_order:
+			vehicle_order.append(String(id))
+	vehicle_types.clear()
+	for i in vehicle_order.size():
+		vehicle_types[str(i)] = _flat_view(vehicle_defs[vehicle_order[i]])
+	_overlay(vehicle_types, _legacy_vehicle_types)
+
+
+## The pre-definition field names, flattened out of a definition's groups.
+static func _flat_view(def: Dictionary) -> Dictionary:
+	var v := {"id": def.get("id", ""), "name": def.get("name", "")}
+	for group in ["stats", "drive"]:
+		v.merge(def.get(group, {}), true)
+	var w: Dictionary = def.get("weapons", {})
+	v["ammo"] = w.get("ammo", [0, 0])
+	v["weapon_cooldown_ticks"] = w.get("cooldown_ticks", [20, 0])
+	v["shape"] = def.get("shape", {})
+	var r: Dictionary = def.get("render", {})
+	v["parts"] = r.get("parts", [])
+	for extra in ["swim", "rack"]:
+		if r.has(extra):
+			v[extra] = r[extra]
+	return v
+
+
+## The definition at a runtime index ({} if none).
+func vehicle_def(index: int) -> Dictionary:
+	return vehicle_defs.get(vehicle_order[index], {}) if index >= 0 and index < vehicle_order.size() else {}
+
+
+## The runtime index of a definition id (-1 if none).
+func vehicle_index(id: String) -> int:
+	return vehicle_order.find(id)
+
+
+## One field of a definition by dotted path ("stats.dock_tolerance"), or `default` when the definition or field is missing.
+func vehicle_value(index: int, path: String, default: Variant = null) -> Variant:
+	var v: Variant = vehicle_def(index)
+	for key in path.split("."):
+		if not (v is Dictionary) or not v.has(key):
+			return default
+		v = v[key]
+	return v if v != null else default
+
+
 ## A pack id's directory: a sibling of `beside` first, then under res://packs.
 static func _find_pack(id: String, beside: String) -> String:
 	for root in [beside.get_base_dir(), "res://packs"]:
@@ -489,7 +554,16 @@ func _load_layer(dir: String) -> bool:
 	if pdoc.has("types"):
 		projectile_types = pdoc["types"]
 	_overlay(projectile_descriptors, pdoc.get("descriptors", {}))
-	_overlay(vehicle_types, _layer_doc(dir, "vehicles/vehicle_types.json").get("types", {}))
+	_overlay(_legacy_vehicle_types, _layer_doc(dir, "vehicles/vehicle_types.json").get("types", {}))
+	var roster_doc := _layer_doc(dir, "vehicles/roster.json")
+	if roster_doc.has("vehicles"):
+		vehicle_roster = roster_doc["vehicles"]
+	var vd := DirAccess.open(dir.path_join("vehicles"))
+	if vd != null:
+		for sub in vd.get_directories():
+			var def := _layer_doc(dir, "vehicles".path_join(sub).path_join("vehicle.json"))
+			if not def.is_empty():
+				vehicle_defs[String(def.get("id", sub))] = def
 
 	_overlay(selector_data, _layer_doc(dir, "hud/selector.json"))
 	_overlay(hud_panels, _layer_doc(dir, "hud/panels.json"))

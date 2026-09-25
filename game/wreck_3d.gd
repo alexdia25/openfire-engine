@@ -28,8 +28,6 @@ extends Node3D
 ## speed, not a confirmed reproduction of the original's own timing. Flagged in NEXT_STEPS. Also not
 ## reproduced: the tumbling-body render during the fall, and the Heli's trailing shadow object.
 
-const SHADOW_SIZE := 27.0
-const DECAL_SIZE := 24.0
 const SHADOW_ALPHA := 5.0 / 32.0
 
 const TICK_HZ := 62.5
@@ -38,19 +36,10 @@ var _vz := 0.0
 var _height := 0.0
 var _falling := false
 
-## Tank and Jeep share a descriptor (`0x43ece8`/`0x440218`); the MSV's (`0x43f628`) traces to the
-## same corner sizes, just its own cels. Keyed by `Vehicle.vehicle_type`.
-const SETS := {
-	0: {"shadow": "effect.shadow.hard.wreck_small", "a": {"tan": "vehicle.wreck.small.a.tan", "green": "vehicle.wreck.small.a.green"}, "b": {"tan": "vehicle.wreck.small.b.tan", "green": "vehicle.wreck.small.b.green"}},
-	1: {"shadow": "effect.shadow.hard.wreck_small", "a": {"tan": "vehicle.wreck.small.a.tan", "green": "vehicle.wreck.small.a.green"}, "b": {"tan": "vehicle.wreck.small.b.tan", "green": "vehicle.wreck.small.b.green"}},
-	2: {"shadow": "effect.shadow.hard.wreck_large", "a": {"tan": "vehicle.wreck.large.a.tan", "green": "vehicle.wreck.large.a.green"}, "b": {"tan": "vehicle.wreck.large.b.tan", "green": "vehicle.wreck.large.b.green"}},
-}
-## The Heli's single-part descriptor (`0x440fa0`) is not centred: its traced corners span
-## x [-13.6, 13.6], y [-13.6, 40.8] (fixed16.16 / 65536) -- a 27.2 x 54.4 rectangle offset 13.6
-## units off-centre, not a symmetric square like the other three types'.
-const HELI_DECAL := {"tan": "vehicle.wreck.heli.tan", "green": "vehicle.wreck.heli.green"}
-const HELI_HALF := Vector2(13.6, 27.2)
-const HELI_CENTER := Vector2(0.0, 13.6)
+## The quads drawn are the vehicle definition's `wreck.quads` (sprites [tan, green], height, half-size, centre, shadow):
+## Tank and Jeep share a descriptor (`0x43ece8`/`0x440218`); the MSV's (`0x43f628`) traces to the same corner sizes, just
+## its own cels; the Heli's single-part descriptor (`0x440fa0`) is not centred -- its traced corners span x [-13.6, 13.6],
+## y [-13.6, 40.8], a 27.2 x 54.4 rectangle 13.6 units off-centre. Built by tools/build_pack.py (WRECKS).
 
 
 func setup(pack: Pack, team: String, at: Vector2, heading_deg: float, vehicle_type: int = 0, start_height: float = 0.0) -> void:
@@ -58,13 +47,11 @@ func setup(pack: Pack, team: String, at: Vector2, heading_deg: float, vehicle_ty
 	rotation_degrees.y = -heading_deg
 	_height = start_height
 	_falling = start_height > 0.0
-	if vehicle_type == 3:
-		_add_quad(pack, pack.team_variant([HELI_DECAL["tan"], HELI_DECAL["green"]], team), 0.4, false, HELI_HALF, HELI_CENTER)
-	else:
-		var s: Dictionary = SETS.get(vehicle_type, SETS[0])
-		_add_quad(pack, s["shadow"], 0.4, true, Vector2(SHADOW_SIZE, SHADOW_SIZE) * 0.5)
-		_add_quad(pack, pack.team_variant([s["a"]["tan"], s["a"]["green"]], team), 0.6, false, Vector2(DECAL_SIZE, DECAL_SIZE) * 0.5)
-		_add_quad(pack, pack.team_variant([s["b"]["tan"], s["b"]["green"]], team), 2.6, false, Vector2(DECAL_SIZE, DECAL_SIZE) * 0.5)
+	for q in pack.vehicle_value(vehicle_type, "wreck.quads", []):
+		var half: Array = q.get("half", [12, 12])
+		var centre: Array = q.get("center", [0, 0])
+		_add_quad(pack, pack.team_variant(q["sprites"], team), float(q.get("height", 0.6)), bool(q.get("shadow", false)),
+				Vector2(float(half[0]), float(half[1])), Vector2(float(centre[0]), float(centre[1])))
 	position.y = _height
 
 
