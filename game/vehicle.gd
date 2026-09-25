@@ -29,15 +29,9 @@ const FRICTION := 0.025 * TICK_HZ * TICK_HZ ## 0x0666/65536 units/tick^2 when no
 const ROAD_SPEED_SCALE := 1.2  ## 0x13333/65536
 const TURN_RATE_DEG := 0.25 * 5.625 * TICK_HZ  ## 87.9 deg/s
 
-## Phase 4 step 4: firing. The Tank's cooldown is traced (weapon slot at record +0x194, +0x10 =
-## 20 ticks = 0.32 s; FUN_0040d240 -- document 45). Ammo (150 rounds, refilled on rearm tiles)
-## is not modelled; the muzzle offset is traced (below).
-const FIRE_COOLDOWN_SEC := 20.0 / TICK_HZ
-## Muzzle position, traced (document 52): FUN_0040d240 builds it with FUN_00402bf0 from the point
-## (0, -6.75, 0) rotated by the gun's pitch about the pivot (0, -5.25, 7): at level fire 12 units
-## in front of the vehicle's centre (the hull's front edge) and 7 units up.
-const MUZZLE_OFFSET_PX := 12.0
-const MUZZLE_HEIGHT_PX := 7.0
+## Firing, turning the turret, flying, swimming and the rest of each vehicle's own behaviour are behaviour modules
+## (game/vehicle_modules/, PORTING_PLAN.md 2.7.2 step 4) that the vehicle definition names; this class holds the state
+## they act on (the original's per-player state block) and the parts every vehicle shares.
 
 ## Hit points and armour, traced (document 47): the Tank record's `+0x28` = 22.0 is its hit points
 ## and `+0x24` = 0.3 its armour; FUN_0040c460 ignores a hit whose damage does not exceed the armour
@@ -87,10 +81,8 @@ var level: LevelData  ## optional: enables the terrain speed scale
 var heading_deg: float = 0.0  ## 0 = facing +X (screen right), increases clockwise
 var speed: float = 0.0
 var _fire_cooldown_remaining: float = 0.0
-const MINE_COOLDOWN_SEC := 140.0 / TICK_HZ
 var _mine_cooldown_remaining := 0.0
 var _debug_mine: bool = OS.get_environment("RF_DEBUG_MINE") == "1"
-const MSV_SALVO_X := [-1.5, 0.0, 1.5]
 var _salvo_index := 0
 var _salvo_reload := 0.0
 var hp: float = MAX_HP
@@ -148,6 +140,14 @@ var blocked_test: Callable = Callable()
 var alive: bool = true
 var frozen := false  ## the match is over: no input, no movement
 
+## The behaviour modules the vehicle definition names (PORTING_PLAN.md 2.7.2, step 4; game/vehicle_modules/): one per slot
+## of the original's vehicle-type record. `aim` and `water` may be null (the Jeep has no gun mount; the Heli never asks
+## about water); `weapons` is the record's weapon slots in order (slot 0 is the primary, fired through `aim` if there is one).
+var drive: VehicleModule
+var aim: VehicleModule
+var weapons: Array[VehicleModule] = []
+var water: VehicleModule
+
 
 func setup(shared_pack: Pack) -> void:
 	pack = shared_pack
@@ -193,31 +193,12 @@ func _wants_mine() -> bool:
 	return _debug_mine or Input.is_key_pressed(KEY_M)
 
 
-## The MSV's mine layer (record slot 1, handler FUN_0040d820; document 60): one mine every 140 ticks, placed at
-## (x + dirx * 0, y + diry * 5.0) where (dirx, diry) is the unit heading vector and 0 / 5.0 are the slot's two offset
-## fields at +4 / +8. As coded that moves it only along y (in front of a north- or south-facing vehicle, on top of
-## an east- or west-facing one). Not modelled: the ammo (10), the deep-water refusal (FUN_0042f410 == 2; water is
-## untraced) and the key bits (the original reads button C, here `M`).
-func _drop_mine() -> void:
-	var rad := deg_to_rad(heading_deg)
-	var at := position + Vector2(0.0, sin(rad) * 5.0)
-	# FUN_0040d820 / FUN_00409e30: no mine while the vehicle's water state or the drop point is deep water (2)
-	if water_class == 2 or (level != null and pack != null and Water.class_at(level, pack, at) == 2):
-		return
-	if ammo[1] < 1 and not infinite_ammo:   # FUN_0040d820: `st[+0xc] > 0` is a condition, there is no click
-		return
-	if not infinite_ammo:
-		ammo[1] -= 1
-	_mine_cooldown_remaining = MINE_COOLDOWN_SEC
-	mine_dropped.emit(at)
-
-
 ## FUN_0040b980: when the vehicle stands still on its pad, any of the three fire buttons (bits 0x20, 0x100, 0x800 of the input word) docks it and the
 ## weapon dispatch is skipped for the tick (document 77).
 func _dock_pressed() -> bool:
 	if not dock_check.is_valid():
 		return false
-	var buttons := _wants_to_fire() or _wants_raised() or (vehicle_type == 2 and _wants_mine())
+	var buttons := _wants_to_fire() or _wants_raised() or (has_module("mine_layer") and _wants_mine())
 	if buttons and dock_check.call(self):
 		dock_requested.emit()
 		return true
@@ -256,8 +237,9 @@ func _apply_type() -> void:
 		ammo_max[i] = int(am[i])
 		ammo[i] = ammo_max[i]
 		weapon_cooldown_ticks[i] = int(cd[i])
-	if vehicle_type == 3:
-		_start_heli_spinup()
+	_build_modules()
+	if drive != null and drive.has_method("start"):
+		drive.start(self)   # the record's state handler runs a start-up first (the Heli's rotor, document 79)
 	else:
 		rotor_speed_steps = 0.0
 	# FUN_0040b980's panel-activation block plays the record's "created" sound (+0x240, document 82): the definition's
@@ -266,6 +248,40 @@ func _apply_type() -> void:
 	var created: Variant = pack.vehicle_value(vehicle_type, "events.on_create.sound")
 	if created != null:
 		sound_cue.emit(String(created))
+
+
+## The modules of the current definition (drive.model, aim.model, weapons.slots[n].handler, water.model, each with its
+## parameters over the module's traced defaults).
+func _build_modules() -> void:
+	var def := pack.vehicle_def(vehicle_type)
+	drive = VehicleModules.create(String(def.get("drive", {}).get("model", "ground")), def.get("drive", {}).get("params", {}))
+	aim = VehicleModules.create(String(def.get("aim", {}).get("model", "none")), def.get("aim", {}).get("params", {}))
+	water = VehicleModules.create(String(def.get("water", {}).get("model", "hull_water")), def.get("water", {}).get("params", {}))
+	weapons.clear()
+	for slot in def.get("weapons", {}).get("slots", []):
+		var w := VehicleModules.create(String(slot.get("handler", "")), slot.get("params", {}))
+		if w != null:
+			weapons.append(w)
+
+
+## True if one of the vehicle's modules is `name` (e.g. "mine_layer").
+func has_module(name: String) -> bool:
+	for m in [drive, aim, water] + weapons:
+		if m != null and m.get_script() == VehicleModules.MODULES.get(name):
+			return true
+	return false
+
+
+func _module(name: String) -> VehicleModule:
+	for m in [drive, aim, water] + weapons:
+		if m != null and m.get_script() == VehicleModules.MODULES.get(name):
+			return m
+	return null
+
+
+## A raised shot's pitch (degrees up): the gun mount's, or 0 without one.
+func raised_pitch_deg() -> float:
+	return aim.raised_pitch_deg() if aim != null else 0.0
 
 
 ## Spends one round of `slot` (the handlers' `ammo -= 1`). False, with the empty click and the slot's cooldown, when it is empty
@@ -303,19 +319,8 @@ func rearm(delta: float) -> void:
 		sound_cue.emit("Ding")
 
 
-## The Tank's gun is traced (documents 45, 52); the Jeep's machine gun (its slot handler FUN_0040df00 ->
-## FUN_00415b00) is not, so only the Tank fires.
-## The Tank's turret and gun elevation (FUN_0040d460, FUN_0040d240, FUN_00402dc0; document 64).
-##  - state +0x58 is the turret's angle from the hull's heading (clockwise), free over the full circle; while the turret-left
-##    (0x4000) or turret-right (0x8000) input is held it moves 0.3 steps (1.69 degrees) a tick; any other of the bits
-##    0xd000 (0x1000) sends it back to 0; with none of them held it keeps its angle. Shots leave along heading + angle.
-##  - state +0x50 is the gun's elevation (raised 25 degrees at most) and follows state +0x54, its target, at the same rate.
-##    The first fire button (level) sets the target 0, the second (raised) sets it to 25 degrees; a shot needs the gun to be
-##    exactly at 0 (pitch 0) or at 25 (pitch 40 degrees up, shell type 0), otherwise the request waits (state +0x60) and is
-##    made again the tick the gun arrives. The gun STAYS raised until a level shot is asked for.
-const TANK_TURN_STEPS := 0x4ccc / 65536.0     ## 0.3 steps a tick
-const TANK_RAISE_DEG := 25.0                  ## 0x3b8e39 = 335 degrees: 25 up
-const TANK_RAISED_PITCH_DEG := 40.0           ## DAT_00445484 = 0x38e38f: 40 up
+## The gun mount's state (game/vehicle_modules/gun_mount.gd, document 64): the turret's angle from the hull (state +0x58),
+## the gun's elevation (+0x50) and its target (+0x54), and a shot waiting for the gun to arrive (+0x60).
 var turret_deg := 0.0
 var gun_elev_deg := 0.0
 var _turret_target := 0.0
@@ -333,50 +338,9 @@ func _wants_raised() -> bool:
 	return Input.is_key_pressed(KEY_Z)
 
 
-## A point (x, y, z), y = minus forward, turned by `a` radians about the lateral axis with the matrix of FUN_0041ae10
-## ([1 0 0; 0 c s; 0 -s c] on a row vector): positive is downward.
-func _pitch_point(p: Vector3, a: float) -> Vector3:
-	return Vector3(p.x, p.y * cos(a) - p.z * sin(a), p.y * sin(a) + p.z * cos(a))
-
-
-func _tank_tick(delta: float) -> void:
-	var ticks := delta * TICK_HZ
-	var step := TANK_TURN_STEPS * 5.625 * ticks
-	var keys := _aim_keys() if vehicle_type == 0 else [false, false, false]
-	var left: bool = keys[0]
-	var right: bool = keys[1]
-	var recentre: bool = keys[2]
-	if left != right or recentre:
-		if left and not recentre:
-			_turret_target = turret_deg - step
-		elif right and not recentre:
-			_turret_target = turret_deg + step
-		else:
-			_turret_target = 0.0
-	var d := wrapf(_turret_target - turret_deg, -180.0, 180.0)
-	turret_deg = fposmod(turret_deg + clampf(d, -step, step), 360.0)
-	gun_elev_deg = move_toward(gun_elev_deg, _gun_target, step)
-	if _fire_pending and gun_elev_deg == _gun_target:
-		_fire_pending = false
-		_tank_trigger(_gun_target > 0.0)
-
-
-## One press of a fire button (FUN_0040d240). `raised` is the second button.
-func _tank_trigger(raised: bool) -> void:
-	_gun_target = TANK_RAISE_DEG if raised else 0.0
-	if gun_elev_deg != 0.0 and gun_elev_deg != TANK_RAISE_DEG:
-		_fire_pending = true
-		return
-	if gun_elev_deg != _gun_target:
-		_fire_pending = true  # the gun has to move first
-		return
-	if _fire_cooldown_remaining <= 0.0:
-		_fire_pending = false
-		_fire()
-
-
+## Whether the vehicle has a weapon fired by the primary button (not the self-driven kinds, the Heli's guns or a mine layer).
 func fire_enabled() -> bool:
-	return vehicle_type == 0 or vehicle_type == 1 or vehicle_type == 2
+	return not weapons.is_empty() and not weapons[0].SELF_DRIVEN
 
 
 ## Set by the match controller: (Vehicle) -> Vector2, the point the Jeep missile is lobbed at.
@@ -404,115 +368,22 @@ func salvo_reload_remaining() -> float:
 	return _salvo_reload
 
 
-## One trigger pull. Tank: FUN_0040d240 (documents 45, 52). MSV: FUN_0040d520 in level fire (document 58): rockets
-## (projectile type 8) leave three launcher positions in turn from (x, -8.96, 10.54) in its own frame, 30 ticks
-## apart, with a back-blast at (x, +7.53, 11.05); after the third the launcher reloads for 6.0 / 0.15 = 40 ticks
-## (FUN_0040d790). The elevated variant (type 9) needs the gun-raise state and is not modelled.
+## One trigger pull of the primary weapon (the record's slot 0 handler: the cannon, rocket salvo or lobbed missile module).
+## An empty slot clicks and sets the slot's cooldown (`if (ammo < 1) { click; ready = now + cooldown; return }`).
 func _fire() -> void:
-	var rad := deg_to_rad(heading_deg)
-	var fwd := Vector2(cos(rad), sin(rad))
-	var right := Vector2(-fwd.y, fwd.x)
-	var spec := {"team": team, "colour": art_colour(), "heading": heading_deg}
-	if vehicle_type == 2 and _salvo_reload > 0.0:
+	if weapons.is_empty() or weapons[0].SELF_DRIVEN:
+		return
+	var w := weapons[0]
+	if not w.can_fire(self):
 		return
 	if not _spend_ammo(0):
 		_fire_cooldown_remaining = float(weapon_cooldown_ticks[0]) / TICK_HZ   # ready = now + the slot's cooldown
 		return
-	if vehicle_type == 0:
-		_fire_cooldown_remaining = FIRE_COOLDOWN_SEC
-		sound_cue.emit("Cannon")   # FUN_0040d240, document 64/82: the Tank's turret fire
-		# FUN_0040d240 (document 64): the shot goes along the hull heading plus the turret angle (state +0x58). The muzzle is
-		# the point (0, -6.75, 0) turned by the shot's pitch (a raised gun: -40 degrees, i.e. 40 degrees up) plus (0, -5.25, 7).
-		var h := heading_deg + turret_deg
-		var hr := deg_to_rad(h)
-		var shot_fwd := Vector2(cos(hr), sin(hr))
-		var raised := gun_elev_deg > 0.0
-		var reach := 12.0
-		var height := MUZZLE_HEIGHT_PX
-		if raised:
-			var pr := deg_to_rad(TANK_RAISED_PITCH_DEG)
-			reach = 6.75 * cos(pr) + 5.25
-			height = 6.75 * sin(pr) + 7.0
-			spec["pitch_deg"] = -TANK_RAISED_PITCH_DEG
-		spec["heading"] = h
-		spec["type"] = 0
-		spec["position"] = position + shot_fwd * reach
-		spec["z"] = height + z
-		spec["flash"] = {"record": "0x445138", "yaw": turret_deg,
-				"offset": Vector3(reach * sin(deg_to_rad(turret_deg)), reach * cos(deg_to_rad(turret_deg)), height + z)}
-	elif vehicle_type == 2:
-		var x: float = MSV_SALVO_X[_salvo_index]
-		_fire_cooldown_remaining = 30.0 / TICK_HZ
-		# FUN_0040d520 (document 64): the two points (0, -15, -1) (rocket) and (0, 1.5, -1) (back-blast) are turned by the
-		# shot's pitch (level: 1.744 degrees down; raised: 40 degrees up), then the salvo's offset (x, 6, 12) is added.
-		# The rocket type is 8, or 9 when raised; FUN_00415480 then turns its (x, y, 0) by the pitch's TABLE row (a step of
-		# 5.625 degrees, -45 for the raised gun) and adds the height again, so the raised rocket leaves from (x, 4.3 ahead, 25.2).
-		var raised := gun_elev_deg > 0.0
-		var a := deg_to_rad(-TANK_RAISED_PITCH_DEG if raised else 1.744)
-		var p0 := _pitch_point(Vector3(0.0, -15.0, -1.0), a) + Vector3(x, 6.0, 12.0)
-		var p1 := _pitch_point(Vector3(0.0, 1.5, -1.0), a) + Vector3(x, 6.0, 12.0)
-		var launch_y := p0.y
-		var launch_z := p0.z
-		if raised:
-			var row := deg_to_rad(-45.0)  # table row 56 (0x38e38f >> 16)
-			launch_z = p0.y * sin(row) + p0.z
-			launch_y = p0.y * cos(row)
-			spec["pitch_deg"] = -TANK_RAISED_PITCH_DEG
-		spec["type"] = 9 if raised else 8
-		spec["position"] = position + fwd * -launch_y + right * x
-		spec["z"] = launch_z + z
-		spec["flash"] = {"record": "0x4450d8", "offset": Vector3(x, -p1.y, p1.z + z)}
-		_salvo_index += 1
-		if _salvo_index >= 3 or ammo[0] < 1:   # the last rocket of the stock also starts the reload (FUN_0040d520)
-			_salvo_index = 0
-			_salvo_reload = 40.0
-	elif vehicle_type == 1:
-		# FUN_0040df00 / FUN_00415b00 / FUN_004159a0 (document 61): a lobbed missile from the vehicle's own position,
-		# 5 units up, every 30 ticks; the target point comes from FUN_00415b00's rules (the controller's aim_target).
-		_fire_cooldown_remaining = 30.0 / TICK_HZ
-		spec["kind"] = "missile"
-		spec["type"] = -1
-		spec["position"] = position
-		spec["z"] = 5.0
-		spec["target"] = aim_target.call(self) if aim_target.is_valid() else random_aim_point()
+	var spec := {"team": team, "colour": art_colour(), "heading": heading_deg}
+	w.fill_shot(self, spec)
 	shot.emit(spec)
 	if _debug_fire:
 		print("frame=%d shot %s" % [Engine.get_process_frames(), spec])
-
-
-
-## FUN_0040b980's movement step (document 54). The turn is already applied to `heading_deg` and the speed
-## updated; the displacement is speed x the new heading. Standing still, a turn that would overlap something
-## is undone. Moving, if the new place overlaps: undo the turn and try the same displacement with the old
-## heading; if that also overlaps, do not move and bounce back at a quarter of the speed (-speed >> 2).
-func _move(heading_before: float, delta: float) -> void:
-	moving = speed != 0.0 or heading_deg != heading_before
-	if speed != 0.0:
-		fuel -= absf(speed) * delta / 32.0
-		if fuel <= 0.0:
-			fuel = 0.0
-			if alive:
-				_die()
-			return
-	var rad := deg_to_rad(heading_deg)
-	var step := Vector2(cos(rad), sin(rad)) * speed * delta
-	var target := position + step
-	if not blocked_test.is_valid():
-		position = target
-		return
-	if speed == 0.0:
-		if heading_deg != heading_before and blocked_test.call(self, position, heading_deg):
-			heading_deg = heading_before
-		return
-	if not blocked_test.call(self, target, heading_deg):
-		position = target
-		return
-	if heading_deg != heading_before and not blocked_test.call(self, target, heading_before):
-		heading_deg = heading_before
-		position = target
-		return
-	heading_deg = heading_before
-	speed = -speed * 0.25
 
 
 ## FUN_0040c460: returns true if the hit did anything.
@@ -529,19 +400,17 @@ var swim_target := 0.0
 var swim_amount := 0.0
 var sink_depth := 14.0
 var _sinking := false
-const SWIM_RAMP_PER_TICK := 1092.0 / 65536.0
-const SINK_PER_TICK := 0x6666 / 65536.0  ## 0.4
 
 
-## FUN_0040dfe0, the Jeep's second button: enter swim mode while in water (either kind) and not yet swimming; leave
-## it when not in deep water. Anything else does nothing.
+## The second button of a vehicle that can swim (the Jeep, FUN_0040dfe0): toggles swim mode (game/vehicle_modules/hull_water.gd).
 func toggle_swim() -> void:
-	if vehicle_type != 1 or not alive:
-		return
-	if water_class != 0 and swim_target == 0.0:
-		swim_target = 1.0
-	elif water_class != 2 and swim_target == 1.0:
-		swim_target = 0.0
+	if water != null and alive:
+		water.toggle_swim(self)
+
+
+## True for a vehicle whose water module can swim (the Jeep).
+func _swims() -> bool:
+	return water != null and water.b("can_swim")
 
 
 ## FUN_0040b980, the panel tick: `if (fuel_max << 13 > fuel) and now >= next_allowed_tick: play FuelWarn; next_allowed_tick = now + 120`.
@@ -556,38 +425,10 @@ func _process_fuel_warn(delta: float) -> void:
 func _update_water(delta: float) -> void:
 	if level == null or pack == null:
 		return
-	if vehicle_type == 3:
-		water_class = 0  # the Heli's record has no water handler (+0x4c is 0): FUN_0042f280 is never asked for it
+	if water == null:
+		water_class = 0  # no water handler (the Heli's +0x4c is 0): FUN_0042f280 is never asked
 		return
-	var ticks := delta * TICK_HZ
-	var _water_class_before := water_class
-	water_class = Water.class_at(level, pack, position, hit_polygon(), z)
-	if _water_class_before == 0 and water_class != 0:
-		sound_cue.emit("TireIn")   # PORT CHOICE, untraced trigger: Sound/Tirein.SDT on the land->water transition (document 82)
-	elif _water_class_before != 0 and water_class == 0:
-		sound_cue.emit("TireOut")  # PORT CHOICE, untraced trigger: Sound/Tireout.SDT on the water->land transition (document 82)
-	if swim_amount != swim_target:
-		swim_amount = move_toward(swim_amount, swim_target, SWIM_RAMP_PER_TICK * ticks)
-	var swimming := vehicle_type == 1 and swim_target == 1.0
-	if not _sinking:
-		if water_class == 2 and not swimming:
-			_sinking = true
-		return
-	if water_class == 0:
-		_sinking = false
-		z = 0.0
-	elif water_class == 1 or swimming:
-		z += SINK_PER_TICK * ticks
-		if z >= 0.0:
-			z = 0.0
-			_sinking = false
-	else:
-		z -= SINK_PER_TICK * ticks
-		if floorf(z) <= -floorf(sink_depth):
-			z = 1.0 - sink_depth
-			alive = false
-			_sinking = false
-			drowned.emit(self)
+	water.update(self, delta)
 
 
 ## After a hit the original draws the vehicle in variant 2 (the "yellow" cels) until `state+0x4c` = hit tick + 10
@@ -669,8 +510,8 @@ func respawn(at: Vector2) -> void:
 	zone_kind = 0
 	speed = 0.0
 	_reset_water()
-	if vehicle_type == 3:
-		_start_heli_spinup()
+	if drive != null and drive.has_method("start"):
+		drive.start(self)
 	alive = true
 
 
@@ -717,76 +558,47 @@ func _process(delta: float) -> void:
 		heading_deg = float(_debug_heading)
 		return
 
-	if vehicle_type == 3:
-		_process_heli(delta)
+	if drive == null:
 		return
-
-	var controls := _get_controls()
-	if vehicle_type == 1 and controls.y == 0.0 and controls.x != 0.0:
-		# the Jeep's own drive handler (FUN_0040db80, document 62): turning without a throttle key accelerates
-		controls.y = 1.0
-	var turn := controls.x
-	var turn_before := heading_deg
-	heading_deg = fposmod(heading_deg + turn * turn_rate_deg * delta, 360.0)
-	if vehicle_type == 1:
-		# the Jeep's road-following steering (FUN_0040db80's block at 0x40dd50, document 94): FUN_0040c390 is only called when a throttle is on (the friction bit is
-		# clear), so the road mask keeps its last value while coasting; with no turn key held the heading is pulled along the road
-		if controls.y != 0.0:
-			_road_mask = _road_mask_here()
-		if turn == 0.0 and _road_mask != 0:
-			heading_deg = RoadAssist.steer(_road_mask, heading_deg, position, turn_rate_deg, delta)
-
-	var thrust := controls.y
-	var terrain_scale := _terrain_speed_scale()
-	if thrust > 0.0:
-		speed = minf(speed + accel * delta, max_speed * terrain_scale)
-	elif thrust < 0.0:
-		speed = maxf(speed - brake * delta, -reverse_max_speed * terrain_scale)
-	else:
-		speed = move_toward(speed, 0.0, friction * delta)
-
-	_move(turn_before, delta)
-
+	if drive.has_method("tick_startup") and drive.tick_startup(self, delta):
+		return   # the record's state handler runs alone until its start-up is done (the Heli, document 79)
+	if drive.get("WEAPONS_FIRST"):
+		# the rotor drive handler FUN_0040e0e0: the dock check and the weapons come before the flight step. The shared fire
+		# cooldown and salvo reload count down here too: the Heli's own guns keep their own cooldowns and never read them, but a
+		# ground weapon on a rotor vehicle (a mod's recombination) needs them to become ready again.
+		_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
+		_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
+		if _dock_pressed():
+			return
+		_weapons_tick(delta)
+		drive.tick(self, delta)
+		return
+	drive.tick(self, delta)
 	_fire_cooldown_remaining = maxf(_fire_cooldown_remaining - delta, 0.0)
 	_salvo_reload = maxf(_salvo_reload - delta * TICK_HZ, 0.0)
 	if _dock_pressed():
 		return
-	if vehicle_type == 0 or vehicle_type == 2:
-		_tank_tick(delta)
+	_weapons_tick(delta)
+
+
+## The weapons for one tick: a gun mount turns and elevates and fires the primary weapon when a fire button asks (level or
+## raised), else the primary fires straight from the fire button; then the self-driven weapons (the Heli's guns, a mine
+## layer) run themselves.
+func _weapons_tick(delta: float) -> void:
+	if aim != null:
+		aim.tick(self, delta)
 		if _wants_to_fire():
-			_tank_trigger(false)
+			aim.trigger(self, false)
 		elif _wants_raised():
-			_tank_trigger(true)
+			aim.trigger(self, true)
 	elif fire_enabled() and _wants_to_fire() and _fire_cooldown_remaining <= 0.0:
 		_fire()
-	_mine_cooldown_remaining = maxf(_mine_cooldown_remaining - delta, 0.0)
-	if vehicle_type == 2 and mine_layer_enabled and _wants_mine() and _mine_cooldown_remaining <= 0.0:
-		_drop_mine()
+	for w in weapons:
+		if w.SELF_DRIVEN:
+			w.tick(self, delta)
 
 
-
-## The Heli (vehicle type 3; its drive handler FUN_0040e0e0, document 63). Flight, as traced:
-##  - the speed changes like the ground vehicles' (accelerate, brake, friction; record +0x168..0x174) but there is
-##    no terrain factor; the heading turns by an angular velocity `heli_omega` (steps of 5.625 degrees per tick) that
-##    follows +-0.75 (record +0x178) at 0.03 per tick per tick when it is building up and 0.12 when it is slowing or
-##    reversing (0x445498 / 0x44549c);
-##  - the flight direction is the heading rounded down to one of 64 steps; two more keys strafe sideways at 0.8
-##    units a tick (only while not turning), and the velocity the vehicle actually moves with follows the sum of
-##    those at 0.03 units per tick per tick (state +0x98 / +0x9c);
-##  - it climbs 0.5 a tick to a height of 50 and stays there;
-##  - it banks (state +0x88) toward +-3 steps while turning or strafing, at 0.02 a tick and back at 0.16, the turn
-##    bank scaled by the speed below 1.0 (none while hovering); its nose pitch (obj +0x70) is 1.5 x its speed in
-##    steps. Both tilt the drawing (FUN_0041b590; the matrices at 0x458c38 / 0x458c60 make positive pitch dip the nose and
-##    a negative bank, the one a right turn sets, lower the right side: traced, document 63).
-const HELI_CEILING := 50.0
-const HELI_CLIMB_PER_TICK := 0x8000 / 65536.0
-const HELI_TURN_UP := 0x7ae / 65536.0
-const HELI_TURN_DOWN := 0x1eb8 / 65536.0
-const HELI_STRAFE := 0xcccc / 65536.0
-const HELI_VEL_RATE := 0x7ae / 65536.0
-const HELI_BANK_STEPS := 3.0
-const HELI_BANK_RISE := 0x147a / 65536.0
-const HELI_BANK_FALL := 0x28f4 / 65536.0
+## Rotor flight state (game/vehicle_modules/rotor_drive.gd, document 63): angular velocity, velocity, bank (state +0x88).
 var heli_omega := 0.0            ## heading change, steps per tick
 var heli_vel := Vector2.ZERO     ## world velocity, units per tick
 var bank_steps := 0.0
@@ -801,54 +613,36 @@ func bank_deg() -> float:
 	return bank_steps * 5.625
 
 
-func _dir_for(heading: float, offset_steps: int = 0) -> Vector2:
-	var idx := floori(fposmod(heading + 90.0, 360.0) / 5.625) + offset_steps
-	var h := deg_to_rad(idx * 5.625 - 90.0)
-	return Vector2(cos(h), sin(h))
-
-
-## The Heli's start-up (document 79): every time a Heli object is created (initial spawn, undocking, or this port's in-place respawn) the record's
-## state handler runs a short sequence before the drive handler (FUN_0040e0e0) gets normal control: FUN_0040e8c0 accumulates state+0x58 by 1179/65536
-## a tick (silent, ~55.6 ticks = 0.89 s) then plays sound 0x44b550 and switches to FUN_0040e930, which ramps state+0x84 -- **the same field that drives
-## the live rotor's spin, document 63's "4 steps of 5.625 degrees a tick"** -- from 0 up by 1638/65536 a tick (~160 ticks = 2.56 s) to 4.0; only then
-## does FUN_0040e9c0 hand over to the steady per-tick rotor updater FUN_0040eab0 and the climb to hover height (already modelled: HELI_CLIMB_PER_TICK)
-## can proceed, since nothing raises state+0x48 (z) before that. So the whole thing is: silence, then the rotor visibly spins up, then it climbs.
-const HELI_SPINUP_A_RATE := 1179.0 / 65536.0    ## state+0x58 a tick (stage 1, silent)
-const HELI_SPINUP_B_RATE := 1638.0 / 65536.0    ## state+0x84 a tick (stage 2, the rotor ramps up)
+## The rotor's start-up and landing state (rotor_drive.gd; documents 79, 86).
 var heli_spinup_stage := 0        ## 0 done/flying, 1 blade accel (silent), 2 rotor ramp-up
 var _heli_spinup_progress := 0.0  ## stage 1's accumulator (0..1)
 var rotor_speed_steps := 4.0      ## the renderer's rotor speed (document 63's constant 4.0), ramped by stage 2
-
-## Landing (2026-09-23), the reverse of the start-up above, called by MatchController once the automatic
-## descent (document 77) reaches the ground: FUN_0040ecd0 decrements rotor_speed_steps at the SAME rate
-## the start-up ramps it up (HELI_SPINUP_B_RATE), but only down to a floor of 0.5 (0x8000), not to 0 --
-## then plays "Servo" once there (the original also checks the blade's own angle is close to a resting
-## position before finishing; that exact-tick alignment is NOT reproduced, a port choice, since nothing
-## in this file's rendering distinguishes one rotor angle from another as "settled"). FUN_0040ede0 then
-## runs a second timer down from 1.0 at HELI_SPINUP_A_RATE (the start-up's own silent-phase rate,
-## reversed) before the vehicle is released to actually dock.
-const HELI_ROTOR_LANDING_FLOOR := 0.5
 var heli_landing_gear_progress := 1.0
 
-
+## The landing at the pad (run by the match once the descent is down; rotor_drive.gd, document 86): the rotor spin-down,
+## then the gear timer. Each returns true when its stage is done.
 func process_heli_landing_rotor(delta: float) -> bool:
-	if rotor_speed_steps <= HELI_ROTOR_LANDING_FLOOR:
-		return true
-	rotor_speed_steps = maxf(rotor_speed_steps - HELI_SPINUP_B_RATE * delta * TICK_HZ, HELI_ROTOR_LANDING_FLOOR)
-	if rotor_speed_steps <= HELI_ROTOR_LANDING_FLOOR:
-		sound_cue.emit("Servo")
-	return false
+	return drive.landing_rotor(self, delta) if drive != null and drive.has_method("landing_rotor") else true
 
 
 func process_heli_landing_gear(delta: float) -> bool:
-	heli_landing_gear_progress = maxf(heli_landing_gear_progress - HELI_SPINUP_A_RATE * delta * TICK_HZ, 0.0)
-	return heli_landing_gear_progress <= 0.0
+	return drive.landing_gear(self, delta) if drive != null and drive.has_method("landing_gear") else true
 
 
-func _start_heli_spinup() -> void:
-	heli_spinup_stage = 1
-	_heli_spinup_progress = 0.0
-	rotor_speed_steps = 0.0
+## The definition's rules and capabilities (PORTING_PLAN.md 2.7.2): e.g. rule("terrain.blocked_by_bushes") -- the tile
+## callbacks FUN_00436640 / FUN_00436610 test the Jeep's type itself, the definition names what that test means.
+func rule(path: String) -> bool:
+	return bool(pack.vehicle_value(vehicle_type, path, false)) if pack != null else false
+
+
+## True for a vehicle that picks up, carries and captures the flag (the Jeep; documents 54, 65).
+func carries_flags() -> bool:
+	return rule("flags.carries_flag")
+
+
+## True for a vehicle that lands on the pad before it docks (the rotor drive; the record's +0x258 is 0x40eb00).
+func lands_before_docking() -> bool:
+	return drive != null and drive.has_method("landing_rotor")
 
 
 ## Stage 1's own accumulator (0..1, state+0x58) -- read by the renderer (document 85 addendum) to
@@ -857,22 +651,17 @@ func heli_spinup_progress() -> float:
 	return _heli_spinup_progress
 
 
-## The Heli's weapons (FUN_0040e600 and FUN_0040e7a0; document 63). Two slots, picked by `toggle_heli_slot()` (the third
-## button): 0 fires projectile type 7 every 15 ticks, 1 type 6 (a ballistic bomb) every 30. Either of two fire buttons
-## fires the selected slot from alternating left and right mounts at (+-9.35, 6.8 ahead, 0) of the Heli. The first
-## button (`Space`) is the downward one: guns fire 39.4 degrees down (pitch step 7) toed in by 0.5 step, bombs level; the
-## second (`Z`) fires level with no toe-in. The launcher's forward speed is added to the shot's. Not modelled: ammo (gun
-## 100, bomb 50), the sounds.
-const HELI_SLOT_COOLDOWN := [15.0, 30.0]
+## The Heli's weapon state (heli_guns.gd, document 63): the selected slot (obj+0xc bit 0x10000000), which mount fires next,
+## and each slot's cooldown.
 var _heli_slot := 0
 var _heli_mount_left := false
 var _heli_ready := [0.0, 0.0]
 
 
 func toggle_heli_slot() -> void:
-	if vehicle_type == 3 and alive:
-		_heli_slot = 1 - _heli_slot
-		sound_cue.emit("HeliClick")   # FUN_0040e7a0, document 63/82: "toggles bit 28 and plays a sound" (0x44b970)
+	var guns := _module("heli_guns")
+	if guns != null and alive:
+		guns.toggle(self)   # FUN_0040e7a0, document 63/82: "toggles bit 28 and plays a sound" (0x44b970)
 
 
 ## Which weapon is currently selected (0 gun, 1 bomb) -- obj+0xc bit 0x10000000 in the original
@@ -881,129 +670,12 @@ func heli_weapon_slot() -> int:
 	return _heli_slot
 
 
-func _heli_weapons(delta: float) -> void:
-	for i in 2:
-		_heli_ready[i] = maxf(_heli_ready[i] - delta, 0.0)
-	if _heli_ready[_heli_slot] > 0.0:
-		return
-	var down := _debug_fire or Input.is_action_pressed("ui_accept")
-	var level := _wants_raised()
-	if not (down or level):
-		return
-	_heli_ready[_heli_slot] = float(HELI_SLOT_COOLDOWN[_heli_slot]) / TICK_HZ
-	if not _spend_ammo(_heli_slot):
-		return   # the empty click; the cooldown just set keeps it from repeating every frame
-	var type := 7 if _heli_slot == 0 else 6
-	var mount := Vector2(-9.35 if _heli_mount_left else 9.35, 6.8)  # (x right, y ahead)
-	var toe := 0.0
-	var pitch := 0.0
-	if down:
-		toe = 0.5 * 5.625 if _heli_mount_left else -0.5 * 5.625
-		pitch = 7.0 * 5.625 if type == 7 else 0.0
-	var h := heading_deg + toe
-	var rad := deg_to_rad(h)
-	var fwd := Vector2(cos(rad), sin(rad))
-	var right := Vector2(-fwd.y, fwd.x)
-	var spec := {"team": team, "colour": art_colour(), "heading": h, "type": type, "z": z,
-			"position": position + fwd * mount.y + right * mount.x, "pitch_deg": pitch,
-			"bonus": maxf(speed, 0.0) / TICK_HZ}
-	if type == 6:
-		# the bomb's launch flash, record 0x445168, at the mount's second triple (x, 2.55 ahead, 0)
-		spec["flash"] = {"record": "0x445168", "offset": Vector3(mount.x, 2.55, z)}
-	_heli_mount_left = not _heli_mount_left
-	shot.emit(spec)
-
-
-## Stages 1 and 2 of the start-up (see above): grounded and still, no weapons, no dock check (the original's state handler alone runs; the drive
-## handler FUN_0040e0e0 is not reached). Stage 3 (the climb to hover height) needs nothing extra: `_process_heli`'s own climb runs once this returns
-## to 0, and z is already 0 here.
-func _process_heli_spinup(delta: float) -> void:
-	var ticks := delta * TICK_HZ
-	if heli_spinup_stage == 1:
-		_heli_spinup_progress += HELI_SPINUP_A_RATE * ticks
-		if _heli_spinup_progress >= 1.0:
-			heli_spinup_stage = 2
-			sound_cue.emit("Heli")   # FUN_0040e8c0 -> FUN_0040e930, sound 0x44b550 (document 82)
-	else:
-		rotor_speed_steps = minf(rotor_speed_steps + HELI_SPINUP_B_RATE * ticks, 4.0)
-		if rotor_speed_steps >= 4.0:
-			heli_spinup_stage = 0
-
-
-func _process_heli(delta: float) -> void:
-	if heli_spinup_stage != 0:
-		_process_heli_spinup(delta)
-		return
-	if _dock_pressed():
-		return
-	_heli_weapons(delta)
-	var ticks := delta * TICK_HZ
-	var controls := _get_controls()
-	var strafe := 0.0
-	if not _debug_drive:
-		var ak := _aim_keys()
-		strafe = float(ak[1]) - float(ak[0])
-	var thrust := controls.y
-	if thrust > 0.0:
-		speed = minf(speed + accel * delta, max_speed)
-	elif thrust < 0.0:
-		speed = maxf(speed - brake * delta, -reverse_max_speed)
-	else:
-		speed = move_toward(speed, 0.0, friction * delta)
-	# turning, or else strafing
-	var target_omega := 0.0
-	var bank_target := 0.0
-	var strafe_steps := 0
-	var turn := controls.x
-	if turn > 0.0:
-		target_omega = turn_rate_deg / 5.625 / TICK_HZ
-		bank_target = -HELI_BANK_STEPS
-	elif turn < 0.0:
-		target_omega = -turn_rate_deg / 5.625 / TICK_HZ
-		bank_target = HELI_BANK_STEPS
-	elif strafe != 0.0:
-		strafe_steps = 16 if strafe > 0.0 else -16
-		bank_target = -HELI_BANK_STEPS if strafe > 0.0 else HELI_BANK_STEPS
-	var fast := (target_omega >= 0.0 and heli_omega < 1.0 / 65536.0) or (target_omega < 1.0 / 65536.0 and heli_omega > 0.0)
-	heli_omega = move_toward(heli_omega, target_omega, (HELI_TURN_DOWN if fast else HELI_TURN_UP) * ticks)
-	heading_deg = fposmod(heading_deg + heli_omega * 5.625 * ticks, 360.0)
-	# bank
-	var speed_units := speed / TICK_HZ
-	if bank_target != 0.0 and strafe_steps == 0 and absf(speed_units) < 1.0:
-		bank_target *= speed_units
-	if bank_target != 0.0:
-		bank_steps = move_toward(bank_steps, bank_target, HELI_BANK_RISE * ticks)
-	else:
-		bank_steps = move_toward(bank_steps, 0.0, HELI_BANK_FALL * ticks)
-	# velocity toward forward speed plus strafe
-	var want := _dir_for(heading_deg) * speed_units
-	if strafe_steps != 0:
-		want += _dir_for(heading_deg, strafe_steps) * HELI_STRAFE
-	heli_vel.x = move_toward(heli_vel.x, want.x, HELI_VEL_RATE * ticks)
-	heli_vel.y = move_toward(heli_vel.y, want.y, HELI_VEL_RATE * ticks)
-	# climb
-	if z < HELI_CEILING:
-		z = minf(z + HELI_CLIMB_PER_TICK * ticks, HELI_CEILING)
-	# move (only tall things can stop it, and only while it is low)
-	moving = heli_vel != Vector2.ZERO or heli_omega != 0.0
-	if speed != 0.0:
-		fuel -= absf(speed) * delta / 32.0
-		if fuel <= 0.0:
-			fuel = 0.0
-			_die()
-			return
-	var target := position + heli_vel * ticks
-	if blocked_test.is_valid() and blocked_test.call(self, target, heading_deg):
-		return
-	position = target
-
-
 var _road_mask := 0   ## DAT_0048c7b0: the direction mask of the road piece the Jeep was last driven on (game/road_assist.gd)
 
 
 ## FUN_0040c390's other output: the road mask of the tile under the vehicle, 0 in the air, in water, in swim mode or off the roads.
 func _road_mask_here() -> int:
-	if z > 1.0 or water_class != 0 or (vehicle_type == 1 and swim_amount >= 1.0) or level == null or pack == null:
+	if z > 1.0 or water_class != 0 or (_swims() and swim_amount >= 1.0) or level == null or pack == null:
 		return 0
 	var t := Vector2i((position / pack.tile_size_px).floor())
 	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
@@ -1018,8 +690,8 @@ func _terrain_speed_scale() -> float:
 		return 1.0
 	if water_class != 0:
 		# FUN_0040c390: 0.75 in any water, 0.25 for a Jeep that has finished entering swim mode
-		return 0.25 if (vehicle_type == 1 and swim_amount >= 1.0) else 0.75
-	if vehicle_type == 1 and swim_amount >= 1.0:
+		return 0.25 if (_swims() and swim_amount >= 1.0) else 0.75
+	if _swims() and swim_amount >= 1.0:
 		return 0x28f / 65536.0  # swim mode on dry land: nearly stuck (press the swim button to leave it)
 	if level == null or pack == null:
 		return 1.0

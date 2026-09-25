@@ -25,6 +25,7 @@ var _spin: CheckBox
 var _shape: CheckBox
 var _sliders_box: VBoxContainer
 var _stats: Label
+var _behaviour: RichTextLabel
 var _yaw := 35.0
 var _pitch := 38.0
 var _distance := 90.0
@@ -41,9 +42,13 @@ func setup(workspace: ModWorkspace) -> void:
 
 
 func _ready() -> void:
+	var scroll := ScrollContainer.new()   # the behaviour list can be long (the rotor has thirteen parameters)
+	scroll.custom_minimum_size.x = 340
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
 	var left := VBoxContainer.new()
-	left.custom_minimum_size.x = 320
-	add_child(left)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(left)
 	_type_pick = _option(left, "Vehicle")
 	_type_pick.item_selected.connect(func(_i): _rebuild())
 	_colour_pick = _option(left, "Team colour")
@@ -61,6 +66,13 @@ func _ready() -> void:
 	_stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_stats.add_theme_font_size_override("font_size", 13)
 	left.add_child(_stats)
+	_behaviour = RichTextLabel.new()
+	_behaviour.bbcode_enabled = true
+	_behaviour.fit_content = true
+	_behaviour.scroll_active = false
+	_behaviour.add_theme_font_size_override("normal_font_size", 12)
+	_behaviour.add_theme_font_size_override("bold_font_size", 13)
+	left.add_child(_behaviour)
 	var hint := Label.new()
 	hint.text = "Drag to orbit, wheel to zoom. Drawn by the game's own renderer; the sliders set the fields its simulation would."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -219,12 +231,12 @@ func _build_sliders() -> void:
 	match vehicle.vehicle_type:
 		0:
 			_slider("Turret angle (degrees)", -180.0, 180.0, 0.0, func(v): vehicle.turret_deg = fposmod(v, 360.0))
-			_slider("Gun elevation (degrees)", 0.0, Vehicle.TANK_RAISE_DEG, 0.0, func(v): vehicle.gun_elev_deg = v)
+			_slider("Gun elevation (degrees)", 0.0, vehicle.aim.f("raise_deg"), 0.0, func(v): vehicle.gun_elev_deg = v)
 		1:
 			_slider("Wheel frame (distance driven)", 0.0, 3.99, 0.0, func(v): vehicle.position.x = v)
 			_slider("Swim mode (0 wheels down, 1 swimming)", 0.0, 1.0, 0.0, func(v): vehicle.swim_amount = v)
 		2:
-			_slider("Launcher elevation (degrees)", 0.0, Vehicle.TANK_RAISE_DEG, 0.0, func(v): vehicle.gun_elev_deg = v)
+			_slider("Launcher elevation (degrees)", 0.0, vehicle.aim.f("raise_deg"), 0.0, func(v): vehicle.gun_elev_deg = v)
 			_slider("Rockets fired this salvo", 0.0, 2.0, 0.0, func(v): vehicle._salvo_index = int(v), 1.0)
 			_slider("Reload (ticks left)", 0.0, 40.0, 0.0, func(v): vehicle._salvo_reload = v)
 		3:
@@ -232,7 +244,7 @@ func _build_sliders() -> void:
 			_slider("Start-up: blades unfolding (1 = done)", 0.0, 1.0, 1.0, func(v):
 				vehicle.heli_spinup_stage = 1 if v < 1.0 else 0
 				vehicle._heli_spinup_progress = v)
-			_slider("Height (units; hover is 50)", 0.0, Vehicle.HELI_CEILING, 0.0, func(v): vehicle.z = v)
+			_slider("Height (units; hover is 50)", 0.0, vehicle.drive.f("ceiling"), 0.0, func(v): vehicle.z = v)
 			_slider("Forward speed (nose pitch)", -1.0, 1.05, 0.0, func(v): vehicle.speed = v * TICK_HZ)
 			_slider("Bank (steps)", -3.0, 3.0, 0.0, func(v): vehicle.bank_steps = v)
 
@@ -269,6 +281,49 @@ func _update_stats() -> void:
 				d.get("events", {}).get("on_create", {}).get("sound", "none")],
 		"(the vehicle definition; %s)" % d.get("_source", "")]
 	_stats.text = "\n".join(lines)
+	_update_behaviour(d)
+
+
+## The behaviour modules the definition picks, one per slot of the original's record, each with its parameters: the value
+## in use, the traced default, and where the default came from (the module's SCHEMA; EDITOR_PLAN.md 4.2). Read-only here;
+## editing them is phase E3.
+func _update_behaviour(d: Dictionary) -> void:
+	var slots := [["Drive", d.get("drive", {}).get("model", "ground"), d.get("drive", {}).get("params", {})],
+		["Aim", d.get("aim", {}).get("model", "none"), d.get("aim", {}).get("params", {})],
+		["Water", d.get("water", {}).get("model", "hull_water"), d.get("water", {}).get("params", {})]]
+	var n := 0
+	for w in d.get("weapons", {}).get("slots", []):
+		slots.append(["Weapon slot %d" % n, w.get("handler", ""), w.get("params", {})])
+		n += 1
+	var text := "[b]Behaviour[/b] (modules; the grey values are the traced defaults)\n"
+	for slot in slots:
+		var name := String(slot[1])
+		var schema := VehicleModules.schema(name)
+		if schema.is_empty():
+			text += "[b]%s[/b]: none\n" % slot[0]
+			continue
+		text += "[b]%s[/b]: %s -- %s\n" % [slot[0], name, schema.get("doc", "")]
+		var overrides: Dictionary = slot[2]
+		for k in schema.get("params", {}):
+			var ps: Dictionary = schema["params"][k]
+			var unit := (" " + String(ps["unit"])) if ps.has("unit") else ""
+			if overrides.has(k):
+				text += "    %s = [color=#8fd3ff]%s[/color]%s  [color=#888](default %s; %s)[/color]\n" % [k, _fmt(overrides[k]), unit, _fmt(ps.get("default")), ps.get("provenance", "")]
+			else:
+				text += "    %s = %s%s  [color=#888](%s)[/color]\n" % [k, _fmt(ps.get("default")), unit, ps.get("provenance", "")]
+	var rules := []
+	for r in ["terrain.blocked_by_bushes", "terrain.blocked_by_rocks", "flags.carries_flag"]:
+		if bool(ws.pack.vehicle_value(vehicle.vehicle_type, r, false)):
+			rules.append(r)
+	if not rules.is_empty():
+		text += "[b]Rules[/b]: %s\n" % ", ".join(rules)
+	_behaviour.text = text
+
+
+static func _fmt(v: Variant) -> String:
+	if v is float:
+		return str(snappedf(v, 0.0001))
+	return str(v)
 
 
 func _process(delta: float) -> void:

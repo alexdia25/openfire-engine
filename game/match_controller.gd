@@ -665,7 +665,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 		"0x436640":
 			if int(sh["mask"]) == 4:
 				return false
-			if v.vehicle_type == 1:
+			if v.rule("terrain.blocked_by_bushes"):   # FUN_00436640 tests the Jeep's type: it cannot flatten bushes
 				return true
 			if v.speed > crush_speed:
 				_crush_tile(t, id)
@@ -673,7 +673,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 				return false
 			return true
 		"0x436610":
-			return v.vehicle_type == 1
+			return v.rule("terrain.blocked_by_rocks")   # FUN_00436610: rocks stop only the Jeep
 		"0x4366f0":
 			# FUN_004366f0: a shape whose byte +8 has bit 1 is a zone a vehicle may enter; the vehicle remembers
 			# it (state +0x68 tile, +0x6c shape) and byte +9 says what it is (1 refuel, 2 rearm, 3 pick-up)
@@ -699,7 +699,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 ## that sits on this tile (its grid cell is the tile), is not carried and has no "dropper" (flag +0x70) is attached to the Jeep,
 ## unless the Jeep already carries a flag. So the Jeep takes the flag by touching the ruin, without entering it.
 func _ruin_grab(v: Vehicle, t: Vector2i) -> void:
-	if v.vehicle_type != 1 or match_finished or _carrying_any(v):
+	if not v.carries_flags() or match_finished or _carrying_any(v):
 		return
 	for flag in flags.values():
 		if flag.carrier != null or flag.dropper != null:
@@ -1069,7 +1069,7 @@ func _update_flags(delta: float) -> void:
 		if flag.dropper != null and (not is_instance_valid(flag.dropper) or not _flag_touching(flag, flag.dropper)):
 			flag.dropper = null
 		for v in [vehicle] + enemy_vehicles:
-			if v == null or not is_instance_valid(v) or not v.alive or v.vehicle_type != 1:
+			if v == null or not is_instance_valid(v) or not v.alive or not v.carries_flags():
 				continue
 			if v == flag.dropper or _carrying_any(v):
 				continue
@@ -1077,7 +1077,7 @@ func _update_flags(delta: float) -> void:
 				_attach_flag(flag, v)
 				break
 	for v in [vehicle] + enemy_vehicles:
-		if v != null and is_instance_valid(v) and v.alive and v.vehicle_type == 1:
+		if v != null and is_instance_valid(v) and v.alive and v.carries_flags():
 			_check_capture(v)
 			_update_compass_chime(v)
 
@@ -1143,7 +1143,7 @@ func _check_capture(v: Vehicle) -> void:
 ## FUN_00432e40, from the Jeep's action button: for the vehicle's own pool first, then the other: a flag it
 ## carries is let go (and cannot be re-taken until it stops touching it); a free flag that touches it is taken.
 func flag_action(v: Vehicle) -> void:
-	if match_finished or v.vehicle_type != 1:
+	if match_finished or not v.carries_flags():
 		return
 	for idx in [v.player_index(), v.player_index() ^ 1]:
 		var flag: FlagMarker = flags.get(idx)
@@ -1248,7 +1248,7 @@ func _begin_dock() -> void:
 	if dock_state != 0:
 		return
 	_pad_centre = (Vector2(_tile_of(vehicle.position)) + Vector2(0.5, 0.5)) * pack.tile_size_px
-	if vehicle.vehicle_type == 3:
+	if vehicle.lands_before_docking():
 		# the automatic landing (FUN_0040eb00 -> 0x40eb40 -> 0x40ec30): height falls 0.5 a tick while position and heading slide to the pad centre and
 		# heading 135 degrees; the rotor spin-down (0x40ecd0) and the gear stage (0x40ede0), dock_state 3/4 below, follow once the fall is done (2026-09-23).
 		dock_state = 1
@@ -1263,7 +1263,7 @@ func _begin_dock() -> void:
 func _do_dock() -> void:
 	# Jeep: FUN_0040e090 first returns its own team's flag if it carries it (sound 0x44b670, FUN_00432600); the port's only flag is the enemy's, so nothing to do
 	_return_stock(vehicle.vehicle_type)               # 0x42f110: stock++ (unless 255) ...
-	if vehicle.vehicle_type == 2:
+	if vehicle.has_module("mine_layer"):
 		mine_reserve += vehicle.ammo[1]                # ... and an MSV's unused mines join the reserve
 	_drop_carried_flags(vehicle)                       # PLACEHOLDER: a flag still carried is dropped here (the original's dock of a Jeep with the enemy flag is untraced)
 	vehicle.frozen = true
@@ -1370,7 +1370,7 @@ func switch_player_vehicle() -> void:
 		return
 	_pad_centre = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
 	_return_stock(vehicle.vehicle_type)   # the docking's stock return, without the sinking
-	if vehicle.vehicle_type == 2:
+	if vehicle.has_module("mine_layer"):
 		mine_reserve += vehicle.ammo[1]
 	_open_selection()
 
