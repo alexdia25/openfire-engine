@@ -7,7 +7,9 @@ extends Control
 ## vehicle-stock counts of template slot 2 (`FUN_004116a0`). The bar colours are the nearest palette colours to the 15-bit words at 0x446760 / 0x446778 (document 74).
 ## The scale (3 px per original pixel) and the screen position are the port's choice.
 
-const SCALE := 3
+var _s := 3.0   ## window pixels per original pixel (HudLayout.panel_scale)
+var _frame: TextureRect   ## the blank frame cel 1940 under the base (classic layout only)
+var _layout_key := ""
 
 var mc: MatchController
 var _base: TextureRect
@@ -35,7 +37,14 @@ func setup(controller: MatchController) -> void:
 	_radar = RadarView.new()
 	add_child(_radar)
 	_radar.setup(controller)
-	size = Vector2(144, 56) * SCALE
+	size = Vector2(144, 56) * _s
+	_frame = TextureRect.new()
+	_frame.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_frame.stretch_mode = TextureRect.STRETCH_SCALE
+	_frame.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_frame.visible = false
+	add_child(_frame)
+	move_child(_frame, 0)
 
 
 ## A bar colour (document 74): the game turns the 15-bit word into the nearest colour of its palette; build_pack.py has done that (`*_rgb`).
@@ -56,7 +65,7 @@ func _new_icon(pos: Array) -> TextureRect:
 	r.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	r.stretch_mode = TextureRect.STRETCH_SCALE
 	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	r.position = Vector2(float(pos[0]), float(pos[1])) * SCALE
+	r.position = Vector2(float(pos[0]), float(pos[1])) * _s
 	add_child(r)
 	return r
 
@@ -64,8 +73,8 @@ func _new_icon(pos: Array) -> TextureRect:
 func _add_bar(kind: int, slot: int, rect: Array) -> void:
 	var bg := ColorRect.new()
 	bg.color = _rgb(mc.pack.hud_panels["fuel_rgb"]["empty"])
-	bg.position = Vector2(float(rect[0]), float(rect[1])) * SCALE
-	bg.size = Vector2(float(rect[2] - rect[0] + 1), float(rect[3] - rect[1] + 1)) * SCALE
+	bg.position = Vector2(float(rect[0]), float(rect[1])) * _s
+	bg.size = Vector2(float(rect[2] - rect[0] + 1), float(rect[3] - rect[1] + 1)) * _s
 	add_child(bg)
 	var fill := ColorRect.new()
 	add_child(fill)
@@ -92,9 +101,16 @@ func _layout(t: int) -> void:
 		visible = false
 		return
 	visible = true
+	_frame.visible = false
+	if HudLayout.is_classic() and mc.pack.get_sprite("ui.hud.panel_blank") != {}:   # the frame around the base: template slot 2, cel 1940 at (-3, -2)
+		var fa := _atlas("ui.hud.panel_blank")
+		_frame.texture = fa
+		_frame.position = HudLayout.FRAME_OFFSET * _s
+		_frame.size = fa.region.size * _s
+		_frame.visible = true
 	var at := _atlas(String(pn["sprite_id"]))
 	_base.texture = at
-	_base.size = at.region.size * SCALE
+	_base.size = at.region.size * _s
 	_base.stretch_mode = TextureRect.STRETCH_SCALE
 	_base.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_add_bar(5, -1, pn["fuel"]["rect"])
@@ -109,8 +125,8 @@ func _layout(t: int) -> void:
 				r.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 				r.stretch_mode = TextureRect.STRETCH_SCALE
 				r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-				r.size = _pip_tex.region.size * SCALE
-				r.position = Vector2(float(hp["pips"]["x"][i]), float(hp["pips"]["y"][i])) * SCALE
+				r.size = _pip_tex.region.size * _s
+				r.position = Vector2(float(hp["pips"]["x"][i]), float(hp["pips"]["y"][i])) * _s
 				add_child(r)
 				_pips.append(r)
 	if t == 3:   # Heli only: kind 9's weapon-select icons (document 83)
@@ -122,13 +138,13 @@ func _layout(t: int) -> void:
 	_compass.visible = false
 	if int(s9["kind"]) == 6:
 		_radar.visible = true
-		_radar.configure(Vector2i(int(s9["size"][0]), int(s9["size"][1])), SCALE)
-		_radar.position = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * SCALE
+		_radar.configure(Vector2i(int(s9["size"][0]), int(s9["size"][1])), _s)
+		_radar.position = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * _s
 	else:
 		_radar.visible = false
 		_compass_on = int(s9["kind"]) == 8
-		_compass.position = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * SCALE
-		_compass.size = Vector2(float(s9["size"][0]), float(s9["size"][1])) * SCALE
+		_compass.position = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * _s
+		_compass.size = Vector2(float(s9["size"][0]), float(s9["size"][1])) * _s
 
 
 ## A bar's value as the fraction of its maximum: fuel, or the ammunition of its weapon slot.
@@ -167,13 +183,27 @@ func _update_bar(b: Dictionary, v: Vehicle, delta: float) -> void:
 			key = "4"
 		b["fill"].color = _rgb(words2[key])
 	b["fill"].position = b["bg"].position
-	b["fill"].size = Vector2(minf(f, full) * SCALE, b["bg"].size.y)
+	b["fill"].size = Vector2(minf(f, full) * _s, b["bg"].size.y)
+
+
+## The panel's place and scale follow HudLayout (document 96): rebuilt when the layout or the window size changes.
+func _apply_layout() -> void:
+	var vp := get_viewport_rect().size
+	var key := "%s %s" % [GameSettings.hud_layout, vp]
+	if key == _layout_key:
+		return
+	_layout_key = key
+	_s = HudLayout.panel_scale(vp)
+	size = Vector2(144, 56) * _s
+	position = HudLayout.panel_position(vp)
+	_type = -1   # rebuild the bars, pips, radar and compass at the new scale
 
 
 func _process(delta: float) -> void:
 	var v := mc.vehicle
 	if v == null or mc.pack.hud_panels.is_empty():
 		return
+	_apply_layout()
 	if v.vehicle_type != _type:
 		_layout(v.vehicle_type)
 	if not visible:
@@ -194,5 +224,5 @@ func _process(delta: float) -> void:
 		var bomb_selected := v.heli_weapon_slot() == 1
 		_weapon_select_bomb.texture = _atlas(String(ids["bomb_lit" if bomb_selected else "bomb_dim"]))
 		_weapon_select_gun.texture = _atlas(String(ids["gun_dim" if bomb_selected else "gun_lit"]))
-		_weapon_select_bomb.size = _weapon_select_bomb.texture.get_size() * SCALE
-		_weapon_select_gun.size = _weapon_select_gun.texture.get_size() * SCALE
+		_weapon_select_bomb.size = _weapon_select_bomb.texture.get_size() * _s
+		_weapon_select_gun.size = _weapon_select_gun.texture.get_size() * _s

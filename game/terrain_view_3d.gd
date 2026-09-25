@@ -587,6 +587,7 @@ func _build_camera() -> void:
 ## the view down toward the ground, not up and away from it.
 func _apply_tilt(tilt_deg: float = camera_tilt_deg) -> void:
 	camera.rotation_degrees = Vector3(-tilt_deg, 0.0, 0.0)
+	camera.fov = _layout_fov_deg()
 
 
 func _place_camera_immediately() -> void:
@@ -625,7 +626,34 @@ func _camera_target_position(look_at_px: Vector2, height_px: float = camera_heig
 	var desired_z := look_at_px.y + pull_back
 	var x := clampf(desired_x, margin, maxf(_map_size_px.x - margin, margin))
 	var z := clampf(desired_z, margin, maxf(_map_size_px.y - margin, margin))
-	return Vector3(x, height_px, z)
+	return Vector3(x, height_px, z + _layout_shift_z(height_px, tilt_deg))
+
+
+## The HUD layout's effect on the view (document 96). Classic: the game view is only the top 320 x 152 of the 4:3 picture, so the camera's horizontal field of view is widened
+## so that the same width of world fits that rectangle as the modern layout fits in the whole window (PORT CHOICE; the original's camera scale is not mapped, document 90), and
+## the camera is moved along the ground so the followed point lands at the rectangle's centre instead of the window's. Modern: the field of view and position are unchanged.
+func _layout_fov_deg() -> float:
+	if not HudLayout.is_classic():
+		return CAMERA_HFOV_DEG
+	var vp := get_viewport().get_visible_rect().size
+	var view := HudLayout.view_rect(vp)
+	return rad_to_deg(2.0 * atan(tan(deg_to_rad(CAMERA_HFOV_DEG) * 0.5) * vp.x / view.size.x))
+
+
+## Where the ground point seen along the view rectangle's vertical centre lies, relative to where the window centre's point lies (ground z, in pixels), for a camera at
+## `height_px` tilted `tilt_deg` down: the ray through NDC y is (0, y * tan_v, -1) turned by the tilt about X and cut with the ground plane.
+func _layout_shift_z(height_px: float, tilt_deg: float) -> float:
+	if not HudLayout.is_classic():
+		return 0.0
+	var vp := get_viewport().get_visible_rect().size
+	var view := HudLayout.view_rect(vp)
+	var tan_v := tan(deg_to_rad(_layout_fov_deg()) * 0.5) * vp.y / vp.x   # KEEP_WIDTH: the vertical half-extent
+	var ny := 1.0 - 2.0 * (view.position.y + view.size.y * 0.5) / vp.y
+	var t := deg_to_rad(tilt_deg)
+	var y0 := ny * tan_v
+	var hit_centre := height_px * (-cos(t)) / sin(t)
+	var hit_view := height_px * (-y0 * sin(t) - cos(t)) / (sin(t) - y0 * cos(t))
+	return hit_centre - hit_view
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -636,6 +664,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_switch_level(1)
 		KEY_BRACKETLEFT, KEY_PAGEUP:
 			_switch_level(-1)
+		KEY_H:   # dev: toggle the panel layout live (not saved; the setting is user://settings.cfg [hud] layout, or RF_HUD)
+			GameSettings.hud_layout = HudLayout.MODERN if HudLayout.is_classic() else HudLayout.CLASSIC
+			print("[dev] hud layout ", GameSettings.hud_layout)
 
 
 func _switch_level(step: int) -> void:

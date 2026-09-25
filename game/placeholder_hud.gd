@@ -29,14 +29,14 @@ func setup(controller: MatchController) -> void:
 	_keys.anchor_top = 1.0
 	_keys.anchor_bottom = 1.0
 	_keys.offset_top = -26.0
-	var panel := HudPanel.new()  # the traced panel (documents 66-70); its scale and position are the port's
+	var frame := ClassicFrame.new()   # the classic layout's black surround and backdrop strip (document 96); draws nothing in the modern layout
+	add_child(frame)
+	frame.setup(controller.pack)
+	frame.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	move_child(frame, 0)   # under the placeholder labels, so they stay readable over the black surround
+	var panel := HudPanel.new()  # the traced panel (documents 66-70); its place and scale follow GameSettings.hud_layout (HudLayout)
 	add_child(panel)
 	panel.setup(controller)
-	panel.anchor_top = 1.0
-	panel.anchor_bottom = 1.0
-	panel.offset_left = 12.0
-	panel.offset_top = -168.0 - 30.0
-	panel.offset_bottom = -30.0
 	var fade := ColorRect.new()   # the game view's fade-in after the choice (0x4183e0): black at alpha 1 - view_fade
 	fade.color = Color(0, 0, 0, 0)
 	fade.mouse_filter = Control.MOUSE_FILTER_IGNORE

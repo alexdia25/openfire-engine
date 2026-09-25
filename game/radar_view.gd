@@ -7,7 +7,7 @@ extends TextureRect
 ## cursor (cel 1964), the Jeep's direction arrow, the bitmap background outside the map, and the
 ## panel frame around it. The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
-var scale_px := 4
+var scale_px := 4.0
 
 var mc: MatchController
 var _img: Image
@@ -29,7 +29,7 @@ func setup(controller: MatchController) -> void:
 
 
 ## The window size in tiles (from the vehicle's panel record) and the screen pixels per tile.
-func configure(window: Vector2i, scale: int) -> void:
+func configure(window: Vector2i, scale: float) -> void:
 	_win = window
 	scale_px = scale
 	_img = Image.create(_win.x, _win.y, false, Image.FORMAT_RGBA8)
