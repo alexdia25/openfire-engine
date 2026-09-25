@@ -668,8 +668,8 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 			if v.rule("terrain.blocked_by_bushes"):   # FUN_00436640 tests the Jeep's type: it cannot flatten bushes
 				return true
 			if v.speed > crush_speed:
-				_crush_tile(t, id)
-				v.sound_cue.emit("BushCrush")   # document 54/82: 0x44b6b8
+				if _crush_tile(t, id):
+					v.sound_cue.emit("BushCrush")   # the crush record's `SOUND 13` (index 0x44b9a0 + 13 * 4 = 0x44b9d4 -> 0x44b6b8, document 101), once per crush: this test runs every tick the tank overlaps
 				return false
 			return true
 		"0x436610":
@@ -689,7 +689,8 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 			return true  # it answers 0: the tile's posts still block
 		"0x436a50":
 			if v.speed > crush_speed:
-				_crush_tile(t, id)
+				if _crush_tile(t, id) and DESTROY_SOUND_CUES.has(id):
+					v.sound_cue.emit(DESTROY_SOUND_CUES[id])   # a crate is crushed with its ordinary destroy record, whose first SOUND is the cue (document 84)
 				return false
 			return true
 	return true
@@ -711,12 +712,14 @@ func _ruin_grab(v: Vehicle, t: Vector2i) -> void:
 
 
 ## FUN_0042e8c0 with damage 100 (0x640000): every tile in the table has at most 6 hit points, so it is destroyed.
-func _crush_tile(t: Vector2i, _id: int) -> void:
+## True when this call started the crush (false while the tile's crush effect is already running).
+func _crush_tile(t: Vector2i, _id: int) -> bool:
 	if _crushing.has(t):
-		return
+		return false
 	_crushing[t] = true
 	_tile_hp.erase(t)
 	tile_crushed.emit(t)
+	return true
 
 
 ## No life system is traced yet (NEXT_STEPS): the player simply respawns at the start point.
