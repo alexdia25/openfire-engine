@@ -11,8 +11,8 @@ extends Node
 ## Image.load() for sprites (packs/.gdignore, PORTING_PLAN.md section 2.4.2).
 ##
 ## The player vehicle's continuous engine sound (Tread / JeepIdle / the Heli's rotor, document 97) is a looping voice managed here from the vehicle's own state.
-## Not modelled yet (document 82's "Not applied" list): positional volume/pan by distance
-## (FUN_00408050; the traced falloff, full volume within 40 units and none at 424, is 1.0 for the player's own vehicle), per-cue pitch/fade envelopes for the one-shots.
+## Levels and pitches are the descriptors' own (document 100, game/sound_level.gd). Not modelled yet: positional volume/pan by distance (the traced falloff, full volume within
+## 40 units and none at 424, is 1.0 for the player's own vehicle), the mixer's level budget and its 20-voice priority cut.
 
 const POOL_SIZE := 8
 
@@ -22,7 +22,6 @@ var _players: Array[AudioStreamPlayer] = []
 var _vehicle: Vehicle
 var _loop_player: AudioStreamPlayer
 var _loop_key := ""                  ## the loop now playing ("" = none)
-var _loop_age := 0.0                 ## ticks since it started
 var _loop_streams: Dictionary = {}   ## wav file -> AudioStreamWAV (null if missing)
 
 
@@ -52,6 +51,9 @@ func play(cue_id: String) -> void:
 		return
 	var player := _free_player()
 	player.stream = stream
+	var entry := pack.get_sound(cue_id)
+	player.volume_db = SoundLevel.db(float(entry.get("level", 0x10000)))
+	player.pitch_scale = SoundLevel.pitch_scale(int(entry.get("pitch", 0)))
 	player.play()
 
 
@@ -114,7 +116,6 @@ func _process(delta: float) -> void:
 	var key := _wanted_loop()
 	if key != _loop_key:
 		_loop_key = key
-		_loop_age = 0.0
 		var stream := _loop_stream(String(_engine_loop(_vehicle).get("wav", ""))) if key != "" else null
 		if stream == null:
 			_loop_player.stop()
@@ -123,7 +124,6 @@ func _process(delta: float) -> void:
 			_loop_player.play()
 	if _loop_key == "":
 		return
-	_loop_age += delta * Vehicle.TICK_HZ
 	var l := _engine_loop(_vehicle)
 	_loop_player.pitch_scale = maxf(EngineLoop.pitch_scale(l, _vehicle.speed / Vehicle.TICK_HZ, _vehicle.rotor_speed_steps), 0.01)
-	_loop_player.volume_db = linear_to_db(EngineLoop.volume(l, _loop_age))
+	_loop_player.volume_db = EngineLoop.volume_db(l)

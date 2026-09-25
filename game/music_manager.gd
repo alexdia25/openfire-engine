@@ -8,7 +8,7 @@ extends Node
 
 const TICK_HZ := 62.5
 const FADE_OUT_S := 0.75       ## PORT CHOICE
-const VOLUME_DB := -6.0        ## PORT CHOICE (the original's mixer volume is 0x7fff, the maximum)
+const VOLUME_DB := 0.0         ## the original's music mixer volume is 0x7fff = 0 dB (document 100: FUN_00423af0, channel -1)
 ## Per vehicle, from its definition's `music` group (PORTING_PLAN.md 2.7.2; read from RFIRE.BIN by tools/extract_vehicle_types.py):
 ## `theme_line` / `priority`, FUN_0040b980's own request for a new vehicle (record bytes +0x2bc / +0x2bd: 0, 4, 6, 8 at 0x80);
 ## `death_line`, the line of a dying vehicle (the byte table at 0x4466e4: 3, 5, 7, 10); `theme_rule`, FUN_0040f2f0's branch.
