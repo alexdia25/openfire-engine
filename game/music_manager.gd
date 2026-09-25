@@ -9,11 +9,11 @@ extends Node
 const TICK_HZ := 62.5
 const FADE_OUT_S := 0.75       ## PORT CHOICE
 const VOLUME_DB := -6.0        ## PORT CHOICE (the original's mixer volume is 0x7fff, the maximum)
-## FUN_0040b980's own request for a new vehicle: the record's bytes +0x2bc (line) and +0x2bd (priority), read from the four vehicle records (0x445974, 0x445c5c, 0x445f44, 0x44622c).
-const RECORD_LINE := [0, 4, 6, 8]
-const RECORD_PRIORITY := 0x80
-## The death line of the dying vehicle's type: the byte table at 0x4466e4 (Tank 3, Jeep 5, MSV 7, Heli 10).
-const DEATH_LINE := [3, 5, 7, 10]
+## Per vehicle, from its definition's `music` group (PORTING_PLAN.md 2.7.2; read from RFIRE.BIN by tools/extract_vehicle_types.py):
+## `theme_line` / `priority`, FUN_0040b980's own request for a new vehicle (record bytes +0x2bc / +0x2bd: 0, 4, 6, 8 at 0x80);
+## `death_line`, the line of a dying vehicle (the byte table at 0x4466e4: 3, 5, 7, 10); `theme_rule`, FUN_0040f2f0's branch.
+func _music(v: Vehicle, key: String, default: Variant) -> Variant:
+	return pack.vehicle_value(v.vehicle_type, "music." + key, default)
 
 var pack: Pack
 var mc: MatchController
@@ -106,7 +106,7 @@ func _poll() -> void:
 		_vehicle_created()   # the choice was confirmed: FUN_0040b1c0 creates the vehicle (FUN_0040b980 sets the bit)
 	_last_undocking = mc.undocking
 	if mc.death_phase != 0 and _last_death_phase == 0:
-		director.vehicle_destroyed(DEATH_LINE[v.vehicle_type])
+		director.vehicle_destroyed(int(_music(v, "death_line", 3)))
 	_last_death_phase = mc.death_phase
 	if mc.flags.size() > _flag_count:
 		director.bit_flag_appeared = true
@@ -119,7 +119,7 @@ func _poll() -> void:
 
 
 func _vehicle_created() -> void:
-	director.vehicle_created(int(RECORD_LINE[mc.vehicle.vehicle_type]), RECORD_PRIORITY)
+	director.vehicle_created(int(_music(mc.vehicle, "theme_line", 0)), int(_music(mc.vehicle, "priority", 0x80)))
 
 
 func _tick() -> void:
@@ -151,7 +151,8 @@ func _vehicle_theme() -> int:
 	var other: FlagMarker = mc.flags.get(1 - v.player_index())
 	var own_carried := own != null and own.carrier != null
 	var near := other != null and v.position.distance_squared_to(other.position) < 0x4000
-	return MusicDirector.vehicle_line(v.vehicle_type, own_carried, near, mc.vehicle_stock[v.vehicle_type], int(RECORD_LINE[v.vehicle_type]), randi() % 8)
+	var stock: int = mc.vehicle_stock[v.vehicle_type] if v.vehicle_type < mc.vehicle_stock.size() else 0
+	return MusicDirector.vehicle_line(String(_music(v, "theme_rule", "record_line")), own_carried, near, stock, int(_music(v, "theme_line", 0)), randi() % 8)
 
 
 func _on_line_changed(from_line: int, to_line: int, transition: int) -> void:

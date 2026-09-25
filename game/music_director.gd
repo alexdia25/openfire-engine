@@ -94,12 +94,13 @@ func request(line: int, prio: int) -> int:
 	return 0
 
 
-## FUN_0040f2f0: the theme a new vehicle gets. `type` 0 Tank, 1 Jeep, 2 MSV, 3 Heli. `own_flag_carried`: the player's own pool's flag object exists and has a carrier;
+## FUN_0040f2f0: the theme a new vehicle gets. The function branches on the vehicle type; the vehicle definitions name the branch
+## as `music.theme_rule` (PORTING_PLAN.md 2.7.2): "flag_threat" (the Tank's), "stock_or_roll" (the Heli's), "record_line" (the rest). `own_flag_carried`: the player's own pool's flag object exists and has a carrier;
 ## `other_flag_near`: the other pool's flag object exists within 128 units (squared distance below 0x4000); `stock`: the stock byte of this type; `record_line`: the
 ## record's byte at +0x2bc (Jeep 4, MSV 6). `roll` is the game's random 0..7.
-static func vehicle_line(type: int, own_flag_carried: bool, other_flag_near: bool, stock: int, record_line: int, roll: int) -> int:
-	if type != 0:
-		if type != 3:
+static func vehicle_line(rule: String, own_flag_carried: bool, other_flag_near: bool, stock: int, record_line: int, roll: int) -> int:
+	if rule != "flag_threat":
+		if rule != "stock_or_roll":
 			return record_line
 		if stock == 2:
 			return 8
