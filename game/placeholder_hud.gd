@@ -89,7 +89,7 @@ func show_lost() -> void:
 
 func show_win(winner_idx: int) -> void:
 	_finished = true
-	if _ribbon.start(winner_idx):   # the original's sequence: fade to black, then the winner's ribbon (document 92)
+	if _ribbon.start(winner_idx, mc.level.levl_value):   # the original's sequence: fade to black, then the winner's ribbon and the jingle (documents 92, 101)
 		_banner.text = "press Enter to play again"
 		_banner.position = Vector2(60, 0)
 		_banner.anchor_top = 1.0
@@ -97,6 +97,10 @@ func show_win(winner_idx: int) -> void:
 		_banner.offset_top = -80.0
 		_banner.add_theme_font_size_override("font_size", 18)
 		_banner.move_to_front()
+		if _ribbon.has_jingle():   # the ribbon holds for the jingle; the restart hint (the front end's stand-in) comes when the sequence is over
+			_banner.visible = false
+			_ribbon.sequence_done.connect(func(): _banner.visible = true, CONNECT_ONE_SHOT)
+			return
 	else:
 		_banner.text = "%s WINS  -  flag captured\npress Enter to play again" % ("TAN" if winner_idx == 0 else "GREEN")
 	_banner.visible = true
