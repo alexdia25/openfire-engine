@@ -1019,6 +1019,37 @@ func _carrying_any(v: Vehicle) -> bool:
 func _attach_flag(flag: FlagMarker, v: Vehicle) -> void:
 	flag.carrier = v
 	flag.dropper = null
+	v.sound_cue.emit("Ding")   # FUN_00432d00 and FUN_00432e40 both enqueue [0x44b9c8] = the descriptor at 0x44b670 (Ding) on the Jeep when a flag is taken (document 99); dropping is silent
+
+
+## FUN_0040e090, the Jeep's dock handler (record +0x258), before the dock itself (document 99): a Jeep that carries ITS OWN pool's flag brings it home: Ding (0x44b670), then
+## FUN_00432600(pool): the flag is removed and a random still-intact candidate of the pool becomes its active target again; with none intact the flag moves to a random
+## candidate tile instead. (One-player levels have no own-pool flag: their own pool is empty.)
+func _return_own_flag(v: Vehicle) -> void:
+	var flag: FlagMarker = flags.get(v.player_index())
+	if flag == null or flag.carrier != v:
+		return
+	v.sound_cue.emit("Ding")
+	_return_flag(v.player_index())
+
+
+## FUN_00432600(pool): the pool's flag goes home (see _return_own_flag).
+func _return_flag(idx: int) -> void:
+	var flag: FlagMarker = flags.get(idx)
+	if flag == null:
+		return
+	var pool: TargetPool = pools.get("a" if idx == 0 else "b")
+	if pool == null:
+		return
+	flag.carrier = null
+	if pool.reactivate():
+		flags.erase(idx)   # FUN_0042c4d0: the flag object is destroyed
+		flag.queue_free()
+		return
+	var t := pool.random_candidate()   # FUN_0042e480 + FUN_0042c720: moved onto a random candidate tile
+	if t.x >= 0:
+		flag.position = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
+		flag.last_safe = flag.position
 
 
 ## FUN_0042f730 answers 0 ("land") for terrain art 0 or 3 and everything above 0x33; the flag records its position on such
@@ -1132,12 +1163,44 @@ func _check_capture(v: Vehicle) -> void:
 	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
 		return
 	if (level.get_art_id(t.x, t.y) & 0x7F) == HOME_ART_BASE + own:
-		match_finished = true
-		winner_idx = own
-		for x in [vehicle] + enemy_vehicles:
-			if x != null and is_instance_valid(x):
-				x.frozen = true
-		match_over.emit(own)
+		_declare_win(own)
+
+
+## FUN_004225d0(winner) via FUN_0040b370: the match is over and `team` won.
+func _declare_win(team: int) -> void:
+	if match_finished:
+		return
+	match_finished = true
+	winner_idx = team
+	for x in [vehicle] + enemy_vehicles:
+		if x != null and is_instance_valid(x):
+			x.frozen = true
+	match_over.emit(team)
+
+
+## The lift objects' shared update FUN_0042ec50 (document 99), every tick a lift is alive (here: while the pad is open): what lies at the pad is dealt with. Class 10 (mines)
+## within 20 units (squared distance below 0x190) are destroyed without an explosion (`OR [obj+0xc], 0x200` then FUN_0042c4d0); class 12 (a flag) in the cells around the pad:
+## the pad team's own flag is returned (Ding, FUN_00432600), the OTHER team's flag counts as captured: FUN_0040b370(the pad's team), the match is won. NOT modelled: class 17
+## (something hitting the pad within a radius from its descriptor is destroyed with an explosion, FUN_0042e080). ASSUMED: "the cells around the pad" as the 3 x 3 tiles around it.
+func _pad_clear() -> void:
+	if match_finished or not pad_open or vehicle == null:
+		return
+	for m in mines.duplicate():
+		if m.position.distance_squared_to(_pad_centre) < 0x190:
+			mines.erase(m)
+			mine_tiles.erase(_tile_of(m.position))
+			m.queue_free()
+	var half := pack.tile_size_px * 1.5
+	for idx in flags.keys():
+		var f: FlagMarker = flags.get(idx)
+		if f == null or absf(f.position.x - _pad_centre.x) > half or absf(f.position.y - _pad_centre.y) > half:
+			continue
+		if idx == vehicle.player_index():
+			vehicle.sound_cue.emit("Ding")
+			_return_flag(idx)
+		else:
+			_declare_win(vehicle.player_index())
+			return
 
 
 ## FUN_00432e40, from the Jeep's action button: for the vehicle's own pool first, then the other: a flag it
@@ -1261,7 +1324,7 @@ func _begin_dock() -> void:
 
 
 func _do_dock() -> void:
-	# Jeep: FUN_0040e090 first returns its own team's flag if it carries it (sound 0x44b670, FUN_00432600); the port's only flag is the enemy's, so nothing to do
+	_return_own_flag(vehicle)                          # FUN_0040e090 (the Jeep's dock handler) first returns its own team's flag if it carries it
 	_return_stock(vehicle.vehicle_type)               # 0x42f110: stock++ (unless 255) ...
 	if vehicle.has_module("mine_layer"):
 		mine_reserve += vehicle.ammo[1]                # ... and an MSV's unused mines join the reserve
@@ -1277,6 +1340,7 @@ func _do_dock() -> void:
 
 func _update_dock(delta: float) -> void:
 	var ticks := delta * Vehicle.TICK_HZ
+	_pad_clear()
 	if selecting and select_anim != null:
 		select_anim.fade_in(ticks)
 	elif undocking:

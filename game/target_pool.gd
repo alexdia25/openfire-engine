@@ -42,6 +42,26 @@ func get_active_position() -> Variant:
 	return candidates[active_index]
 
 
+## FUN_00432600 as the Jeep's dock calls it (FUN_0040e090, document 99), without the budget: makes a random still-intact candidate the active target and returns true,
+## or returns false when none is intact (the caller then moves the flag to a random candidate, `random_candidate()`).
+func reactivate() -> bool:
+	var remaining: Array = []
+	for i in intact.size():
+		if intact[i]:
+			remaining.append(i)
+	if remaining.is_empty():
+		return false
+	active_index = remaining[randi() % remaining.size()]
+	return true
+
+
+## A random candidate tile of the pool, intact or not (FUN_00432600's last branch: `puVar8[FUN_0041d3d0(count)]`), or (-1, -1) for an empty pool.
+func random_candidate() -> Vector2i:
+	if candidates.is_empty():
+		return Vector2i(-1, -1)
+	return candidates[randi() % candidates.size()]
+
+
 ## Call when the currently-active target is destroyed. Marks it no longer intact,
 ## decrements the budget, and -- if budget and another intact candidate both remain --
 ## activates one of them at random, matching FUN_00432600. Returns true if a new target
