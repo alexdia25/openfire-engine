@@ -299,6 +299,10 @@ func _spawn_match() -> void:
 	if OS.get_environment("RF_DEBUG_SWIM") != "" and controller.vehicle != null:
 		controller.vehicle.swim_target = float(OS.get_environment("RF_DEBUG_SWIM"))
 		controller.vehicle.swim_amount = controller.vehicle.swim_target
+	# Debug-only: RF_DEBUG_NUDGE=<dx>,<dy> moves the player by that many world units (sub-pixel and wheel-frame variations for screenshots).
+	if OS.get_environment("RF_DEBUG_NUDGE") != "" and controller.vehicle != null:
+		var nudge := OS.get_environment("RF_DEBUG_NUDGE").split(",")
+		controller.vehicle.position += Vector2(float(nudge[0]), float(nudge[1]))
 	# Debug-only: RF_DEBUG_TURRET=<degrees> and RF_DEBUG_ELEV=<0..25> set the Tank's turret angle and gun elevation.
 	if controller.vehicle != null:
 		if OS.get_environment("RF_DEBUG_TURRET") != "":

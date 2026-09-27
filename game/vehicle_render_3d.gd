@@ -8,10 +8,15 @@ extends Node3D
 ## hull descriptor is drawn. Corner axes as elsewhere: x lateral, y = -forward, z up.
 
 const GROUND_CLEARANCE_PX := 2.0  ## same as VehicleBoxRender3D
+## The original draws the parts in list order, later over earlier (a painter's queue, document 44), so a part lying in the same plane as an earlier one covers it: the Jeep's
+## wheel strips (parts 9, 10) lie exactly in the planes of its side panels (parts 1, 2), which the depth test alone cannot order (they z-fought). Such a part is moved this far
+## outward along its normal per earlier part it covers (PORT CHOICE: the amount; world units, far under a pixel, but above the depth resolution: the camera's near plane is 10).
+const COPLANAR_STEP := 0.05
 
 var vehicle: Vehicle
 var _pack: Pack
 var _parts: Array = []          ## per part: {mesh: MeshInstance3D, data: Dictionary, sprite_id: String}
+var _shifts: Array = []         ## per part: the outward shift of a part that covers an earlier coplanar one (COPLANAR_STEP), a Vector3 in mesh space
 var _type := 0                  ## the type this renderer was built for; the vehicle may be swapped under it
 var _ring: MeshInstance3D            ## the Jeep's swim-mode wheels (part 11)
 var _ring_mat: StandardMaterial3D
@@ -40,7 +45,10 @@ func setup(v: Vehicle, pack: Pack) -> void:
 	_type = v.vehicle_type
 	v.visible = false  # logic only, like the box renderer
 	var t: Dictionary = pack.vehicle_types.get(str(v.vehicle_type), {})
+	_shifts = coplanar_shifts(t.get("parts", []))
+	var part_index := -1
 	for part in t.get("parts", []):
+		part_index += 1
 		var ids: Array = part["sprite_ids"]
 		var s := pack.get_sprite(pack.team_variant(ids, v.art_colour()))
 		if s.is_empty():
@@ -48,7 +56,7 @@ func setup(v: Vehicle, pack: Pack) -> void:
 			continue
 		var tex := pack.get_texture(int(s.get("page", 0)))
 		var mi := MeshInstance3D.new()
-		mi.mesh = _quad(part["corners"], s, tex)
+		mi.mesh = _quad(part["corners"], s, tex, _shifts[part_index])
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
@@ -285,7 +293,7 @@ func _set_part_sprite(index: int, sprite_id: String, corners: Variant) -> void:
 	var tex := _pack.get_texture(int(s.get("page", 0)))
 	var t: Dictionary = _pack.vehicle_types.get(str(vehicle.vehicle_type), {})
 	var c: Array = corners if corners != null else t["parts"][index]["corners"]
-	_parts[index]["mesh"].mesh = _quad(c, s, tex)
+	_parts[index]["mesh"].mesh = _quad(c, s, tex, _shifts[index] if index < _shifts.size() else Vector3.ZERO)
 	_parts[index]["mat"].albedo_texture = tex
 
 
@@ -304,10 +312,60 @@ func _follow() -> void:
 		rotation_degrees.z = 0.0
 
 
-func _quad(corners: Array, s: Dictionary, tex: Texture2D) -> ArrayMesh:
+## The shift (mesh space) each part of `parts` (descriptor parts with `corners`) needs so it draws over the earlier parts it overlaps in the same plane: COPLANAR_STEP per such
+## earlier part, outward from the vehicle's origin along the part's normal; zero for every other part. Static so the descriptor can be checked without a renderer.
+static func coplanar_shifts(parts: Array) -> Array:
+	var quads: Array = []
+	for part in parts:
+		var c: Array[Vector3] = []
+		for q in part["corners"]:
+			c.append(Vector3(q[0], q[2], q[1]))
+		quads.append(c)
+	var out: Array = []
+	for j in quads.size():
+		var cj: Array = quads[j]
+		var n: Vector3 = (cj[1] - cj[0]).cross(cj[2] - cj[0])
+		var covered := 0
+		if n.length() > 0.0001:
+			n = n.normalized()
+			for i in j:
+				if _in_plane(quads[i], cj[0], n) and _boxes_touch(quads[i], cj):
+					covered += 1
+		var shift := Vector3.ZERO
+		if covered > 0:
+			var centre: Vector3 = (cj[0] + cj[1] + cj[2] + cj[3]) * 0.25
+			shift = (n if n.dot(centre) >= 0.0 else -n) * COPLANAR_STEP * covered
+		out.append(shift)
+	return out
+
+
+static func _in_plane(quad: Array, point: Vector3, normal: Vector3) -> bool:
+	for p in quad:
+		if absf(normal.dot(p - point)) > 0.001:
+			return false
+	return true
+
+
+## Whether the two quads' boxes overlap over an area (a shared edge or corner does not count: nothing is covered).
+static func _boxes_touch(a: Array, b: Array) -> bool:
+	var spans := 0
+	for axis in 3:
+		var alo := minf(minf(a[0][axis], a[1][axis]), minf(a[2][axis], a[3][axis]))
+		var ahi := maxf(maxf(a[0][axis], a[1][axis]), maxf(a[2][axis], a[3][axis]))
+		var blo := minf(minf(b[0][axis], b[1][axis]), minf(b[2][axis], b[3][axis]))
+		var bhi := maxf(maxf(b[0][axis], b[1][axis]), maxf(b[2][axis], b[3][axis]))
+		var overlap := minf(ahi, bhi) - maxf(alo, blo)
+		if overlap < -0.0001:
+			return false
+		if overlap > 0.0001:
+			spans += 1
+	return spans >= 2
+
+
+func _quad(corners: Array, s: Dictionary, tex: Texture2D, shift := Vector3.ZERO) -> ArrayMesh:
 	var c: Array[Vector3] = []
 	for q in corners:
-		c.append(Vector3(q[0], q[2], q[1]))
+		c.append(Vector3(q[0], q[2], q[1]) + shift)
 	var tw := float(tex.get_width())
 	var th := float(tex.get_height())
 	var sx := float(s.get("x", 0))
