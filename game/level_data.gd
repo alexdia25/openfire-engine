@@ -20,11 +20,20 @@ var levl_value: int = 0   ## the LEVL chunk, 0-8 (DAT_00442fc0): the level's dif
 var side_colours: Array = ["tan", "green"]
 var tile_seed: int = 0  ## sum of raw tile bytes -- seeds the per-tile decoration jitter (document 44)
 var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_parts()
+## A map's own roster changes (PORTING_PLAN.md 2.7.3, step 6), from every layer's `level.override.json` in base-to-top
+## order: id -> null (removed from the pack's default roster) or a Dictionary (a new entry, or fields merged into an
+## existing one). {} means the map uses the pack's default roster (`Pack.vehicle_roster`) unchanged. Resolved against
+## a pack by `Pack.roster_for(self)`; never resolved here, since loading a level does not require a pack yet.
+var roster_override: Dictionary = {}
 var _decoration_lookup: Dictionary = {}
 var _jitter: Array[Vector2] = []
 
 
-func load_from(level_dir: String) -> bool:
+## `override_paths`: every layer's `level.override.json` for this level, base to top (`Pack.level_override_paths()`),
+## applied here in that order so a later mod's edit wins. An override may set `side_colours` (replacing the level's
+## own) and `roster` (per-id: null removes, an object adds or merges) -- see `roster_override` above. The generated
+## `level.json` this loads is never itself edited; an override is a separate file next to it (2.7.3, 2.7.9).
+func load_from(level_dir: String, override_paths: Array[String] = []) -> bool:
 	var json_path := level_dir.path_join("level.json")
 	var art_path := level_dir.path_join("art.bin")
 
@@ -36,6 +45,16 @@ func load_from(level_dir: String) -> bool:
 	if not (doc is Dictionary):
 		push_error("LevelData.load_from: malformed %s" % json_path)
 		return false
+
+	roster_override = {}
+	for override_path in override_paths:
+		var od: Variant = JSON.parse_string(FileAccess.get_file_as_string(override_path))
+		if not (od is Dictionary):
+			continue
+		if od.get("side_colours") is Array:
+			doc["side_colours"] = od["side_colours"]
+		for id in od.get("roster", {}):
+			roster_override[id] = od["roster"][id]
 
 	width = int(doc.get("width", 0))
 	height = int(doc.get("height", 0))

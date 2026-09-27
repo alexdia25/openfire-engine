@@ -105,7 +105,7 @@ func _ready() -> void:
 	pack_path = pack.pack_dir   # the top layer actually loaded (the base, or the last enabled mod)
 
 	level = LevelData.new()
-	if not level.load_from(pack.level_dir(level_id)):
+	if not level.load_from(pack.level_dir(level_id), pack.level_override_paths(level_id)):
 		push_error("TerrainView3D: failed to load level %s" % level_id)
 		return
 

@@ -145,7 +145,7 @@ func select_level(id: String) -> void:
 
 func _show_level(id: String) -> void:
 	var lv := LevelData.new()
-	if not lv.load_from(ws.pack.level_dir(id)):
+	if not lv.load_from(ws.pack.level_dir(id), ws.pack.level_override_paths(id)):
 		return
 	var first := level == null or level_id != id
 	level = lv

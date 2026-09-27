@@ -167,10 +167,17 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 	var vp: Dictionary = level.vehicle_params
-	# one stock per roster vehicle, from the level's VHCL letter or the roster's default (document 73; vehicles/roster.json)
+	# one stock per vehicle_type index (not per roster position: a map's roster.md 2.7.3 override can add, remove or
+	# reorder entries without moving any definition's own index), from the level's VHCL letter or the roster entry's
+	# default (document 73; vehicles/roster.json, Pack.roster_for()). A type this map's roster does not offer keeps
+	# its global index but stays at stock 0: never created, matching the "0 = none left" state everywhere else.
 	vehicle_stock = []
-	for entry in pack.vehicle_roster:
-		vehicle_stock.append(int(vp.get(String(entry.get("stock_key", "")), int(entry.get("default_stock", 0)))))
+	vehicle_stock.resize(pack.vehicle_order.size())
+	vehicle_stock.fill(0)
+	for entry in pack.roster_for(level):
+		var t := pack.vehicle_index(String(entry.get("id", "")))
+		if t >= 0:
+			vehicle_stock[t] = int(vp.get(String(entry.get("stock_key", "")), int(entry.get("default_stock", 0))))
 	_take_stock(vehicle.vehicle_type)   # the first vehicle is created like any other
 	vehicle.mine_layer_enabled = vehicle.mine_layer_enabled or players > 1
 

@@ -691,10 +691,57 @@ func list_levels() -> Array[String]:
 	return out
 
 
-## The directory of a level in the topmost layer that has it, or "" if none does.
+## The directory of a level in the topmost layer that has the level itself (a `level.json`), or "" if none does. A
+## layer whose `levels/<id>/` holds only a `level.override.json` (see `level_override_paths`) does not count: it
+## patches the level a lower layer provides, it does not replace it.
 func level_dir(level_id: String) -> String:
 	for i in range(layers.size() - 1, -1, -1):
 		var candidate := layers[i].path_join("levels").path_join(level_id)
-		if DirAccess.dir_exists_absolute(candidate):
+		if FileAccess.file_exists(candidate.path_join("level.json")):
 			return candidate
 	return ""
+
+
+## Every layer's `level.override.json` for `level_id`, base to top (PORTING_PLAN.md 2.7.3, step 6): a mod's own
+## `levels/<id>/` folder can hold just this file, patching the level `level_dir()` resolves to (usually a lower
+## layer's, most often the original's) without shipping a copy of its `level.json`/`art.bin`. Pass the result to
+## `LevelData.load_from()`, which applies them in this order.
+func level_override_paths(level_id: String) -> Array[String]:
+	var out: Array[String] = []
+	for layer in layers:
+		var p := layer.path_join("levels").path_join(level_id).path_join("level.override.json")
+		if FileAccess.file_exists(p):
+			out.append(p)
+	return out
+
+
+## The vehicle roster a match on `level` should use (PORTING_PLAN.md 2.7.3, step 6): `vehicle_roster` with the
+## level's `roster_override` applied per id (a `level.override.json`'s "roster"). An id absent from the override
+## keeps its place and its fields; `null` removes an id (it keeps its own vehicle_type index -- see
+## `vehicle_index()` -- but is not offered on this map); a Dictionary adds a new entry (if the id is new) or merges
+## into an existing one (if it names one already in the roster). Changing a map's roster never changes any
+## definition's global vehicle_type index, only which types this match's `vehicle_stock` gives out.
+func roster_for(level: LevelData) -> Array:
+	if level.roster_override.is_empty():
+		return vehicle_roster
+	var by_id := {}
+	var order: Array = []
+	for e in vehicle_roster:
+		by_id[e["id"]] = (e as Dictionary).duplicate()
+		order.append(e["id"])
+	for id in level.roster_override:
+		var v: Variant = level.roster_override[id]
+		if v == null:
+			by_id.erase(id)
+		elif by_id.has(id):
+			by_id[id].merge(v, true)
+		else:
+			var entry: Dictionary = (v as Dictionary).duplicate()
+			entry["id"] = id
+			by_id[id] = entry
+			order.append(id)
+	var out: Array = []
+	for id in order:
+		if by_id.has(id):
+			out.append(by_id[id])
+	return out
