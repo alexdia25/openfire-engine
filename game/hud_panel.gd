@@ -22,6 +22,7 @@ var _pip_tex: AtlasTexture
 var _type := -1
 var _weapon_select_bomb: TextureRect   ## Heli only, kind 9 (document 83): lit/dim by Vehicle.heli_weapon_slot()
 var _weapon_select_gun: TextureRect
+var _lamps: Texture2D   ## the compass lamp in its 17 brightness steps (tools/extract_compass_lamps.py, document 103); null when the pack has none
 
 
 func setup(controller: MatchController) -> void:
@@ -34,6 +35,7 @@ func setup(controller: MatchController) -> void:
 	_compass.stretch_mode = TextureRect.STRETCH_SCALE
 	_compass.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	add_child(_compass)
+	_lamps = HudLayout.load_pack_image(mc.pack, "compass_lamps.png")
 	_radar = RadarView.new()
 	add_child(_radar)
 	_radar.setup(controller)
@@ -147,6 +149,20 @@ func _layout(t: int) -> void:
 		_compass.size = Vector2(float(s9["size"][0]), float(s9["size"][1])) * _s
 
 
+## Which colour table a weapon bar (kind 4, FUN_00411da0) draws with (document 103). The bar does `CMP [slot + 0x14], 0` and takes the ammunition table
+## (0x446778, the dark olive) when the flag is set, else the fuel table (0x446760, amber). The element factory (FUN_00412cd0) zeroes the flag, and only the
+## Heli sets it: at creation (0x40baee: panel + 0xd0 = slot 7's flag = 1) and in its weapon switch (FUN_0040e7a0, 0x40e7d9..0x40e800: slot 6's flag = the
+## selected-weapon bit 0x10000000, slot 7's = its opposite). So every weapon bar is amber, except the Heli's bar for the weapon that is not selected.
+static func uses_ammo_colours(vehicle_type: int, slot: int, selected_slot: int) -> bool:
+	return vehicle_type == 3 and slot != selected_slot
+
+
+## The lamp's cel in compass_lamps.png for a compass value (FUN_00412960): the row is the cel (0 = cel 1969 for a negative value, 1 = cel 1971), the column is the
+## palette `|value|` clamped to 16 (`if (0x10 < v) v = 0x10`; the palettes fade from cel 1970's / 1972's PLUT at 0 to the lamp's own PLUT at 16).
+static func lamp_region(value: int) -> Rect2i:
+	return Rect2i(mini(absi(value), 16) * 16, 0 if value < 0 else 16, 16, 16)
+
+
 ## A bar's value as the fraction of its maximum: fuel, or the ammunition of its weapon slot.
 func _fraction(b: Dictionary, v: Vehicle) -> float:
 	if int(b["slot"]) < 0:
@@ -175,8 +191,8 @@ func _update_bar(b: Dictionary, v: Vehicle, delta: float) -> void:
 		elif f < span * 3.0 / 8.0:
 			key = "4"
 		b["fill"].color = _rgb(words[key])
-	else:   # ammunition: FUN_00411da0 (a different colour set, thresholds at 1/16, 1/4 and 3/16)
-		var words2: Dictionary = hp["ammo_rgb"]
+	else:   # ammunition: FUN_00411da0 (thresholds at 1/16, 1/4 and 3/16; the colour table is chosen by the slot's flag, see uses_ammo_colours)
+		var words2: Dictionary = hp["ammo_rgb"] if uses_ammo_colours(v.vehicle_type, int(b["slot"]), v.heli_weapon_slot()) else hp["fuel_rgb"]
 		if f < span / 4.0:
 			key = "0" if f < span / 16.0 else "2"
 		elif f < floorf(span / 16.0) * 3.0:
@@ -209,10 +225,16 @@ func _process(delta: float) -> void:
 	if not visible:
 		return
 	if _compass_on:
-		# kind 8 (document 71): the reticle cel for the target (flag: negative value, home: positive); its per-value palette is NOT reproduced
+		# kind 8 (documents 71, 103): a lamp, green for a flag target (negative value), red for home (positive), brighter the better the nose points at it
 		var cv := mc.compass_value(v)
-		var cd: Dictionary = mc.pack.hud_panels["compass"]
-		_compass.texture = _atlas(String(cd["flag_sprite_id"] if cv < 0 else cd["home_sprite_id"]))
+		if _lamps != null:
+			var at := AtlasTexture.new()
+			at.atlas = _lamps
+			at.region = Rect2(lamp_region(cv))
+			_compass.texture = at
+		else:   # no lamp sheet in the pack: the cel as stored (its own, unfaded palette)
+			var cd: Dictionary = mc.pack.hud_panels["compass"]
+			_compass.texture = _atlas(String(cd["flag_sprite_id"] if cv < 0 else cd["home_sprite_id"]))
 		_compass.visible = true
 	for b in _bars:
 		_update_bar(b, v, delta)
