@@ -197,7 +197,7 @@ func _quad(corners: Array, s: Dictionary, tex: Texture2D) -> ArrayMesh:
 		c.append(Vector3(q[0] * sc, q[2] * sc + 0.5, q[1] * sc))
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	# Same corner -> cel mapping and split as DecorationField3D / VehicleBoxRender3D (corners are the
+	# Same corner -> cel mapping and split as DecorationField3D / VehicleRender3D (corners are the
 	# cel's TL, TR, BR, BL); the muzzle-flash trapezoid (record 0x445138) is convex, so 0-1-2 / 0-2-3 holds.
 	for i in [0, 1, 2, 0, 2, 3]:
 		st.set_uv(uv[i])

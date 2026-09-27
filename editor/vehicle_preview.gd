@@ -6,8 +6,8 @@ extends HSplitContainer
 ##
 ## The Vehicle node is never added to the scene tree, so no simulation runs: the sliders set the same fields the game's
 ## simulation would (turret angle, gun elevation, rockets fired, rotor speed ...) and the renderer draws whatever they say.
-## Once vehicle definitions and published channels exist (PORTING_PLAN.md 2.7.6 steps 3-5), these sliders become one per
-## channel the definition's modules publish, and the stats come from the definition instead of the table.
+## The sliders are one per channel the vehicle's render descriptor binds parts to (PORTING_PLAN.md 2.7.2, step 5): a vehicle
+## added by a mod gets sliders for its own moving parts without any change here.
 
 const TICK_HZ := 62.5
 
@@ -33,6 +33,20 @@ var _dragging := false
 var _colours: Array = []
 var _retired: Array[Vehicle] = []   ## vehicles replaced by _rebuild(), freed next frame (their renderer may still hold them this one)
 
+
+## How the preview poses each channel a render descriptor binds to (`Vehicle.set_channel`): the slider's label and range.
+const CHANNEL_SLIDERS := {
+	"turret_deg": {"label": "Turret angle (degrees)", "min": -180.0, "max": 180.0, "value": 0.0},
+	"gun_elev_deg": {"label": "Gun elevation (degrees)", "min": 0.0, "max": 0.0, "max_raise": true, "value": 0.0},
+	"position_x": {"label": "Wheel frame (distance driven)", "min": 0.0, "max": 3.99, "value": 0.0},
+	"swim_amount": {"label": "Swim mode (0 wheels down, 1 swimming)", "min": 0.0, "max": 1.0, "value": 0.0},
+	"salvo_index": {"label": "Rockets fired this salvo", "min": 0.0, "max": 2.0, "value": 0.0, "step": 1.0},
+	"salvo_reload_remaining": {"label": "Reload (ticks left)", "min": 0.0, "max": 40.0, "value": 0.0},
+	"rotor_speed_steps": {"label": "Rotor speed (steps a tick)", "min": 0.0, "max": 4.0, "value": 4.0},
+	"heli_spinup_progress": {"label": "Start-up: blades unfolding (1 = done)", "min": 0.0, "max": 1.0, "value": 1.0},
+	"pitch_deg": {"label": "Nose pitch (degrees)", "min": -3.0, "max": 9.0, "value": 0.0},
+	"bank_deg": {"label": "Bank (degrees)", "min": -17.0, "max": 17.0, "value": 0.0},
+}
 
 func setup(workspace: ModWorkspace) -> void:
 	ws = workspace
@@ -216,7 +230,7 @@ func _rebuild() -> void:
 	vehicle.setup(ws.pack)
 	vehicle.set_vehicle_type(int(_type_pick.get_item_metadata(_type_pick.selected)))
 	vehicle.heading_deg = heading
-	if vehicle.vehicle_type == 3:
+	if vehicle.lands_before_docking():   # a rotor vehicle
 		vehicle.heli_spinup_stage = 0   # show it flying; the start-up slider folds the blades back
 		vehicle.rotor_speed_steps = 4.0
 	_render = VehicleRender3D.create_for(vehicle, ws.pack, _world)
@@ -228,25 +242,12 @@ func _build_sliders() -> void:
 	for c in _sliders_box.get_children():
 		c.queue_free()
 	_slider("Heading (degrees)", 0.0, 360.0, vehicle.heading_deg, func(v): vehicle.heading_deg = v)
-	match vehicle.vehicle_type:
-		0:
-			_slider("Turret angle (degrees)", -180.0, 180.0, 0.0, func(v): vehicle.turret_deg = fposmod(v, 360.0))
-			_slider("Gun elevation (degrees)", 0.0, vehicle.aim.f("raise_deg"), 0.0, func(v): vehicle.gun_elev_deg = v)
-		1:
-			_slider("Wheel frame (distance driven)", 0.0, 3.99, 0.0, func(v): vehicle.position.x = v)
-			_slider("Swim mode (0 wheels down, 1 swimming)", 0.0, 1.0, 0.0, func(v): vehicle.swim_amount = v)
-		2:
-			_slider("Launcher elevation (degrees)", 0.0, vehicle.aim.f("raise_deg"), 0.0, func(v): vehicle.gun_elev_deg = v)
-			_slider("Rockets fired this salvo", 0.0, 2.0, 0.0, func(v): vehicle._salvo_index = int(v), 1.0)
-			_slider("Reload (ticks left)", 0.0, 40.0, 0.0, func(v): vehicle._salvo_reload = v)
-		3:
-			_slider("Rotor speed (steps a tick)", 0.0, 4.0, 4.0, func(v): vehicle.rotor_speed_steps = v)
-			_slider("Start-up: blades unfolding (1 = done)", 0.0, 1.0, 1.0, func(v):
-				vehicle.heli_spinup_stage = 1 if v < 1.0 else 0
-				vehicle._heli_spinup_progress = v)
-			_slider("Height (units; hover is 50)", 0.0, vehicle.drive.f("ceiling"), 0.0, func(v): vehicle.z = v)
-			_slider("Forward speed (nose pitch)", -1.0, 1.05, 0.0, func(v): vehicle.speed = v * TICK_HZ)
-			_slider("Bank (steps)", -3.0, 3.0, 0.0, func(v): vehicle.bank_steps = v)
+	for channel in VehicleRender3D.channels_used(ws.pack.vehicle_def(vehicle.vehicle_type).get("render", {})):
+		var info: Dictionary = CHANNEL_SLIDERS.get(channel, {"label": String(channel), "min": -180.0, "max": 180.0, "value": 0.0})
+		var hi: float = vehicle.aim.f("raise_deg") if info.get("max_raise", false) else float(info["max"])
+		_slider(String(info["label"]), float(info["min"]), hi, float(info["value"]), func(v): vehicle.set_channel(channel, v), float(info.get("step", 0.01)))
+	if String(ws.pack.vehicle_value(vehicle.vehicle_type, "drive.model", "ground")) == "rotor":   # a flying drive also has a height and a speed to pose
+		_slider("Height (units; hover is 50)", 0.0, vehicle.drive.f("ceiling"), 0.0, func(v): vehicle.z = v)
 
 
 func _slider(label: String, lo: float, hi: float, value: float, apply: Callable, step := 0.01) -> void:

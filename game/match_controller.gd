@@ -4,13 +4,13 @@ extends Node
 ## pulls terrain_view.gd's *gameplay* logic -- vehicle/enemy spawn, projectile spawn-on-fire,
 ## target-pool hit-testing, the flag-spawn trigger -- out of that one scene and into a shared,
 ## rendering-agnostic node. Same "extract, don't duplicate" reasoning as
-## game/terrain_tile_renderer.gd (Phase 2, document 29) and game/vehicle_billboard_3d.gd
+## game/terrain_tile_renderer.gd (Phase 2, document 29) and game/vehicle_render_3d.gd
 ## (Phase 3, document 30): two copies of hit-testing/pool logic could silently drift the way
 ## this project's own classify_bulk.py auto-numbering bug once did. This node owns none of the
 ## *drawing* -- it spawns real, unmodified gameplay nodes (Vehicle, EnemyVehicle, Projectile,
 ## FlagMarker) as children of whatever `world` node setup() is given, and emits signals when it
 ## does, so a rendering scene (2D or 3D) can pair its own presentation layer with each one --
-## exactly the seam Phase 3 already established for the vehicle alone (VehicleBillboard3D
+## exactly the seam Phase 3 already established for the vehicle alone (VehicleRender3D
 ## pairs with a real, invisible Vehicle). game/terrain_view.gd (flat 2D) uses this controller
 ## and lets each spawned node draw itself directly; game/terrain_view_3d.gd (Phase 4) uses the
 ## same controller and instead pairs a 3D presentation node with each signal.

@@ -101,7 +101,7 @@ func _build() -> void:
 		add_child(mi)
 
 
-## Same corner -> UV mapping and split-diagonal choice as VehicleBoxRender3D._build_warped_mesh:
+## Same corner -> UV mapping and split-diagonal choice as VehicleRender3D._quad:
 ## corners run in loop order, mapped to the cel's TL, TR, BR, BL; the diagonal whose two triangles
 ## both agree with the quad's overall normal (Newell's method) avoids a hole on non-convex quads.
 func _add_quad(st: SurfaceTool, c: Array[Vector3], s: Dictionary, tex: Texture2D) -> void:

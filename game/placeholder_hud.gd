@@ -6,7 +6,6 @@ extends CanvasLayer
 ## (the per-player panel of document 66: frame cel 1940, vehicle icon cels 2161-2164, weapon counts drawn with the digit cels 2146-2155,
 ## and the radar). The objective texts are not original messages either (the announcer's are in document 66).
 
-const VEHICLE_NAMES := ["Tank", "Jeep", "MSV", "Helicopter"]
 
 var mc: MatchController
 var _status: Label
@@ -110,7 +109,7 @@ func _process(_delta: float) -> void:
 	var v := mc.vehicle
 	if v == null:
 		return
-	_status.text = "%s   hp %d / %d%s" % [VEHICLE_NAMES[v.vehicle_type], int(ceil(v.hp)), int(v.max_hp),
+	_status.text = "%s   hp %d / %d%s" % [String(mc.pack.vehicle_value(v.vehicle_type, "name", "?")).capitalize(), int(ceil(v.hp)), int(v.max_hp),
 			"" if v.alive else "   (destroyed)"]  # the original shows no health readout (document 70): a debug aid
 	if mc.can_dock(v):
 		# the original's own signal is the pad's border animating (FUN_0040b400, document 80); this text is the port's stand-in for it
@@ -129,7 +128,7 @@ func _objective_text(v: Vehicle) -> String:
 		return "Objective: destroy the enemy building (a Tank's shells; shoot the ruin too), then take the flag"
 	if flag.carrier == v:
 		return "Objective: bring the flag back to your base tile"
-	if v.vehicle_type != 1:
+	if not v.carries_flags():
 		return "Objective: the flag is out. Only a Jeep can carry it: return to your base tile and press V to switch"
 	return "Objective: drive the Jeep onto the flag"
 

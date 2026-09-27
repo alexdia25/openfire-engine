@@ -74,7 +74,7 @@ var _swoop: CameraSwoop = null
 var _was_rising := false
 var controller: MatchController
 var _gate_views: Dictionary = {}  ## Vector2i -> GateView3D
-var billboard: Node3D                         ## player vehicle's 3D presentation -- VehicleBoxRender3D by default, VehicleBillboard3D if RF_DEBUG_VEHICLE_RENDER=billboard
+var billboard: Node3D                         ## player vehicle's 3D presentation (VehicleRender3D)
 var _enemy_billboards: Array = []             ## one per controller.enemy_vehicles, same type as billboard
 var _map_size_px: Vector2 = Vector2.ZERO
 var _terrain_vp: SubViewport
@@ -241,9 +241,8 @@ func _build_decorations() -> void:
 ## game/terrain_view.gd's flat 2D scene uses, extracted so the two front-ends can't drift)
 ## drives vehicle/enemy spawn, firing, target pools, and the flag-spawn trigger. This function
 ## pairs each real gameplay node MatchController spawns (or signals) with its 3D presentation:
-## Vehicle/EnemyVehicle -> VehicleBoxRender3D (document 37's real 6-face box, the default) or
-## VehicleBillboard3D (the flat-card approximation, kept as a fallback --
-## `RF_DEBUG_VEHICLE_RENDER=billboard`), Projectile -> ProjectileBillboard3D, FlagMarker ->
+## Vehicle/EnemyVehicle -> VehicleRender3D (the vehicle definition's own draw descriptor),
+## Projectile -> ProjectileBillboard3D, FlagMarker ->
 ## FlagMarker3D (both Phase 4). If a level has no spawn points at all, controller.vehicle
 ## stays null and nothing here spawns a presentation for it -- matching terrain_view.gd's own
 ## "no spawn points" fallback.
@@ -363,12 +362,7 @@ func _spawn_match() -> void:
 		overlay.setup(pack, level, controller)
 
 
-## Debug-only fallback to the flat-card GROUND_DECAL approximation
-## (`RF_DEBUG_VEHICLE_RENDER=billboard`), kept for comparison now that document 37's real
-## 6-face box (VehicleBoxRender3D) is the default -- never affects a normal run (env var
-## unset). Returns the spawned node (typed Node3D, since the two classes don't share a
-## common base beyond that).
-## The player switched type: replace its 3D presentation (the Tank's box renderer or the generic descriptor one).
+## The player switched type: replace its 3D presentation with the new type's.
 func _on_player_type_changed(v: Vehicle) -> void:
 	if billboard != null and is_instance_valid(billboard):
 		billboard.queue_free()
@@ -382,14 +376,11 @@ func _on_match_over(winner_idx: int) -> void:
 
 
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
-	if v.vehicle_type == 0:
-		if not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
-			v.shot.connect(_on_muzzle_flash.bind(v))
-		if OS.get_environment("RF_DEBUG_VEHICLE_RENDER") == "billboard":
-			var b := VehicleBillboard3D.new()
-			add_child(b)
-			b.setup(v, pack)
-			return b
+	# PORT CHOICE (untraced): only the Tank's muzzle flash is presented so far; the MSV's back-blast and the Heli's bomb flash are
+	# traced records (rocket_salvo.gd / heli_guns.gd put them in their shot specs) but nothing draws them yet -- a definition
+	# opts in with `render.muzzle_flash`.
+	if bool(pack.vehicle_value(v.vehicle_type, "render.muzzle_flash", false)) and not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
+		v.shot.connect(_on_muzzle_flash.bind(v))
 	return VehicleRender3D.create_for(v, pack, self)
 
 
@@ -402,7 +393,7 @@ func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 	var f: Dictionary = spec["flash"]
 	var o: Vector3 = f["offset"]
 	ExplosionEffect3D.spawn_attached(self, pack, pack.get_explosion(String(f["record"])), v,
-			Vector3(o.x, o.y, o.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX), float(f.get("yaw", 0.0)))
+			Vector3(o.x, o.y, o.z + VehicleRender3D.GROUND_CLEARANCE_PX), float(f.get("yaw", 0.0)))
 
 
 ## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, documents 48/87), falling from its

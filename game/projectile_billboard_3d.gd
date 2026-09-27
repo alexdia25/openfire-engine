@@ -18,7 +18,7 @@ const SHADOW_DY := -0.5
 const HEIGHT_PX := 10.0  ## fallback sphere only (placeholder)
 ## The Tank shell leaves the muzzle 7 units up and flies level (pitch 0: the velocity is (0, -speed, 0)
 ## turned by the heading only, FUN_004148f0/FUN_00414b10), so it keeps that height (document 52).
-const SHELL_HEIGHT_PX := 7.0 + VehicleBoxRender3D.GROUND_CLEARANCE_PX  # 7 traced + the vehicle box's clearance
+const SHELL_HEIGHT_PX := 7.0 + VehicleRender3D.GROUND_CLEARANCE_PX  # 7 traced + the vehicle's ground clearance
 const RADIUS_PX := 3.0   ## the placeholder shell sphere's radius (the old 2D view's circle was the same size)
 
 const TEAM_COLOURS := {
@@ -49,7 +49,7 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 		return
 
 	if pack != null and projectile.type_id != 0 and _add_descriptor_parts(pack):
-		_height = projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX
+		_height = projectile.z + VehicleRender3D.GROUND_CLEARANCE_PX
 		_follow()
 		projectile.tree_exited.connect(queue_free)
 		return
@@ -92,7 +92,7 @@ func _process(_delta: float) -> void:
 
 func _follow() -> void:
 	if projectile.vertical:
-		_height = maxf(projectile.z, 0.0) + VehicleBoxRender3D.GROUND_CLEARANCE_PX
+		_height = maxf(projectile.z, 0.0) + VehicleRender3D.GROUND_CLEARANCE_PX
 		if _shadow_root != null:
 			var zz := maxf(projectile.z, 0.0)
 			_shadow_root.position = Vector3(SHADOW_DX * zz, -_height + 0.5, SHADOW_DY * zz)
@@ -152,7 +152,7 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 			if shadow:
 				if _shadow_root == null:
 					_shadow_root = Node3D.new()
-					_shadow_root.position = Vector3(SHADOW_DX * projectile.z, -(projectile.z + VehicleBoxRender3D.GROUND_CLEARANCE_PX) + 0.5, SHADOW_DY * projectile.z)
+					_shadow_root.position = Vector3(SHADOW_DX * projectile.z, -(projectile.z + VehicleRender3D.GROUND_CLEARANCE_PX) + 0.5, SHADOW_DY * projectile.z)
 					add_child(_shadow_root)
 				_shadow_root.add_child(mi)
 			else:
@@ -196,7 +196,7 @@ func _setup_missile() -> void:
 func _update_missile() -> void:
 	var z := maxf(projectile.z, 0.0)
 	var yaw := -projectile.spin_deg
-	_body.position = Vector3(projectile.position.x, z + VehicleBoxRender3D.GROUND_CLEARANCE_PX, projectile.position.y)
+	_body.position = Vector3(projectile.position.x, z + VehicleRender3D.GROUND_CLEARANCE_PX, projectile.position.y)
 	_body.rotation_degrees.y = yaw
 	_shadow.position = Vector3(projectile.position.x + SHADOW_DX * z, 0.5, projectile.position.y + SHADOW_DY * z)
 	_shadow.rotation_degrees.y = yaw

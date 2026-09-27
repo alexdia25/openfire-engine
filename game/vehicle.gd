@@ -16,7 +16,7 @@ extends Node2D
 ## _get_controls()/_wants_to_fire() are the seam a non-player controller overrides,
 ## everything else (movement integration, firing) is shared.
 ##
-## Simulation only: this node draws nothing. The 3D renderers (VehicleBoxRender3D, VehicleRender3D) read it each
+## Simulation only: this node draws nothing. The 3D renderer (VehicleRender3D) reads it each
 ## frame; the old flat 2D view and this class's own sprite drawing were removed on 2026-09-24.
 
 const TICK_HZ := 62.5  ## 1000 ms / 16 ms (timeGetTime() >> 4)
@@ -439,6 +439,60 @@ var hit_flash_remaining := 0.0
 
 func flashing() -> bool:
 	return hit_flash_remaining > 0.0
+
+
+## A named channel: one number the vehicle publishes for its render descriptor to bind parts to (PORTING_PLAN.md 2.7.2, step 5;
+## the moving parts of vehicle_render_3d.gd). Most channels are simply the fields the behaviour modules drive (`turret_deg`,
+## `gun_elev_deg`, `swim_amount`, `rotor_speed_steps` ...); the few below are derived: `position_x` (the Jeep's wheel strip steps
+## with the x it has driven), the accessors the original's draw callbacks read (`salvo_index`, `salvo_reload_remaining`,
+## `pitch_deg`, `bank_deg`, `heli_spinup_progress`), and `rotor_mode`, the blade shape the Heli's draw callback picks
+## (document 63: mode 4, the folded pair, while the start-up's silent phase lasts; otherwise whole(speed) - 1 clamped to 0-3).
+func channel(name: String) -> float:
+	match name:
+		"position_x":
+			return position.x
+		"salvo_index":
+			return float(_salvo_index)
+		"salvo_reload_remaining":
+			return _salvo_reload
+		"pitch_deg":
+			return pitch_deg()
+		"bank_deg":
+			return bank_deg()
+		"heli_spinup_progress":
+			return _heli_spinup_progress
+		"rotor_mode":
+			if heli_spinup_stage == 1:
+				return 4.0
+			return float(clampi(int(floorf(rotor_speed_steps)) - 1, 0, 3))
+	return float(get(name))
+
+
+## The derived channels above are functions of other channels; these are the ones a pose sets (the mod tool's preview).
+const CHANNEL_DRIVERS := {"rotor_mode": ["rotor_speed_steps", "heli_spinup_progress"]}
+
+
+## Poses a channel to `value` by writing the field(s) behind it -- what the simulation would have driven it to. For the mod tool's
+## preview, which never runs the simulation; the game itself never calls this.
+func set_channel(name: String, value: float) -> void:
+	match name:
+		"position_x":
+			position.x = value
+		"salvo_index":
+			_salvo_index = int(value)
+		"salvo_reload_remaining":
+			_salvo_reload = value
+		"pitch_deg":
+			speed = value / (1.5 * 5.625) * TICK_HZ
+		"bank_deg":
+			bank_steps = value / 5.625
+		"heli_spinup_progress":
+			heli_spinup_stage = 1 if value < 1.0 else 0
+			_heli_spinup_progress = value
+		"turret_deg":
+			turret_deg = fposmod(value, 360.0)
+		_:
+			set(name, value)
 
 
 func take_damage(damage: float) -> bool:

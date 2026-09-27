@@ -74,7 +74,7 @@ func _process(_delta: float) -> void:
 			if _ticks > 150:
 				mc.switch_player_vehicle()
 				mc.select_move(1)   # Tank -> Jeep (down in the hangar picture)
-				if v.vehicle_type != 1:
+				if not v.carries_flags():
 					mc.debug_swap_vehicle(1)
 					print("[autoplay] (swapped to the Jeep by the debug key; the home tile did not switch)")
 				_next("choose")
@@ -83,7 +83,7 @@ func _process(_delta: float) -> void:
 				if mc.select_anim.fade >= 1.0:
 					mc.confirm_selection()
 			elif not mc.undocking:
-				if v.vehicle_type != 1:
+				if not v.carries_flags():
 					mc.debug_swap_vehicle(1)
 				_next("wait_flag")
 		"wait_flag":
@@ -187,8 +187,8 @@ func _blocked_tile(x: int, y: int) -> bool:
 	var info := pack.get_coastal_shapes(id)
 	if info.is_empty() or info.get("shapes", []).is_empty():
 		return false
-	if mc.vehicle.vehicle_type == 0 and id in [1, 2, 5, 11]:
-		return false  # a Tank crushes bushes
+	if not mc.vehicle.rule("terrain.blocked_by_bushes") and id in [1, 2, 5, 11]:
+		return false  # a vehicle that is not blocked by bushes (the Tank) crushes them
 	return not (id in [14, 39, 40, 41, 42])  # rearm / refuel pumps have enterable zones
 
 

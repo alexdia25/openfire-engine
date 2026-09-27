@@ -1,296 +1,267 @@
 class_name VehicleRender3D
 extends Node3D
-## Draws any vehicle type from its draw descriptor (document 57): the parts of tools/data/vehicle_types.json
-## (cel, flags, four corners in world units), as quads exactly the way decorations are (document 44). A part
-## with flag 8 takes the team variant as a +1 cel (tan, green). Used for the Jeep; the Tank keeps its own box
-## renderer (game/vehicle_box_3d.gd), which predates this and adds the separately drawn turret. The Jeep's
-## rotating wheel strip (cels 457-461) shows its first frame and its passenger/turret is not separate: only the
-## hull descriptor is drawn. Corner axes as elsewhere: x lateral, y = -forward, z up.
+## Draws any vehicle from the `render` descriptor of its definition (PORTING_PLAN.md 2.7.2, step 5; documents 57, 59, 63, 64):
+## the parts of the original's draw descriptor -- a sprite (tan, green, hit-flash variants) over four corners -- as quads, exactly
+## the way decorations are drawn (document 44), plus the bindings that make the moving parts move. The Tank's turret and barrel,
+## the Jeep's wheel strips and swim ring, the MSV's rack and canisters and the Heli's rotor and tilt are all data in this
+## vocabulary; there is no `vehicle_type` here, and a new vehicle gets moving parts by writing the same descriptor.
+##
+## Corner axes as in the original: x lateral, y = minus forward, z up, in world units. `Vehicle.channel(name)` is the number a
+## binding reads (mostly the fields the behaviour modules drive: `turret_deg`, `gun_elev_deg`, `swim_amount`, `rotor_speed_steps` ...).
+##
+##   render.parts[i]  {sprite_ids: [tan, green, flash], flags (8 = takes the team variant), corners: [4 x corner]}
+##       corner            [x, y, z]  or  {rig, point}: point `point` of the named rig
+##       group             the group node the part hangs under (default: the vehicle itself)
+##       sprites_by        {channel, sprites: [ids], scale, eps, wrap | max}   pick the sprite by a channel-derived index
+##       corners_by        {channel, sets: [[4 corners]...], scale, eps, max}   pick the whole corner set by an index
+##       scale_by          {channel, min}                                       scale x and y by max(channel, min)
+##       visible           {channel, min, max, scale, eps}                      draw only while the (scaled) channel is in range
+##   render.rigs.<name>  {channel, rotate: {axis: "x", scale}, base: [points], offset, adjust: [...]}
+##       corners recomputed every frame as R(channel * scale, about the lateral axis) * base + offset, the way the original's
+##       draw callbacks rebuild the Tank's barrel tip and the MSV's rack (an `adjust` sets one axis of some base points from a channel)
+##   render.groups.<name>  {parent, rotate: [{axis: "x" | "y" | "z", channel, scale, rate}]}
+##       a node the parts turn with (axes are the mesh's: y is up). `rate` accumulates degrees per tick x channel (the rotor);
+##       without it the angle is channel * scale (the turret)
+##   render.body  {rotate: [...]}   the same, applied to the whole vehicle (the Heli's pitch and bank)
+##
+## A part with `flags & 8` takes the vehicle's colour (`pack.team_variant`) or variant 2 during the hit flash (FUN_00402d20).
+## Shared by the game scene and the mod tool's vehicle preview, so both draw a vehicle the same way (EDITOR_PLAN.md principle 3).
 
-const GROUND_CLEARANCE_PX := 2.0  ## same as VehicleBoxRender3D
+const GROUND_CLEARANCE_PX := 2.0  ## not a traced value: keeps the bottom faces off the terrain plane
 
 var vehicle: Vehicle
 var _pack: Pack
-var _parts: Array = []          ## per part: {mesh: MeshInstance3D, data: Dictionary, sprite_id: String}
-var _shifts: Array = []         ## per part: the outward shift of a part that covers an earlier coplanar one (CoplanarParts), a Vector3 in mesh space
-var _type := 0                  ## the type this renderer was built for; the vehicle may be swapped under it
-var _ring: MeshInstance3D            ## the Jeep's swim-mode wheels (part 11)
-var _ring_mat: StandardMaterial3D
-var _flash := false               ## drawn in variant 2 (the hit flash)
-var _anim_key: Variant = null   ## last animation state drawn (rebuild the animated parts only when it changes)
+var _render: Dictionary = {}
+var _type := 0                     ## the type this renderer was built for; the vehicle may be swapped under it
+var _parts: Array = []             ## per part: {data, mesh, mat, group, shift, key}
+var _groups: Dictionary = {}       ## name -> {node, spec}
+var _group_order: Array = []       ## parents before children
+var _rates: Dictionary = {}        ## "<owner>/<n>" -> the accumulated angle of a `rate` rotation, degrees
+var _flash := false                ## drawn in variant 2 (the hit flash)
 
 
-## The game's presentation of a vehicle, added under `parent`: the Tank's own box renderer (VehicleBoxRender3D, which
-## adds the separately drawn turret) or this descriptor renderer for every other type. Shared by the game scene and the
-## mod tool's vehicle preview, so both draw a vehicle the same way (EDITOR_PLAN.md principle 3).
+## The game's presentation of a vehicle, added under `parent`.
 static func create_for(v: Vehicle, pack: Pack, parent: Node) -> Node3D:
-	if v.vehicle_type == 0:
-		var box := VehicleBoxRender3D.new()
-		parent.add_child(box)
-		box.setup(v, pack)
-		return box
-	var gen := VehicleRender3D.new()
-	parent.add_child(gen)
-	gen.setup(v, pack)
-	return gen
+	var r := VehicleRender3D.new()
+	parent.add_child(r)
+	r.setup(v, pack)
+	return r
 
 
 func setup(v: Vehicle, pack: Pack) -> void:
 	vehicle = v
 	_pack = pack
 	_type = v.vehicle_type
-	v.visible = false  # logic only, like the box renderer
-	var t: Dictionary = pack.vehicle_types.get(str(v.vehicle_type), {})
-	_shifts = coplanar_shifts(t.get("parts", []))
-	var part_index := -1
-	for part in t.get("parts", []):
-		part_index += 1
-		var ids: Array = part["sprite_ids"]
-		var s := pack.get_sprite(pack.team_variant(ids, v.art_colour()))
-		if s.is_empty():
-			_parts.append({})
-			continue
-		var tex := pack.get_texture(int(s.get("page", 0)))
+	v.visible = false  # logic only
+	_render = pack.vehicle_def(v.vehicle_type).get("render", {})
+	_build_groups()
+	var parts: Array = _render.get("parts", [])
+	var shifts := _coplanar_shifts()
+	for i in parts.size():
 		var mi := MeshInstance3D.new()
-		mi.mesh = _quad(part["corners"], s, tex, _shifts[part_index])
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.albedo_texture = tex
 		mi.material_override = mat
-		add_child(mi)
-		_parts.append({"mesh": mi, "mat": mat})
-	if v.vehicle_type == 3:
-		_build_heli_extras()
+		var group := String(parts[i].get("group", ""))
+		(_groups[group]["node"] if group != "" and _groups.has(group) else self).add_child(mi)
+		_parts.append({"data": parts[i], "mesh": mi, "mat": mat, "shift": shifts[i], "key": null})
+	_turn_groups(0.0)
+	_update_parts()
 	_follow()
 
 
 func _process(delta: float) -> void:
-	_follow()
-	_animate()
-	if _type == 3 and _rotor != null:
-		_animate_heli(delta)
-
-
-## The Heli's rotor (documents 63, 79). A LIVE Heli has no shadow: the only code that creates a shadow object for it is its dying handler
-## (document 63, "Shadows"), so none is drawn here; it belongs with the dying sequence. The rotor is the object the Heli descriptor's next-link points at
-## (0x440708): two halves of a blade bar, cel 584 + team and cel 580 + team, each a quad over corners set 3 (0x4405a0:
-## x +-13.6, y 0..-27.2 and 0..27.2, z 10), turning about the vertical axis by `vehicle.rotor_speed_steps` steps of 5.625 degrees a tick (state +0x80
-## grows by state +0x84): 4.0 at full speed, ramped up from 0 during the start-up (document 79).
-##
-## **User-flagged (2026-09-22): "different textures used when the helicopter is in full flight, we
-## aren't using those here."** Document 63's own init callback (`0x403350`) picks a MODE from the
-## rotor speed before choosing which corner set (blade width) to draw: `whole(speed) - 1` clamped to
-## 0-3, or **mode 4 while the start-up value (state+0x58, `Vehicle.heli_spinup_progress()`) is below
-## 1** -- exactly `Vehicle.heli_spinup_stage == 1`, document 79's ~56-tick silent phase, before the
-## rotor visibly starts spinning at all. Modes 0-3 are the same two-half-bar quad at increasing half-
-## widths (3.4/3.4/6.8/13.6 -- document 63's "6.8/13.6/27.2 wide" halved for a +-x extent); this file
-## used to always draw at the mode-3 (full-flight) width, correct only once `rotor_speed_steps`
-## reaches 4.0.
-##
-## **Mode 4 corrected (2026-09-22, re-disassembling the draw callback `0x403420` byte-for-byte
-## after a user report that a spinning-speed state was still missing):** it is not a single static
-## blade. It draws descriptor `0x4406c0` (cel 588, "rotor.c") **twice**, at two independent
-## rotations -- once at a fixed base angle, once at `base + (state+0x58 << 5) & 0x3fffff`. Since
-## `0x3fffff` is a full turn and `state+0x58` runs 0..0x10000 (0..1.0), that second angle sweeps
-## exactly 0..180 degrees as stage 1 progresses: **two overlapping blades scissor apart into a
-## straight bar** over the silent phase, not one frozen blade. Fixed by giving mode 4 its own two
-## pivots, the second one animated by `Vehicle.heli_spinup_progress() * 180`, instead of one static
-## quad.
-const ROTOR_HALF_WIDTHS := [3.4, 3.4, 6.8, 13.6]  ## modes 0-3, document 63
-const ROTOR_FOLDED_CORNERS := [[3.4, 1.7, 10.0], [3.4, -25.5, 10.0], [-3.4, -25.5, 10.0], [-3.4, 1.7, 10.0]]  ## mode 4, cel 588 (0x4406c0)
-var _rotor: Node3D
-var _rotor_deg := 0.0
-var _rotor_mode := -1  ## -1 = not yet built; 4 = the folded pair scissoring apart
-var _folded_pivots: Array[Node3D] = []  ## mode 4 only: pivot[1] rotates as the blades unfold
-
-
-func _build_heli_extras() -> void:
-	_rotor = Node3D.new()
-	add_child(_rotor)
-	_update_heli_rotor_mode()
-
-
-func _heli_rotor_mode() -> int:
-	if vehicle.heli_spinup_stage == 1:
-		return 4
-	return clampi(int(floorf(vehicle.rotor_speed_steps)) - 1, 0, 3)
-
-
-func _update_heli_rotor_mode() -> void:
-	var mode := _heli_rotor_mode()
-	if mode == _rotor_mode:
-		return
-	_rotor_mode = mode
-	for c in _rotor.get_children():
-		c.queue_free()
-	_folded_pivots.clear()
-	if mode == 4:
-		var s := _pack.get_sprite("vehicle.heli.rotor.c")
-		if s.is_empty():
-			return
-		var tex := _pack.get_texture(int(s.get("page", 0)))
-		for i in 2:
-			var pivot := Node3D.new()
-			_rotor.add_child(pivot)
-			pivot.add_child(_blade_mesh(ROTOR_FOLDED_CORNERS, s, tex))
-			_folded_pivots.append(pivot)
-		_folded_pivots[1].rotation_degrees.y = -vehicle.heli_spinup_progress() * 180.0
-		return
-	var colour := vehicle.art_colour()
-	var w: float = ROTOR_HALF_WIDTHS[mode]
-	var quads := [
-		[_pack.team_variant(["vehicle.heli.rotor.b.tan", "vehicle.heli.rotor.b.green"], colour), [[w, 0.0, 10.0], [w, -27.2, 10.0], [-w, -27.2, 10.0], [-w, 0.0, 10.0]]],
-		[_pack.team_variant(["vehicle.heli.rotor.a.tan", "vehicle.heli.rotor.a.green"], colour), [[w, 27.2, 10.0], [w, 0.0, 10.0], [-w, 0.0, 10.0], [-w, 27.2, 10.0]]],
-	]
-	for h in quads:
-		var s := _pack.get_sprite(String(h[0]))
-		if s.is_empty():
-			continue
-		var tex := _pack.get_texture(int(s.get("page", 0)))
-		_rotor.add_child(_blade_mesh(h[1], s, tex))
-
-
-func _blade_mesh(corners: Array, s: Dictionary, tex: Texture2D) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = _quad(corners, s, tex)
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	mat.albedo_texture = tex
-	mi.material_override = mat
-	return mi
-
-
-func _animate_heli(delta: float) -> void:
-	_update_heli_rotor_mode()
-	if _rotor_mode == 4:
-		if _folded_pivots.size() == 2:
-			_folded_pivots[1].rotation_degrees.y = -vehicle.heli_spinup_progress() * 180.0
-		return  # mode 4 does not spin; it scissors apart instead (document 85 addendum)
-	_rotor_deg = fposmod(_rotor_deg + vehicle.rotor_speed_steps * 5.625 * delta * Vehicle.TICK_HZ, 360.0)
-	_rotor.rotation_degrees.y = -_rotor_deg
-
-
-## Per-tick part animation, read from the type's draw callbacks (document 59). Only what the callbacks do to the
-## part list is reproduced; parts not named here are static.
-func _animate() -> void:
 	if vehicle == null or not is_instance_valid(vehicle) or vehicle.vehicle_type != _type:
 		return  # a type swap frees this renderer (terrain_view_3d._on_player_type_changed) a frame later
-	if vehicle.flashing() != _flash:
-		_flash = vehicle.flashing()
-		_redraw_team_parts()
-	if vehicle.vehicle_type == 1:
-		# FUN_00402fc0: the wheel-strip parts 9 and 10 (cel 457) are drawn as cel 457 + ((obj+0x40 & 0x30000) >> 16),
-		# obj+0x40 being the object's x position in 16.16: the frame is the integer x (world units) modulo 4, so
-		# the strip steps once per unit driven along x and (as coded) does not move for travel along y alone.
-		var frame := int(floorf(vehicle.position.x)) & 3
-		# swim mode (document 62): the row of the table picked by whole(immersion * 8) reshapes the wheel strips, and
-		# from row 4 on a square of four wheels (part 11) shows underneath, its size following the immersion
-		var row := mini(int(floorf(vehicle.swim_amount * 8.0 + 0.0001)), 8)
-		var ring := maxf(vehicle.swim_amount, 0.25) if row > 3 else 0.0
-		var key := [frame, row, snappedf(ring, 0.01)]
-		if key != _anim_key:
-			_anim_key = key
-			var swim: Dictionary = _pack.vehicle_types.get("1", {}).get("swim", {})
-			var r: Array = swim.get("rows", [[4.5, 8.0, 4.5, 0.0]])[row]
-			var a: float = r[0]
-			var c: float = r[1]
-			var d: float = r[2]
-			var f: float = r[3]
-			var sid := "vehicle.jeep.p457.frame_%02d" % (frame + 1)
-			_set_part_sprite(9, sid, [[-a, -12.0, c], [-a, 12.0, c], [-d, 12.0, f], [-d, -12.0, f]])
-			_set_part_sprite(10, sid, [[a, 12.0, c], [a, -12.0, c], [d, -12.0, f], [d, 12.0, f]])
-			_update_ring(ring, swim)
-	elif vehicle.vehicle_type == 2:
-		# FUN_00402ec0: the canister part 13 is cel 326 minus the rockets fired in the current salvo (326, 325,
-		# 324: three, two, one canisters), and while the launcher reloads (state+0x58 runs -6.0 -> 0 at 0.15 per
-		# tick, FUN_0040d790) its two front corners (48, 49) slide: y = 11.25 - 6 + 6 * remaining / 40.
-		var fired: int = vehicle.salvo_index()
-		var slide: float = 6.0 * vehicle.salvo_reload_remaining() / 40.0
-		var elev := snappedf(vehicle.gun_elev_deg, 0.1)
-		var key := [fired, roundf(slide * 8.0), elev]
-		if key != _anim_key:
-			_anim_key = key
-			var rack: Dictionary = _pack.vehicle_types.get("2", {}).get("rack", {})
-			if rack.is_empty():
-				return
-			# corners 44-51 = R(elevation) * base + (0, 6, 12); base y of corners 4 and 5 is -6 - n while reloading
-			var a := deg_to_rad(-elev)
-			var pts: Array = []
-			var off: Array = rack["offset"]
-			for i in 8:
-				var b: Array = (rack["base"] as Array)[i].duplicate()
-				if i == 4 or i == 5:
-					b[1] = -6.0 + slide
-				var y: float = b[1] * cos(a) - b[2] * sin(a)
-				var zz: float = b[1] * sin(a) + b[2] * cos(a)
-				pts.append([b[0] + off[0], y + off[1], zz + off[2]])
-			_set_part_sprite(2, _msv_plate_sprite(), [pts[0], pts[1], pts[2], pts[3]])
-			_set_part_sprite(13, "vehicle.msv.p324.canisters_%d" % (3 - fired), [pts[5], pts[4], pts[7], pts[6]])
+	_flash = vehicle.flashing()
+	_turn_groups(delta)
+	_update_parts()
+	_follow()
 
 
-## Redraws every flag-8 part in the current variant: the team's, or variant 2 while the hit flash lasts
-## (FUN_00402d20 sets the draw variant to 2 while the hit time is in the future).
-func _redraw_team_parts() -> void:
-	var t: Dictionary = _pack.vehicle_types.get(str(vehicle.vehicle_type), {})
-	var parts: Array = t.get("parts", [])
-	for i in parts.size():
-		var part: Dictionary = parts[i]
-		if _parts[i].is_empty() or not (int(part["flags"]) & 8):
-			continue
-		_set_part_sprite(i, _team_part_sprite(part["sprite_ids"]), null)
+func _build_groups() -> void:
+	var specs: Dictionary = _render.get("groups", {})
+	var pending: Array = specs.keys()
+	while not pending.is_empty():
+		var progressed := false
+		for name in pending.duplicate():
+			var parent := String(specs[name].get("parent", ""))
+			if parent != "" and not _groups.has(parent):
+				continue
+			var node := Node3D.new()
+			(_groups[parent]["node"] if parent != "" else self).add_child(node)
+			_groups[name] = {"node": node, "spec": specs[name]}
+			_group_order.append(name)
+			pending.erase(name)
+			progressed = true
+		if not progressed:
+			push_warning("VehicleRender3D: group parents of %s form a loop" % [pending])
+			break
 
 
-func _msv_plate_sprite() -> String:
-	var t: Dictionary = _pack.vehicle_types.get("2", {})
-	return _team_part_sprite(t["parts"][2]["sprite_ids"])
+## The channels a render descriptor reads, in the order the mod tool's preview lists them (the body, the groups, the rigs, then
+## the parts' bindings), each once. A derived channel (`Vehicle.CHANNEL_DRIVERS`) is replaced by the channels that drive it.
+static func channels_used(render: Dictionary) -> Array:
+	var out: Array = []
+	var add := func(name: String) -> void:
+		for n in Vehicle.CHANNEL_DRIVERS.get(name, [name]):
+			if not out.has(n):
+				out.append(n)
+	for e in render.get("body", {}).get("rotate", []):
+		add.call(String(e["channel"]))
+	for g in render.get("groups", {}).values():
+		for e in g.get("rotate", []):
+			add.call(String(e["channel"]))
+	for r in render.get("rigs", {}).values():
+		add.call(String(r["channel"]))
+		for a in r.get("adjust", []):
+			add.call(String(a["add_channel"]))
+	for p in render.get("parts", []):
+		for k in ["sprites_by", "corners_by", "scale_by", "visible"]:
+			if p.has(k):
+				add.call(String(p[k]["channel"]))
+	return out
 
 
-## A flag-8 part's sprite: variant 2 (the hit flash, document 59) while flashing, otherwise the vehicle's colour.
-func _team_part_sprite(ids: Array) -> String:
-	if _flash and ids.size() > 2:
+## One number from a binding: the channel read from the vehicle, then `index` for the ones that pick from a list.
+func _value(spec: Dictionary) -> float:
+	return vehicle.channel(String(spec["channel"]))
+
+
+## The list index a channel-derived binding picks: floor(value * scale + eps), wrapped (`wrap`) or clamped to 0..(`max` | last).
+static func index_of(spec: Dictionary, value: float, count: int) -> int:
+	var i := floori(value * float(spec.get("scale", 1.0)) + float(spec.get("eps", 0.0)))
+	if spec.has("wrap"):
+		return posmod(i, int(spec["wrap"]))
+	return clampi(i, 0, mini(int(spec.get("max", count - 1)), count - 1))
+
+
+func _is_visible(spec: Dictionary) -> bool:
+	var v := _value(spec)
+	if spec.has("scale") or spec.has("eps"):
+		v = floorf(v * float(spec.get("scale", 1.0)) + float(spec.get("eps", 0.0)))
+	return v >= float(spec.get("min", -INF)) and v <= float(spec.get("max", INF))
+
+
+## Turns the group nodes by their bindings (a `rate` binding accumulates, the rest read the channel directly) and lets the
+## body's own bindings set the vehicle's tilt (`_follow`).
+func _turn_groups(delta: float) -> void:
+	for name in _group_order:
+		var g: Dictionary = _groups[name]
+		g["node"].rotation_degrees = _rotation(g["spec"].get("rotate", []), String(name), delta)
+
+
+func _rotation(entries: Array, owner: String, delta: float) -> Vector3:
+	var out := Vector3.ZERO
+	for n in entries.size():
+		var e: Dictionary = entries[n]
+		var v := _value(e)
+		var deg: float
+		if e.has("rate"):
+			var key := "%s/%d" % [owner, n]
+			# the rotor: steps of `rate` degrees a tick, x the channel (FUN_00403420, document 63), kept in 0..360
+			_rates[key] = fposmod(float(_rates.get(key, 0.0)) + v * float(e["rate"]) * delta * Vehicle.TICK_HZ, 360.0)
+			deg = float(_rates[key]) * float(e.get("scale", 1.0))
+		else:
+			deg = v * float(e.get("scale", 1.0))
+		match String(e.get("axis", "y")):
+			"x":
+				out.x += deg
+			"z":
+				out.z += deg
+			_:
+				out.y += deg
+	return out
+
+
+## The named rig's points now: R(channel * scale) * base + offset, the rotation about the lateral axis turning (y, z) as the
+## original's FUN_0041ae10 does (a nose point (0, -1, 0) goes to height -sin), then the constant offset.
+func _rig_points(name: String) -> Array:
+	var rig: Dictionary = _render.get("rigs", {}).get(name, {})
+	if rig.is_empty():
+		return []
+	var base: Array = []
+	for b in rig["base"]:
+		base.append(Vector3(b[0], b[1], b[2]))
+	for a in rig.get("adjust", []):
+		var value := float(a.get("set", 0.0)) + vehicle.channel(String(a["add_channel"])) * float(a.get("add_scale", 1.0))
+		for p in a["points"]:
+			var b: Vector3 = base[p]
+			b[int(a.get("axis", 1))] = value
+			base[p] = b
+	var rot: Dictionary = rig.get("rotate", {})
+	var ang := deg_to_rad(vehicle.channel(String(rig["channel"])) * float(rot.get("scale", 1.0)))
+	var c := cos(ang)
+	var s := sin(ang)
+	var off: Array = rig.get("offset", [0.0, 0.0, 0.0])
+	var out: Array = []
+	for b in base:
+		out.append(Vector3(b.x + off[0], b.y * c - b.z * s + off[1], b.y * s + b.z * c + off[2]))
+	return out
+
+
+## A part's four corners now, as Vector3 (x, y, z world units): its static corners, or the set its `corners_by` picks, with rig
+## references resolved and `scale_by` applied. `rest` gives the descriptor's own corners without the channel-driven picks.
+func _corners(part: Dictionary, rigs: Dictionary, rest := false) -> Array:
+	var raw: Array = part["corners"]
+	if part.has("corners_by") and not rest:
+		var cb: Dictionary = part["corners_by"]
+		raw = cb["sets"][index_of(cb, _value(cb), (cb["sets"] as Array).size())]
+	var k := 1.0
+	if part.has("scale_by") and not rest:
+		var sb: Dictionary = part["scale_by"]
+		k = maxf(_value(sb), float(sb.get("min", 0.0)))
+	var out: Array = []
+	for c in raw:
+		if c is Dictionary:
+			var name := String(c["rig"])
+			if not rigs.has(name):
+				rigs[name] = _rig_points(name)
+			out.append(rigs[name][int(c["point"])])
+		else:
+			out.append(Vector3(c[0] * k, c[1] * k, c[2]))
+	return out
+
+
+## The sprite a part is drawn with: the one its `sprites_by` picks; otherwise a team-coloured part takes variant 2 (the hit flash,
+## document 59) while flashing and the vehicle's colour the rest of the time.
+func _sprite_id(part: Dictionary) -> String:
+	if part.has("sprites_by"):
+		var sb: Dictionary = part["sprites_by"]
+		return String(sb["sprites"][index_of(sb, _value(sb), (sb["sprites"] as Array).size())])
+	var ids: Array = part["sprite_ids"]
+	if _flash and (int(part["flags"]) & 8) and ids.size() > 2:
 		return String(ids[2])
 	return _pack.team_variant(ids, vehicle.art_colour())
 
 
-func _update_ring(scale: float, swim: Dictionary) -> void:
-	if _ring == null:
-		_ring = MeshInstance3D.new()
-		_ring_mat = StandardMaterial3D.new()
-		_ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_ring_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-		_ring_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		_ring.material_override = _ring_mat
-		add_child(_ring)
-	_ring.visible = scale > 0.0
-	if scale <= 0.0:
-		return
-	var s := _pack.get_sprite(String(swim.get("ring_sprite", "")))
-	if s.is_empty():
-		return
-	var tex := _pack.get_texture(int(s.get("page", 0)))
-	var h: float = float(swim.get("ring_half", 12.0)) * scale
-	_ring.mesh = _quad([[h, -h, 0.0], [h, h, 0.0], [-h, h, 0.0], [-h, -h, 0.0]], s, tex)
-	_ring_mat.albedo_texture = tex
-
-
-func _set_part_sprite(index: int, sprite_id: String, corners: Variant) -> void:
-	if index >= _parts.size() or _parts[index].is_empty():
-		return
-	var s := _pack.get_sprite(sprite_id)
-	if s.is_empty():
-		return
-	var tex := _pack.get_texture(int(s.get("page", 0)))
-	var t: Dictionary = _pack.vehicle_types.get(str(vehicle.vehicle_type), {})
-	var c: Array = corners if corners != null else t["parts"][index]["corners"]
-	_parts[index]["mesh"].mesh = _quad(c, s, tex, _shifts[index] if index < _shifts.size() else Vector3.ZERO)
-	_parts[index]["mat"].albedo_texture = tex
+## Rebuilds the mesh of every part whose sprite or corners changed, and shows or hides the conditional ones.
+func _update_parts() -> void:
+	var rigs := {}   # each rig is evaluated once a frame
+	for p in _parts:
+		var d: Dictionary = p["data"]
+		var mi: MeshInstance3D = p["mesh"]
+		if d.has("visible"):
+			var show := _is_visible(d["visible"])
+			mi.visible = show
+			if not show:
+				continue
+		var id := _sprite_id(d)
+		var corners := _corners(d, rigs)
+		var key := [id, corners]
+		if key == p["key"]:
+			continue
+		p["key"] = key
+		var s := _pack.get_sprite(id)
+		if s.is_empty():
+			mi.mesh = null
+			continue
+		var tex := _pack.get_texture(int(s.get("page", 0)))
+		mi.mesh = _quad(corners, s, tex, p["shift"])
+		p["mat"].albedo_texture = tex
 
 
 func _follow() -> void:
@@ -298,32 +269,40 @@ func _follow() -> void:
 		return
 	visible = vehicle.alive and not vehicle.docked
 	position = Vector3(vehicle.position.x, GROUND_CLEARANCE_PX + vehicle.z, vehicle.position.y)
-	rotation_degrees.y = -90.0 - vehicle.heading_deg
-	if vehicle.vehicle_type == 3:
-		# the whole Heli tilts with its pitch and bank (FUN_0041b590; document 63)
-		rotation_degrees.x = -vehicle.pitch_deg()
-		rotation_degrees.z = vehicle.bank_deg()
-	else:
-		rotation_degrees.x = 0.0
-		rotation_degrees.z = 0.0
+	var tilt := _rotation(_render.get("body", {}).get("rotate", []), "body", 0.0)
+	rotation_degrees = Vector3(tilt.x, -90.0 - vehicle.heading_deg + tilt.y, tilt.z)
 
 
-## The shift (mesh space) each part of `parts` (descriptor parts with `corners`) needs so it draws over the earlier parts it overlaps in the same plane (CoplanarParts, document 102).
-## Static so the descriptor can be checked without a renderer.
-static func coplanar_shifts(parts: Array) -> Array:
-	var quads: Array = []
-	for part in parts:
-		var c: Array[Vector3] = []
-		for q in part["corners"]:
-			c.append(Vector3(q[0], q[2], q[1]))
-		quads.append(c)
-	return CoplanarParts.shifts(quads)
+## The outward shift (mesh space) each part needs so it draws over the earlier parts of its group that it overlaps in the same
+## plane (CoplanarParts, document 102). Conditional parts (`visible`) take no part: they come and go over the rest.
+func _coplanar_shifts() -> Array:
+	var parts: Array = _render.get("parts", [])
+	var out: Array = []
+	out.resize(parts.size())
+	out.fill(Vector3.ZERO)
+	var by_group := {}
+	var rigs := {}
+	for i in parts.size():
+		if not parts[i].has("visible"):
+			by_group.get_or_add(String(parts[i].get("group", "")), []).append(i)
+	for g in by_group:
+		var idx: Array = by_group[g]
+		var quads: Array = []
+		for i in idx:
+			var c: Array[Vector3] = []
+			for q in _corners(parts[i], rigs, true):
+				c.append(Vector3(q.x, q.z, q.y))
+			quads.append(c)
+		var shifts := CoplanarParts.shifts(quads)
+		for n in idx.size():
+			out[idx[n]] = shifts[n]
+	return out
 
 
 func _quad(corners: Array, s: Dictionary, tex: Texture2D, shift := Vector3.ZERO) -> ArrayMesh:
 	var c: Array[Vector3] = []
 	for q in corners:
-		c.append(Vector3(q[0], q[2], q[1]) + shift)
+		c.append(Vector3(q.x, q.z, q.y) + shift)
 	var tw := float(tex.get_width())
 	var th := float(tex.get_height())
 	var sx := float(s.get("x", 0))
