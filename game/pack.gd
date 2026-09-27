@@ -103,8 +103,11 @@ func load_stack(dirs: Array[String]) -> bool:
 		return false
 	_build_vehicle_view()
 	if atlas_textures.is_empty():
-		push_error("Pack.load_stack: no layer provides sprites/sprites.json")
-		return false
+		# Not an error: a brand-new standalone project (PORTING_PLAN.md 2.7's sharpened end goal, 2026-09-27) starts
+		# with no art at all until the editor imports some. A pack that was meant to have content but doesn't (a
+		# typo'd directory, a layer that failed to copy) still loaded every layer without an error above, so this is
+		# just worth knowing, not worth refusing to open the project over.
+		push_warning("Pack.load_stack: no layer provides sprites/sprites.json (%s)" % pack_dir)
 	return true
 
 

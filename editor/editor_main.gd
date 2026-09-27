@@ -63,7 +63,8 @@ func _ready() -> void:
 	_enabled.toggled.connect(func(on): if ws != null: ModLoader.set_enabled(ws.mod_dir, on))
 	bar.add_child(_enabled)
 	_bar_button(bar, "New mod...", func(): _ask_dir(_new_mod))
-	_bar_button(bar, "Open mod...", func(): _ask_dir(_open_mod))
+	_bar_button(bar, "New game...", func(): _ask_dir(_new_game))
+	_bar_button(bar, "Open...", func(): _ask_dir(_open_mod))
 	_bar_button(bar, "Open folder", func(): OS.shell_open(ws.mod_dir))
 	_undo_btn = _bar_button(bar, "Undo", func(): ws.undo.undo(), KEY_Z)
 	_redo_btn = _bar_button(bar, "Redo", func(): ws.undo.redo(), KEY_Y)
@@ -143,10 +144,10 @@ func _bar_button(bar: HBoxContainer, text: String, action: Callable, ctrl_key :=
 
 
 func _open_mod(dir: String) -> void:
-	var why := ModLoader.mod_problem(dir)
+	var why := ModLoader.editor_open_problem(dir)
 	if why != "":
-		_message.title = "Not a mod"
-		_message.dialog_text = "%s\ncannot be opened as a mod: %s.\n\nOriginal content is never edited. Use New mod... to make a mod that\nloads on top of it; anything the mod changes is its own copy." % [dir, why]
+		_message.title = "Cannot open this"
+		_message.dialog_text = "%s\ncannot be opened here: %s.\n\nOriginal content is never edited. Use New mod... to make a mod that\nloads on top of it, or New game... to start a project with no base content; anything either one changes is its own copy." % [dir, why]
 		_message.popup_centered()
 		return
 	var next := ModWorkspace.new()
@@ -172,6 +173,15 @@ func _open_mod(dir: String) -> void:
 func _new_mod(dir: String) -> void:
 	if not FileAccess.file_exists(dir.path_join("pack.json")):
 		ModWorkspace.create(dir, dir.get_file()).close()
+	_open_mod(dir)
+
+
+## A standalone project (PORTING_PLAN.md 2.7's sharpened end goal, 2026-09-27): a pack with no `base_pack` at all, so
+## nothing of the original ships under it -- the same `ModWorkspace`, `PackWriter` and every editor panel work on it
+## unchanged, since none of them assume a base layer exists.
+func _new_game(dir: String) -> void:
+	if not FileAccess.file_exists(dir.path_join("pack.json")):
+		ModWorkspace.create(dir, dir.get_file(), "").close()
 	_open_mod(dir)
 
 

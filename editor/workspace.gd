@@ -45,10 +45,12 @@ static func create(dir: String, name: String, base_pack: String = DEFAULT_BASE) 
 
 func open(dir: String) -> bool:
 	mod_dir = dir
-	var why := ModLoader.mod_problem(dir)
+	var why := ModLoader.editor_open_problem(dir)
 	if why != "":
-		# Original content is never edited: a mod is its own folder layered on top (PORTING_PLAN.md 2.7.9).
-		push_error("ModWorkspace: %s cannot be opened as a mod: %s" % [dir, why])
+		# Original content is never edited: a mod or a standalone project is its own folder, never the base pack's
+		# own (PORTING_PLAN.md 2.7.9; the sharpened end goal, 2026-09-27, means a project with no base_pack at all
+		# is otherwise a perfectly normal thing to open here).
+		push_error("ModWorkspace: %s cannot be opened here: %s" % [dir, why])
 		return false
 	manifest = _read(dir.path_join("pack.json"))
 	mod_sprites = _read(dir.path_join("sprites/sprites.json")).get("sprites", {})
