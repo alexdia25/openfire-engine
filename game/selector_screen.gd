@@ -34,18 +34,33 @@ func setup(controller: MatchController) -> void:
 	if _sel.is_empty():
 		return
 	mc.selection_changed.connect(_refresh)
-	# the spotlight (cel 2077) is drawn with a tint blend in the original (PIXC 0x1f801f80): approximated by an additive layer
+	# the spotlight (cel 2077, a PRE0=5 effect mask) is drawn with a per-pixel background-recolour blend in the original
+	# (PIXC 0x1f801f80, document 9's "brighten" table by the mask's raw 0-31 value) -- approximated here by an additive layer,
+	# since the pack has no real per-pixel blend yet. tools/convert_car.py stores that raw 0-31 value straight in the PNG's
+	# alpha byte (its own comment: "packed white-on-transparent... the true colour requires the runtime-built translation
+	# table this converter does not have"), so drawn as an ordinary texture its brightest pixel is ~31/255 (12%) opaque --
+	# effectively invisible next to the hangar's own art, confirmed missing against the reference footage (issue #32,
+	# document 103's hangar addendum). _glow_tex rescales that 0-31 range to a full 0-255 alpha once, at setup, so the
+	# shape (a real gradient, document 9) is visible; the colour and blend mode are still the same approximation as before.
 	_glow = Control.new()
 	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	_glow.material = mat
 	add_child(_glow)
+	var glow_img := mc.pack.get_sprite_image(String(_sel["sprites"]["highlight"]))
+	if glow_img != null:
+		glow_img = glow_img.duplicate()
+		glow_img.convert(Image.FORMAT_RGBA8)
+		for y in glow_img.get_height():
+			for x in glow_img.get_width():
+				var c := glow_img.get_pixel(x, y)
+				glow_img.set_pixel(x, y, Color(1.0, 1.0, 1.0, minf(c.a * 255.0 / 31.0, 1.0)))
+		_glow_tex = ImageTexture.create_from_image(glow_img)
+		_glow_size = glow_img.get_size()
 	_glow.draw.connect(func():
-		if mc.selecting:
-			var at := _atlas(String(_sel["sprites"]["highlight"]))
-			if at.atlas != null:
-				_glow.draw_texture_rect(at, Rect2(_glow_at, at.region.size * S), false, Color(1, 1, 1, 0.6)))
+		if mc.selecting and _glow_tex != null:
+			_glow.draw_texture_rect(_glow_tex, Rect2(_glow_at, _glow_size * S), false))
 
 
 func _refresh() -> void:
@@ -84,6 +99,8 @@ func _atlas(id: String) -> AtlasTexture:
 var _origin := Vector2.ZERO
 var _glow_at := Vector2(-1000, -1000)
 var _glow: Control
+var _glow_tex: ImageTexture   ## the spotlight mask with its alpha rescaled from 0-31 to 0-255 (see setup())
+var _glow_size := Vector2.ZERO
 
 
 ## Draws sprite `id` with its top-left at the logical position `p` (320 x 240 units), optionally scaled / tinted. (A mirror option used to live here
