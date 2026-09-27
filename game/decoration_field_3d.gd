@@ -25,14 +25,20 @@ extends Node3D
 ## living on atlas page 1; pages are now packed at load time, PORTING_PLAN.md 2.7.5).
 const SHADOW_ALPHA := 5.0 / 32.0
 
-## A structure's own ground shadow (an "effect" part, e.g. cel 1026, `effect.shadow.hard.030` on the red-cross building) is a flat
-## quad at z=0 that can genuinely overlap the same structure's wall-base corners, also at z=0 (tools/data/coastal_decoration_corners.json,
-## coastal id 36: the shadow's footprint -16..48 x -23..9 covers the walls' -16..16 x -9..9) -- a real coplanar tie between two separate
-## MeshInstance3Ds (the shadow's own transparent material, the walls' alpha-scissor one), which flickered in and out depending on the
-## camera angle exactly like the Jeep's wheel strips did against its side panels (document 102). Same fix, applied per *kind* here rather
-## than per overlapping pair (CoplanarParts), since only one kind (the shadow) ever needs to sit below the other: a small constant step
-## below the ordinary ground bias every part already gets, the same magnitude as CoplanarParts.COPLANAR_STEP.
-const SHADOW_Z_BIAS := 0.5 - CoplanarParts.COPLANAR_STEP
+## A structure's own ground shadow (an "effect" part, e.g. cel 1026, `effect.shadow.hard.030` on the red-cross building) is a flat quad
+## at z=0 that genuinely overlaps the same structure's wall-base corners, also at z=0 (tools/data/coastal_decoration_corners.json,
+## coastal id 36/37: the shadow's footprint runs well past the walls' own -16..16/-9..9 span) -- a real coplanar tie, along the wall's
+## ground-contact edge, between two separate MeshInstance3Ds (the shadow's transparent material, the wall's alpha-scissor one), which
+## flickered with the camera angle exactly like the Jeep's wheel strips against its side panels (document 102).
+##
+## CORRECTION: the first attempt shifted the shadow *below* the wall by one CoplanarParts.COPLANAR_STEP, on the assumption that (as with
+## the Jeep's wheels) the later-drawn part should win. Checked against the real building with the shadow's alpha raised to make it
+## unmissable (a diagnostic, not shipped): that shift lost the tie almost everywhere along the wall's edge instead of only exactly on
+## it, hiding most of the shadow (reported: "the top of the shadow ... now it's underground"). At the untouched, exactly-tied height the
+## shadow already wins the tie in this scene; shifting it *up* by one step reinforces that instead of reversing it, and was confirmed,
+## screenshot in hand, to match the reference look at three different camera tilts. Kept as a small constant step (not per-pair
+## CoplanarParts) since only one kind (the shadow) ever needs the shift, and it always shifts the same way.
+const SHADOW_Z_BIAS := 0.5 + CoplanarParts.COPLANAR_STEP
 
 var pack: Pack
 var level: LevelData
