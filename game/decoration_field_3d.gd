@@ -35,10 +35,17 @@ const SHADOW_ALPHA := 5.0 / 32.0
 ## the Jeep's wheels) the later-drawn part should win. Checked against the real building with the shadow's alpha raised to make it
 ## unmissable (a diagnostic, not shipped): that shift lost the tie almost everywhere along the wall's edge instead of only exactly on
 ## it, hiding most of the shadow (reported: "the top of the shadow ... now it's underground"). At the untouched, exactly-tied height the
-## shadow already wins the tie in this scene; shifting it *up* by one step reinforces that instead of reversing it, and was confirmed,
-## screenshot in hand, to match the reference look at three different camera tilts. Kept as a small constant step (not per-pair
-## CoplanarParts) since only one kind (the shadow) ever needs the shift, and it always shifts the same way.
-const SHADOW_Z_BIAS := 0.5 + CoplanarParts.COPLANAR_STEP
+## shadow already wins the tie in this scene; shifting it *up* reinforces that instead of reversing it, and was confirmed, screenshot in
+## hand, to match the reference look at three different camera tilts. Kept as a small constant step (not per-pair CoplanarParts) since
+## only one kind (the shadow) ever needs this specific shift, and it always shifts the same way.
+##
+## SECOND CORRECTION: a HALF step, not a whole one. _build_chunk() now also runs CoplanarParts.shifts() across a whole chunk, for a
+## different tie (two neighbouring decorations' own parts, not a decoration and its own shadow -- see that function). Those shifts are
+## always a whole multiple of COPLANAR_STEP; at exactly one whole step above the ordinary 0.5 ground height, a covered ground-level part
+## shifted by that same one step would land EXACTLY on the shadow baseline -- a brand new accidental tie this fix would otherwise
+## introduce between a shadow and an unrelated shifted part that happens to share its footprint. A half step can never equal any whole
+## multiple of COPLANAR_STEP, so this can't happen; it stays strictly above 0.5, so the shadow still always wins as before.
+const SHADOW_Z_BIAS := 0.5 + CoplanarParts.COPLANAR_STEP * 0.5
 
 ## Decorations are batched per CHUNK_TILES x CHUNK_TILES tile block, not one mesh set for the whole
 ## level: a single tile's state change (a crushed bush, a gate opening) used to rebuild EVERY
@@ -87,7 +94,20 @@ func _build_chunk(chunk_key: Vector2i) -> void:
 		old.queue_free()
 		_chunks.erase(chunk_key)
 	var tile := pack.tile_size_px
-	var builders := {}  # [page index, kind] -> SurfaceTool
+
+	# Pass 1: every part's own quad and sprite, across every decoration in the chunk together -- not
+	# just one decoration's own parts. Buildings are commonly several adjacent tiles of the SAME
+	# structure (a wall run, a facade), and their walls/shadows/marker signs routinely reach across the
+	# tile boundary into a neighbour's own footprint: a real coplanar tie between TWO SEPARATE
+	# decoration instances, the same painter's-order-vs-depth-test class as the vehicles (document 102)
+	# and the single-decoration shadow tie already fixed above -- just one level up, between neighbours
+	# instead of within one decoration's own parts. Reported: two close buildings flickering, alternating
+	# which small pieces show, as the camera moves (level 32, "The OK Corral" -- confirmed against its
+	# own real placements: every one of 45 close building pairs checked had a real tie). CoplanarParts
+	# needs every quad in one list to find ties across decoration boundaries, so the shift is computed
+	# once per chunk, not per decoration.
+	var quads: Array = []
+	var metas: Array = []  # parallel to quads: {sprite: Dictionary, page: int, kind: String}
 	for i in _indices_by_chunk[chunk_key]:
 		var entry: Dictionary = level.decorations[i]
 		var parts: Array = pack.get_decoration_parts(int(entry.get("coastal_id", 0)))
@@ -110,19 +130,36 @@ func _build_chunk(chunk_key: Vector2i) -> void:
 			if s.is_empty():
 				continue
 			var page := int(s.get("page", 0))
-			var bkey := [page, String(s.get("kind", "sprite"))]
-			if not builders.has(bkey):
-				var st := SurfaceTool.new()
-				st.begin(Mesh.PRIMITIVE_TRIANGLES)
-				builders[bkey] = st
+			var kind := String(s.get("kind", "sprite"))
 			var off: Array = part.get("offset", [0.0, 0.0])
 			var j := jit if part.get("jitter", false) else Vector2.ZERO
 			var zoff: float = part.get("zoff", 0.0)
-			var ground_y: float = SHADOW_Z_BIAS if bkey[1] == "effect" else 0.5
+			var ground_y: float = SHADOW_Z_BIAS if kind == "effect" else 0.5
 			var corners: Array[Vector3] = []
 			for c in part["corners"]:
 				corners.append(Vector3(cx + j.x + off[0] + c[0], c[2] + zoff + ground_y, cz + j.y + off[1] + c[1]))
-			_add_quad(builders[bkey], corners, s, pack.get_texture(page))
+			quads.append(corners)
+			metas.append({"sprite": s, "page": page, "kind": kind})
+
+	if quads.is_empty():
+		return
+	var shifts := CoplanarParts.shifts(quads)
+
+	# Pass 2: batch the (now correctly ordered) quads into one mesh per atlas page/kind, as before.
+	var builders := {}  # [page index, kind] -> SurfaceTool
+	for i in quads.size():
+		var meta: Dictionary = metas[i]
+		var bkey := [meta["page"], meta["kind"]]
+		if not builders.has(bkey):
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			builders[bkey] = st
+		var corners: Array[Vector3] = quads[i]
+		var shift: Vector3 = shifts[i]
+		if shift != Vector3.ZERO:
+			for k in corners.size():
+				corners[k] += shift
+		_add_quad(builders[bkey], corners, meta["sprite"], pack.get_texture(meta["page"]))
 
 	if builders.is_empty():
 		return
