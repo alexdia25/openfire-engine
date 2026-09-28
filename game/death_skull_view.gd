@@ -26,7 +26,10 @@ func _draw() -> void:
 	if f < 1:
 		return
 	var colour := mc.level.side_colour(mc.vehicle.player_index() ^ 1)   # the other side's helmet; PORTING_PLAN.md 2.7.7
-	var s := mc.pack.get_sprite(mc.pack.team_variant(["ui.death_skull.tan.f%d" % f, "ui.death_skull.green.f%d" % f], colour))
+	var frames: Array = mc.pack.death_skull_data.get("frames", [])
+	if f > frames.size():
+		return
+	var s := mc.pack.get_sprite(mc.pack.team_variant(frames[f - 1], colour))
 	if s.is_empty():
 		return
 	var tex := mc.pack.get_texture(int(s.get("page", 0)))

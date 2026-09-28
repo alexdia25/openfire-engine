@@ -51,6 +51,15 @@ var radar_data: Dictionary = {}         ## document 69: radar palette indices, t
 var hud_panels: Dictionary = {}         ## document 70: the four vehicles' panel layouts
 var selector_data: Dictionary = {}      ## document 78: the docked vehicle-choice screen
 var flag_data: Dictionary = {}          ## document 65: the capture flag's drawing and constants
+## document 88: the death sequence's laughing skull, "frames": one [tan, green] sprite-id pair per mouth shape (index
+## 0 = frame 1). Moved out of game/death_skull_view.gd (PORTING_PLAN.md 2.7.5's leftover list) so a mod can re-skin it.
+var death_skull_data: Dictionary = {}
+## document 60: the mine's ember light, "sprites": one sprite id per draw variant (0 unlit-blink, 1 armed, 2
+## blink-on) -- not team-coloured. Moved out of game/mine_view_3d.gd.
+var mine_data: Dictionary = {}
+## document 61: the Jeep's lobbed missile, "frames": one [tan, green] sprite-id pair per spin frame (12, index 0 =
+## frame 1). Moved out of game/projectile_billboard_3d.gd.
+var jeep_missile_data: Dictionary = {}
 var water_tables: Dictionary = {}       ## document 62: coast shapes, boxes for FUN_0042f280
 var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
@@ -572,6 +581,9 @@ func _load_layer(dir: String) -> bool:
 	_overlay(hud_panels, _layer_doc(dir, "hud/panels.json"))
 	_overlay(radar_data, _layer_doc(dir, "hud/radar.json"))
 	_overlay(flag_data, _layer_doc(dir, "markers/flag.json"))
+	_overlay(death_skull_data, _layer_doc(dir, "ui/death_skull.json"))
+	_overlay(mine_data, _layer_doc(dir, "effects/mine.json"))
+	_overlay(jeep_missile_data, _layer_doc(dir, "projectiles/jeep_missile.json"))
 
 	# Team colours (PORTING_PLAN.md 2.7.7): a mod can add team sets (its own art) and colours, per id.
 	var team_doc := _layer_doc(dir, "sprites/team_sets.json")

@@ -49,7 +49,7 @@ func _ready() -> void:
 	var bar := HBoxContainer.new()
 	root.add_child(bar)
 	var title := Label.new()
-	title.text = "Return Fire mod tool"
+	title.text = "Mod tool"   # generic (PORTING_PLAN.md 2.8's sharpened end goal): the pack loaded is whatever the project is, not necessarily Return Fire
 	title.add_theme_font_size_override("font_size", 18)
 	bar.add_child(title)
 	_path_label = Label.new()
@@ -197,7 +197,7 @@ func _on_changed() -> void:
 	_save_btn.disabled = not ws.is_dirty()
 	_undo_btn.disabled = not ws.undo.has_undo()
 	_redo_btn.disabled = not ws.undo.has_redo()
-	get_window().title = "%sReturn Fire mod tool -- %s" % ["* " if ws.is_dirty() else "", ws.manifest.get("name", "")]
+	get_window().title = "%sMod tool -- %s" % ["* " if ws.is_dirty() else "", ws.manifest.get("name", "")]
 	_findings.clear()
 	var found := ModValidator.check(ws)
 	if found.is_empty():

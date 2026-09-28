@@ -125,7 +125,8 @@ func _ready() -> void:
 		level.side_colours = Array(colours_env.split(","))
 	pack.prepare_team_colours(level.side_colours)
 
-	get_window().title = "Return Fire 3D scaffold -- %s (%s)" % [level.level_name, level_id]
+	# the pack's own name (a standalone game's, not necessarily Return Fire's -- PORTING_PLAN.md 2.8's sharpened end goal)
+	get_window().title = "%s -- %s (%s)" % [String(pack.manifest.get("name", "engine scaffold")), level.level_name, level_id]
 	_map_size_px = Vector2(level.width, level.height) * pack.tile_size_px
 
 	# Debug-only overrides for the two adjustable camera properties (tilt/zoom -- see the

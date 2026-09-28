@@ -203,8 +203,10 @@ func _update_missile() -> void:
 	var f := projectile.lob_frame()
 	if f != _shown_frame:
 		_shown_frame = f
-		var sid := _pack.team_variant(["projectile.jeep_missile.tan.%02d" % (f + 1), "projectile.jeep_missile.green.%02d" % (f + 1)],
-				projectile.art_colour())
+		var frames: Array = _pack.jeep_missile_data.get("frames", [])
+		if f >= frames.size():
+			return
+		var sid := _pack.team_variant(frames[f], projectile.art_colour())
 		var s := _pack.get_sprite(sid)
 		if not s.is_empty():
 			var tex := _pack.get_texture(int(s.get("page", 0)))

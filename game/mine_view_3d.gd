@@ -1,9 +1,9 @@
 class_name MineView3D
 extends Node3D
 ## Draws a Mine (game/mine.gd): descriptor 0x454200 is one flat quad, corners (+-6, +-6) at z 1, cel 1081 + the mine's
-## variant (0 / 2 blinking while the fuse runs, 1 once armed; document 60). The three cels are 8 x 8 "ember" sprites.
+## variant (0 / 2 blinking while the fuse runs, 1 once armed; document 60). The three cels are 8 x 8 "ember" sprites,
+## from the pack's own effects/mine.json (PORTING_PLAN.md 2.7.5's leftover list; Pack.mine_data), not spelled here.
 
-const CELS := ["effect.ember_small.01", "effect.ember_small.02", "effect.ember_small.03"]
 const HALF := 6.0
 const HEIGHT := 1.0
 
@@ -41,7 +41,10 @@ func _refresh() -> void:
 	if mine.variant == _shown:
 		return
 	_shown = mine.variant
-	var s := _pack.get_sprite(CELS[clampi(_shown, 0, 2)])
+	var sprites: Array = _pack.mine_data.get("sprites", [])
+	if sprites.is_empty():
+		return
+	var s := _pack.get_sprite(String(sprites[clampi(_shown, 0, sprites.size() - 1)]))
 	if s.is_empty():
 		return
 	var tex := _pack.get_texture(int(s.get("page", 0)))
