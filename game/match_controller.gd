@@ -1320,7 +1320,20 @@ func flag_action(v: Vehicle) -> void:
 ## trying that target's other-axis neighbours, and if none is in stock the cursor stays. The view fades in over about 14 ticks and only then can a fire button confirm: the vehicle
 ## is created and one is taken from its stock, and the type's confirm script runs (the picture slides onto the lift, the lift rises, the view fades out; SelectorAnim).
 ## PORT-ONLY: the keys are the arrows and Space / Enter, M shows the map (the original's other buttons lead to the map window, state 0x4180d0), and no cancel exists.
-const SELECT_NEIGHBOURS := [[0, 1, 3, 0], [0, 1, 2, 1], [3, 2, 2, 1], [3, 2, 3, 0]]   ## [up, down, left, right] for Tank, Jeep, MSV, Heli
+##
+## **The hangar always shows exactly 4 bays, visually (user direction, 2026-09-28)** -- that is the traced art
+## (cel 2075) and stays fixed regardless of a map's roster (PORTING_PLAN.md 2.7.3 step 6; issue #15). What changed:
+## `selection` is now a BAY INDEX (0-3, a physical hangar slot), not a vehicle_type. `selector_roster` maps roster
+## position -> vehicle_type, built from the level's effective roster (`Pack.roster_for`) each time the choice opens;
+## `selector_page` picks which 4 consecutive roster entries the 4 bays currently show (`_bay_type()`). For the
+## unmodified original roster (`rf.tank`, `rf.jeep`, `rf.msv`, `rf.heli`, in that order) `selector_roster` is exactly
+## `[0, 1, 2, 3]`, so bay == vehicle_type == before: nothing about the original game's own behaviour changed. The
+## neighbour table itself is the hangar's fixed physical layout, so it never needed to change with the roster --
+## it's read straight from `selector.json`'s own `entries.<bay>.up/down/left/right` (`_bay_neighbour()`) instead of
+## being duplicated here as a constant. A roster with more than 4 entries needs `select_next_page()` to reach the
+## rest -- PORT-ONLY, no original equivalent, since the original never had a 5th vehicle to choose from.
+var selector_roster: Array[int] = []
+var selector_page := 0
 var select_anim: SelectorAnim = null
 var undocking := false      ## the confirm script is playing; the new vehicle is on the pad but held (`state +0x70 = 1`) until it ends
 var map_open := false       ## the map window of state 0x4180d0 (the level's radar bitmap in a 144 x 144 frame)
@@ -1346,8 +1359,29 @@ var skull_alpha := 1.0
 var _death_ticks := 0.0
 var _death_acc := 0.0
 var selecting := false
-var selection := 0
+var selection := 0   ## a BAY INDEX (0-3), not a vehicle_type -- see the class doc comment above and _bay_type()
 signal selection_changed()
+
+
+## The vehicle_type shown in bay `bay` (0-3) of page `page` (the current page by default), or -1 for an empty bay
+## (the roster doesn't reach that far -- treated exactly like a bay with zero stock everywhere this is used).
+func _bay_type(bay: int, page: int = -1) -> int:
+	var p := selector_page if page < 0 else page
+	var i := p * 4 + bay
+	return selector_roster[i] if i >= 0 and i < selector_roster.size() else -1
+
+
+## Whole pages of 4 the current roster needs (at least 1, even for an empty roster, so the hangar has somewhere to
+## show its 4 empty bays).
+func selector_page_count() -> int:
+	return maxi(1, ceili(float(selector_roster.size()) / 4.0))
+
+
+## The hangar's own fixed neighbour table (document 78), read from the pack instead of duplicated as a constant --
+## it's the physical layout of the 4 bays, which never changes with the roster (see the class doc comment).
+func _bay_neighbour(bay: int, dir: int) -> int:
+	var e: Dictionary = pack.selector_data.get("entries", {}).get(str(bay), {})
+	return int(e.get(["up", "down", "left", "right"][dir], bay))
 
 
 ## Docking and undocking (document 77, corrected in document 81). The original: a vehicle standing STILL on its own pad (tile art 90 / 91), within the record's
@@ -1533,10 +1567,23 @@ func switch_player_vehicle() -> void:
 
 
 func _open_selection() -> void:
+	selector_roster = []
+	for entry in pack.roster_for(level):
+		var t := pack.vehicle_index(String(entry.get("id", "")))
+		if t >= 0:
+			selector_roster.append(t)
+	selector_page = 0
 	selection = 0
-	for i in 4:
-		if vehicle_stock[i] != 0:
-			selection = i
+	for page in selector_page_count():
+		var found := false
+		for bay in 4:
+			var t := _bay_type(bay, page)
+			if t >= 0 and vehicle_stock[t] != 0:
+				selector_page = page
+				selection = bay
+				found = true
+				break
+		if found:
 			break
 	selecting = true
 	map_open = false
@@ -1551,15 +1598,15 @@ func select_move(dir: int) -> void:
 	if not selecting:
 		return
 	var cur := selection
-	var cand: int = SELECT_NEIGHBOURS[cur][dir]
-	if vehicle_stock[cand] == 0:
+	var cand := _bay_neighbour(cur, dir)
+	if _bay_type(cand) < 0 or vehicle_stock[_bay_type(cand)] == 0:
 		var alt: Array = [2, 3] if dir < 2 else [0, 1]   # a vertical move falls back to the target's left / right, a horizontal one to its up / down
-		var first: int = SELECT_NEIGHBOURS[cand][alt[0]]
+		var first := _bay_neighbour(cand, alt[0])
 		var c2 := first
 		if first == cand:
-			c2 = SELECT_NEIGHBOURS[cand][alt[1]]
+			c2 = _bay_neighbour(cand, alt[1])
 		cand = c2
-		if vehicle_stock[cand] == 0:
+		if _bay_type(cand) < 0 or vehicle_stock[_bay_type(cand)] == 0:
 			cand = cur
 	if cand != selection:
 		selection = cand
@@ -1567,15 +1614,34 @@ func select_move(dir: int) -> void:
 		vehicle.sound_cue.emit("GClick")   # document 76: "each change plays sound 0x44b640" (document 82)
 
 
+## PORT-ONLY (no original equivalent -- the original never had more than 4 vehicles to choose from, PORTING_PLAN.md
+## 2.7.3 step 6 / issue #15): cycles to the next page of 4 roster entries, landing on the first bay with stock. A
+## no-op with 4 or fewer roster entries (selector_page_count() == 1).
+func select_next_page() -> void:
+	if not selecting or selector_page_count() <= 1:
+		return
+	for step in selector_page_count():
+		var page := posmod(selector_page + 1 + step, selector_page_count())
+		for bay in 4:
+			var t := _bay_type(bay, page)
+			if t >= 0 and vehicle_stock[t] != 0:
+				selector_page = page
+				selection = bay
+				selection_changed.emit()
+				vehicle.sound_cue.emit("GClick")
+				return
+
+
 func confirm_selection() -> void:
-	if not selecting or vehicle_stock[selection] == 0 or map_open:
+	var t := _bay_type(selection)
+	if not selecting or t < 0 or vehicle_stock[t] == 0 or map_open:
 		return
 	if select_anim != null and select_anim.fade < 1.0:
 		return   # the confirm only counts once the view has faded in (FUN_00417ad0 tests the fade value against 1.0)
-	_take_stock(selection)
-	vehicle.set_vehicle_type(selection)   # a new vehicle object: full hit points, fuel and ammunition
+	_take_stock(t)
+	vehicle.set_vehicle_type(t)   # a new vehicle object: full hit points, fuel and ammunition
 	vehicle.position = _pad_centre        # FUN_0040b1c0 creates it on the pad, heading 180 degrees (the Heli 135); the port's heading is the original's minus 90
-	vehicle.heading_deg = 45.0 if selection == 3 else 90.0
+	vehicle.heading_deg = 45.0 if vehicle.lands_before_docking() else 90.0   # a rotor vehicle (the Heli); was "selection == 3", the Heli's fixed bay index
 	vehicle.z = 0.0
 	vehicle.speed = 0.0
 	vehicle.moving = false
@@ -1586,7 +1652,7 @@ func confirm_selection() -> void:
 	if sel.is_empty():
 		select_anim.finished = true
 	else:
-		select_anim.start_script(sel["scripts"][String(pack.vehicle_value(selection, "selector.script", ""))])
+		select_anim.start_script(sel["scripts"][String(pack.vehicle_value(t, "selector.script", ""))])
 	selection_changed.emit()
 
 
@@ -1615,6 +1681,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_LEFT: select_move(2)
 			KEY_RIGHT: select_move(3)
 			KEY_M: toggle_map()
+			KEY_TAB: select_next_page()   # PORT-ONLY: only does anything with a roster of more than 4 (issue #15)
 			KEY_SPACE, KEY_ENTER, KEY_KP_ENTER: confirm_selection()
 		get_viewport().set_input_as_handled()
 		return

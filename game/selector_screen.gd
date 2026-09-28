@@ -127,20 +127,34 @@ func _draw() -> void:
 	_blit(String(sp["hangar"]), Vector2(hx, hy))
 	var anim: SelectorAnim = mc.select_anim
 	var stock: Array = mc.vehicle_stock
-	for t in 4:
-		var e: Dictionary = _sel["entries"][str(t)]
+	var pictures: Array = sp["pictures"]
+	# The hangar always shows exactly 4 bays (the traced art, cel 2075; user direction, 2026-09-28) -- which
+	# vehicle_type is IN each bay is the roster's (MatchController._bay_type()), not the bay index itself, so a
+	# roster that reorders, removes or (with select_next_page()) pages past 4 vehicles still draws correctly.
+	# The default roster (Tank, Jeep, MSV, Heli, in that order) makes bay == vehicle_type, exactly as before.
+	for bay in 4:
+		var e: Dictionary = _sel["entries"][str(bay)]
 		var pic := Vector2(e["picture"][0], e["picture"][1])
-		var pic_id := mc.pack.team_variant(sp["pictures"][t], mc.vehicle.art_colour())
-		if mc.selecting and mc.selection == t or (mc.undocking and mc.selection == t):
+		var t := mc._bay_type(bay)
+		if t < 0:
+			continue   # no roster entry reaches this bay on the current page: an empty bay, same as zero stock
+		# a definition's own selector.picture (issue #15: a mod vehicle can supply one), else the shared traced
+		# table (only ever has the original 4 -- a mod vehicle with neither shows its box/pointer but no picture)
+		var own_picture: Variant = mc.pack.vehicle_value(t, "selector.picture")
+		var ids: Array = own_picture if own_picture is Array else (pictures[t] if t < pictures.size() else [])
+		var has_picture := ids.size() >= 2
+		var pic_id := mc.pack.team_variant(ids, mc.vehicle.art_colour()) if has_picture else ""
+		if mc.selecting and mc.selection == bay or (mc.undocking and mc.selection == bay):
 			_blit(String(sp["box"]), Vector2(hx, hy) + Vector2(e["box"][0], e["box"][1]))
 			var moved := Vector2(anim.d4, anim.d8) if anim != null else Vector2.ZERO
-			_blit(pic_id, Vector2(hx, hy) + pic + moved, 0.5)
+			if has_picture:
+				_blit(pic_id, Vector2(hx, hy) + pic + moved, 0.5)
 			if mc.selecting:
 				var frame := int(Time.get_ticks_msec() / 1000.0 * Vehicle.TICK_HZ) >> 4
 				var pp := Vector2(hx, hy) + Vector2(e["pointer"][0], e["pointer"][1])
 				_blit(String(sp["pointer"][frame % 3]), pp)
 				_glow_at = _origin + (Vector2(hx, hy) + Vector2(e["highlight"][0], e["highlight"][1])) * S   # drawn additively by the glow layer
-		elif stock[t] != 0:
+		elif stock[t] != 0 and has_picture:
 			_blit(pic_id, Vector2(hx, hy) + pic, 0.5)
 	# the picture area is 320 x 240 units: what the backdrop's strips put outside it is cut off (the original clips to its screen)
 	draw_rect(Rect2(0.0, 0.0, _origin.x, size.y), Color.BLACK)
@@ -214,7 +228,9 @@ func _draw_panel() -> void:
 	var off := Vector2(_sel["panel"]["offset"][0], _sel["panel"]["offset"][1])
 	_blit(String(sp["panel_frame"]), pp + Vector2(-3, -2))
 	_blit(String(sp["panel_interior"]), pp + Vector2(9, 2))
-	var t := mc.selection
+	var t := mc._bay_type(mc.selection)
+	if t < 0 or t >= (sp["icon"] as Array).size():
+		return   # a mod vehicle beyond the traced 4 has no panel data yet (issue #15, same as its picture above)
 	_blit(String(sp["icon"][t]), pp + off + Vector2(6, 1))
 	_draw_number(mc.vehicle_stock[t], pp + off, 0x1D, 3)
 	_blit(String(sp["weapon_icon"][t]), pp + off + Vector2(6, 0x1A))
