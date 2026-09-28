@@ -142,6 +142,7 @@ func _layout(t: int) -> void:
 		_radar.visible = true
 		_radar.configure(Vector2i(int(s9["size"][0]), int(s9["size"][1])), _s)
 		_radar.position = Vector2(float(s9["pos"][0]), float(s9["pos"][1])) * _s
+		_radar.set_grid(s9.get("grid_sprite_id"), bool(s9.get("grid_is_negative", false)))
 	else:
 		_radar.visible = false
 		_compass_on = int(s9["kind"]) == 8

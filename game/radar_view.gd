@@ -5,10 +5,11 @@ extends TextureRect
 ## bits) through the game's palette (hud/radar.json, built by tools/build_pack.py), with the flag's blinking pole-and-pennant blip
 ## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off), the ping (documents 68, 71, 103): a 16-frame growing ring, centred on the
 ## window (it always tracks the panel's own vehicle), shown while MatchController.radar_ping_frame() is >= 0 -- the tracked vehicle
-## was hit within the last 74 ticks -- and the grid overlay (cel 1963, document 107): drawn unconditionally, on top of everything
-## else including the ping, whenever the config's own cel field is nonzero (always, for an ordinary vehicle). Cel 1963 is really a
-## background-recolour blend mask (document 9's PRE0=3 family) this pack can't reproduce; approximated as a plain additive white
-## overlay, the same stand-in the hangar spotlight uses (document 103), at its own alpha (no rescale needed here, unlike there).
+## was hit within the last 74 ticks -- and a grid overlay, drawn last, on top of everything else including the ping, whenever the
+## vehicle's own panel record names one (document 108's addendum: NOT one shared cel -- each vehicle type has its own, sized to its
+## own radar window: Tank 1963/32x32, MSV 1973/39x34, Heli's own 1975 drawn as a plain sprite, not a blend, see set_grid()). A
+## document-9 tint-mask grid (Tank, MSV) is approximated as a plain additive white overlay, the same stand-in the hangar spotlight
+## uses (document 103); the Heli's is a PRE0=0 plain sprite and needs no such approximation, just an ordinary draw.
 ## The metal bezel around the radar is part of the panel's own base cel (document 70; HudPanel._base), not drawn here.
 ## NOT reproduced (untraced): the corner-bracket cursor (cel 1964: it animates via an 8-rectangle table keyed by *(tracked_vehicle+0x5c)+0x80
 ## -- what fills +0x5c is not confirmed; document 68's "child" label for it was its own guess, and this pass only got as far as finding
@@ -44,24 +45,41 @@ func setup(controller: MatchController) -> void:
 		_ping.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		_ping.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_ping)
-	if _rd.has("grid"):   # added AFTER _ping: FUN_004122d0 draws the grid last, over the ping too
-		_grid = TextureRect.new()
-		_grid.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		_grid.stretch_mode = TextureRect.STRETCH_SCALE
-		_grid.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		_grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# built AFTER _ping so it draws on top (FUN_004122d0 draws the grid last, over the ping too); starts empty and hidden until
+	# set_grid() is called with this vehicle type's own grid cel (document 108's addendum -- there is no single shared one)
+	_grid = TextureRect.new()
+	_grid.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_grid.stretch_mode = TextureRect.STRETCH_SCALE
+	_grid.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_grid.visible = false
+	add_child(_grid)
+	var w: Array = _rd.get("window", [32, 32])
+	configure(Vector2i(int(w[0]), int(w[1])), scale_px)
+
+
+## Called once per vehicle type change (HudPanel._layout), from that type's own panel record ("slot9" in hud_panels.json):
+## grid_sprite_id is null when the type has no radar at all (the Jeep, which uses kind 8, the compass, instead).
+func set_grid(grid_sprite_id: Variant, _is_negative: bool) -> void:
+	if grid_sprite_id == null:
+		_grid.visible = false
+		return
+	var s := mc.pack.get_sprite(String(grid_sprite_id))
+	if s.is_empty():
+		_grid.visible = false
+		return
+	var at := AtlasTexture.new()
+	at.atlas = mc.pack.get_texture(int(s.get("page", 0)))
+	at.region = Rect2(float(s["x"]), float(s["y"]), float(s["w"]), float(s["h"]))
+	_grid.texture = at
+	if String(s.get("kind", "sprite")) == "effect":
 		var mat := CanvasItemMaterial.new()
 		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 		_grid.material = mat
-		var s := mc.pack.get_sprite(String(_rd["grid"]["sprite_id"]))
-		if not s.is_empty():
-			var at := AtlasTexture.new()
-			at.atlas = mc.pack.get_texture(int(s.get("page", 0)))
-			at.region = Rect2(float(s["x"]), float(s["y"]), float(s["w"]), float(s["h"]))
-			_grid.texture = at
-		add_child(_grid)
-	var w: Array = _rd.get("window", [32, 32])
-	configure(Vector2i(int(w[0]), int(w[1])), scale_px)
+	else:
+		_grid.material = null   # a plain sprite (the Heli's, PRE0=0): draw as-is, no blend approximation needed
+	_grid.visible = true
+	# _is_negative: FUN_004122d0's own alternate branch for a negative cel (a toggling tint, per the header); not otherwise reproduced
 
 
 ## The window size in tiles (from the vehicle's panel record) and the screen pixels per tile.
@@ -77,7 +95,7 @@ func configure(window: Vector2i, scale: float) -> void:
 		# ping cels are the same 32 x 32 as the traced window, that offset is always 0 -- the ring exactly fills the window.
 		_ping.size = size
 		_ping.position = Vector2.ZERO
-	if _grid != null:   # cel 1963 is also 32 x 32, the same as the traced window: same reasoning, no offset
+	if _grid != null:   # every type's own grid cel is sized to match its own window exactly (document 108's addendum): same reasoning, no offset
 		_grid.size = size
 		_grid.position = Vector2.ZERO
 
