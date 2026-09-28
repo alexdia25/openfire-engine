@@ -395,17 +395,20 @@ func _on_match_over(winner_idx: int) -> void:
 
 
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
-	# PORT CHOICE (untraced): only the Tank's muzzle flash is presented so far; the MSV's back-blast and the Heli's bomb flash are
-	# traced records (rocket_salvo.gd / heli_guns.gd put them in their shot specs) but nothing draws them yet -- a definition
-	# opts in with `render.muzzle_flash`.
-	if bool(pack.vehicle_value(v.vehicle_type, "render.muzzle_flash", false)) and not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
+	# Every weapon that fills a "flash" into its shot spec gets it drawn (the Tank's cannon, document 52; the
+	# MSV's back-blast, document 58/64; the Heli's bomb flash, document 63) -- issue #53: these were already
+	# fully traced (record, attach point, offset) in rocket_salvo.gd / heli_guns.gd, only the listener that
+	# drew one was gated to the Tank alone (a leftover port choice, not a traced rule; dropped here). Neither
+	# the MSV's launcher nor the Heli's mounts rotate independently of the body the way the Tank's turret does,
+	# so their specs correctly carry no extra "yaw" -- _on_muzzle_flash defaults it to 0 either way. The Jeep's
+	# missile has a sound but no flash record, so it is a no-op below, not a fourth opt-in.
+	if not v.shot.is_connected(_on_muzzle_flash.bind(v)):  # a type swap builds a new renderer for the same vehicle
 		v.shot.connect(_on_muzzle_flash.bind(v))
 	return VehicleRender3D.create_for(v, pack, self)
 
 
-## The Tank's muzzle flash (document 52): record 0x445138, spawned by the fire handler FUN_0040d240 attached
-## to the vehicle at the muzzle (12 units ahead, 7 up -- plus the box render's own ground clearance, so it
-## sits on the barrel's drawn tip) and following it while it plays.
+## A weapon's muzzle flash / back-blast (documents 52, 58, 63): each shot spec's own "flash" record, offset and
+## (for the Tank's independently-turning turret only) yaw, followed at the vehicle while it plays.
 func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 	if not spec.has("flash"):
 		return  # the Jeep's missile has a sound but no flash record
