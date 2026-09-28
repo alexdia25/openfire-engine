@@ -9,8 +9,12 @@ extends TextureRect
 ## else including the ping, whenever the config's own cel field is nonzero (always, for an ordinary vehicle). Cel 1963 is really a
 ## background-recolour blend mask (document 9's PRE0=3 family) this pack can't reproduce; approximated as a plain additive white
 ## overlay, the same stand-in the hangar spotlight uses (document 103), at its own alpha (no rescale needed here, unlike there).
-## NOT reproduced (untraced): the corner-bracket cursor (cel 1964: it animates via an 8-rectangle table keyed by a "child" object's
-## own state, object+0x5c, that this pass never traced), the bitmap background outside the map, and the panel frame around it.
+## The metal bezel around the radar is part of the panel's own base cel (document 70; HudPanel._base), not drawn here.
+## NOT reproduced (untraced): the corner-bracket cursor (cel 1964: it animates via an 8-rectangle table keyed by *(tracked_vehicle+0x5c)+0x80
+## -- what fills +0x5c is not confirmed; document 68's "child" label for it was its own guess, and this pass only got as far as finding
+## it's set at vehicle creation from a per-spawn argument reached through an indirect class-dispatch table, not a direct call, document
+## 108) and the fixed-colour fill drawn behind the map when the tracked vehicle is near the level edge (FUN_004121b0 -- traced as far as
+## "a solid colour, from a runtime-computed buffer this project's static analysis can't read the value of"; the port fills black there instead.
 ## The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
 var scale_px := 4.0
