@@ -3,11 +3,15 @@ extends TextureRect
 ## The radar of the original (documents 68, 69): a 32 x 32 window of a one-pixel-per-tile map, centred on the player's tile, coloured by
 ## FUN_00412dc0's rules (land 0x87, water 0x91, per-coastal-id colours for the team buildings and structures, split by the tile's pool
 ## bits) through the game's palette (hud/radar.json, built by tools/build_pack.py), with the flag's blinking pole-and-pennant blip
-## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off) and the ping (documents 68, 71, 103): a 16-frame growing ring, centred on the
+## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off), the ping (documents 68, 71, 103): a 16-frame growing ring, centred on the
 ## window (it always tracks the panel's own vehicle), shown while MatchController.radar_ping_frame() is >= 0 -- the tracked vehicle
-## was hit within the last 74 ticks. NOT reproduced (untraced): the grid overlay (cel 1963), the corner-bracket
-## cursor (cel 1964), the bitmap background outside the map, and the panel frame around it. The window size and position come from
-## the vehicle's panel record (document 70); the on-screen scale is the port's choice.
+## was hit within the last 74 ticks -- and the grid overlay (cel 1963, document 107): drawn unconditionally, on top of everything
+## else including the ping, whenever the config's own cel field is nonzero (always, for an ordinary vehicle). Cel 1963 is really a
+## background-recolour blend mask (document 9's PRE0=3 family) this pack can't reproduce; approximated as a plain additive white
+## overlay, the same stand-in the hangar spotlight uses (document 103), at its own alpha (no rescale needed here, unlike there).
+## NOT reproduced (untraced): the corner-bracket cursor (cel 1964: it animates via an 8-rectangle table keyed by a "child" object's
+## own state, object+0x5c, that this pass never traced), the bitmap background outside the map, and the panel frame around it.
+## The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
 var scale_px := 4.0
 
@@ -17,6 +21,7 @@ var _rd: Dictionary
 var _win := Vector2i(32, 32)
 var _ping: TextureRect
 var _ping_tex_cache: Array[AtlasTexture] = []
+var _grid: TextureRect
 
 
 func setup(controller: MatchController) -> void:
@@ -35,6 +40,22 @@ func setup(controller: MatchController) -> void:
 		_ping.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		_ping.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_ping)
+	if _rd.has("grid"):   # added AFTER _ping: FUN_004122d0 draws the grid last, over the ping too
+		_grid = TextureRect.new()
+		_grid.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_grid.stretch_mode = TextureRect.STRETCH_SCALE
+		_grid.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		_grid.material = mat
+		var s := mc.pack.get_sprite(String(_rd["grid"]["sprite_id"]))
+		if not s.is_empty():
+			var at := AtlasTexture.new()
+			at.atlas = mc.pack.get_texture(int(s.get("page", 0)))
+			at.region = Rect2(float(s["x"]), float(s["y"]), float(s["w"]), float(s["h"]))
+			_grid.texture = at
+		add_child(_grid)
 	var w: Array = _rd.get("window", [32, 32])
 	configure(Vector2i(int(w[0]), int(w[1])), scale_px)
 
@@ -52,6 +73,9 @@ func configure(window: Vector2i, scale: float) -> void:
 		# ping cels are the same 32 x 32 as the traced window, that offset is always 0 -- the ring exactly fills the window.
 		_ping.size = size
 		_ping.position = Vector2.ZERO
+	if _grid != null:   # cel 1963 is also 32 x 32, the same as the traced window: same reasoning, no offset
+		_grid.size = size
+		_grid.position = Vector2.ZERO
 
 
 func _col(idx: int) -> Color:
