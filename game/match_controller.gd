@@ -570,6 +570,7 @@ func _create_gate(v: Vehicle) -> void:
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
 	g.sound_cue.connect(v.sound_cue.emit)
+	g.sound_cue.emit("GateMove")   # FUN_00432270: the gate's own init unconditionally plays this on creation (document 56, gate.gd)
 	gate_created.emit(g)
 
 
@@ -586,6 +587,7 @@ func debug_open_gate(t: Vector2i) -> void:
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
 	g.sound_cue.connect(vehicle.sound_cue.emit)
+	g.sound_cue.emit("GateMove")   # FUN_00432270: the gate's own init unconditionally plays this on creation (document 56, gate.gd)
 	gate_created.emit(g)
 
 

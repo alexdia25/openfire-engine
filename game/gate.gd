@@ -13,9 +13,14 @@ const SPEED_PER_TICK := 0.5
 const REMOVE_AFTER_CLOSED_TICKS := 60.0
 const TICK_HZ := 62.5
 
-## FUN_004322f0 (document 56/82): "GateMove" (0x44b610) plays the tick the gate is fully open and decides to start
-## closing again; "GateClose" (0x44b628) plays the first tick it finishes closing (open reaches 0). Neither address
-## is called anywhere in this function on the *opening* side -- untraced, not invented.
+## FUN_004322f0 (document 56/82): "GateMove" (0x44b610) ALSO plays the tick the gate is fully open and decides to
+## start closing again; "GateClose" (0x44b628) plays the first tick it finishes closing (open reaches 0). Traced
+## further (issue report: no sound on opening): FUN_00432270, the gate's own init -- run once, right when a vehicle
+## wakes it -- unconditionally calls `FUN_004232d0(1, 0x44b610, this, 0)`, the same generic play-a-sound dispatcher
+## every other "sound 0xNNNNNN" call in this project resolves to (PORTING_PLAN.md 1.12). So "GateMove" plays at BOTH
+## triggers in the original -- opening (creation) and open-deciding-to-close -- not only the second one; the port
+## had only ever reproduced the second. Emitted by the match controller once it connects this signal (setup() runs
+## before that connection exists, so Gate can't safely emit it from inside setup() itself).
 signal sound_cue(id: String)
 
 var tile: Vector2i
