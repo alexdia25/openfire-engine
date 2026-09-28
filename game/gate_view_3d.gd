@@ -7,6 +7,18 @@ extends Node3D
 ## floor(open) >= 1. A part with flag 8 takes the tile's team variant as a +cel offset. The parts' render-mode
 ## bits (0x100 / 0x200) select shading tables that are not reproduced.
 
+## The gate's own parts sit at the same ground level (`+0.5`) DecorationField3D's ordinary parts do -- and a
+## gate tile is always embedded in a wall/fence run (the level's coastal_id 45/46/49 etc. immediately either
+## side of it), whose own parts commonly reach the gate's own frame height (its light-housing part, cel 857/858,
+## sits at z=19 -- exactly the height of a neighbouring fence's own top rail, `prop.bar_thin.50`). Reported:
+## the gate's light box flickering with camera angle against the wall it's set into (level 95). Confirmed
+## against every one of RFMAP095's 139 real gate placements: 428 real coplanar ties with a neighbouring
+## decoration within 2 tiles, all resolved by lifting the WHOLE gate by one CoplanarParts.COPLANAR_STEP -- a
+## gate is a dynamic object, drawn over the static terrain/decoration pass the same way every other dynamic
+## object in this port already is, so it should win any tie with the wall it sits in, not just its own two
+## wings' tie with each other (_compute_coplanar_shifts, already fixed separately).
+const GATE_Z_BIAS := 0.5 + CoplanarParts.COPLANAR_STEP
+
 var gate: Gate
 var _pack: Pack
 var _parts: Array = []  ## [{mi, desc_i, part_i, last_key, shift}]
@@ -114,7 +126,7 @@ func _corners(d: Dictionary, part: Dictionary, dyn_value: float) -> Array[Vector
 				c[1] = v
 		var wx := gate.centre.x + float(d["offset"][0]) + float(c[0])
 		var wz := gate.centre.y + float(d["offset"][1]) + float(c[1])
-		out.append(Vector3(wx, float(c[2]) + 0.5, wz))
+		out.append(Vector3(wx, float(c[2]) + GATE_Z_BIAS, wz))
 	return out
 
 
