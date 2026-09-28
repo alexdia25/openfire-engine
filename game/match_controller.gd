@@ -413,6 +413,10 @@ func _mine_candidate(x: int, y: int, home: Vector2i, relaxed := false) -> bool:
 ## Document 60. Mines age and blink (game/mine.gd). A vehicle that MOVES while its shape touches a mine's 32 x 32
 ## trigger box sets it off (FUN_0042bd40 tests movers; FUN_00409dd0 detonates on a class-1 object). Its explosion
 ## is record 0x445058, which owns a damage box (game/explosion_box.gd).
+## The z test (document 53's general collision rule, FUN_0041e4c0: "the two z ranges, each shifted by its object's
+## height, overlap") had used a fixed 0..hit_z[1] range instead of shifting by the vehicle's own current v.z the
+## way every other z_ranges_overlap call in this file already does (shell hits, coastal-shape blocking) --
+## reported: mines still went off under a flying Heli. A grounded/landed vehicle (v.z == 0) is unaffected.
 func _update_mines(delta: float) -> void:
 	var ticks := delta * Vehicle.TICK_HZ
 	for m in mines.duplicate():
@@ -423,7 +427,7 @@ func _update_mines(delta: float) -> void:
 		for m in mines.duplicate():
 			if not m.armed:
 				continue
-			if not Collision.z_ranges_overlap(0.0, v.hit_z[1], Mine.Z_LO, Mine.Z_HI):
+			if not Collision.z_ranges_overlap(v.hit_z[0] + v.z, v.hit_z[1] + v.z, Mine.Z_LO, Mine.Z_HI):
 				continue
 			if Collision.polygon_hits_box(v.hit_polygon(), m.position, Mine.TRIGGER_BOX):
 				_detonate_mine(m)
@@ -441,9 +445,11 @@ func _detonate_mine(m: Mine) -> void:
 		vehicle.sound_cue.emit("ExplLarge")   # record 0x445058's script: SOUND 14 then SOUND 1 (document 84); only the first is reproduced
 
 
-## Every whole tick a live damage box hurts what it overlaps: vehicles (layer 2, z 0..their height) get
-## FUN_0040c460 with |rate| x ticks, and tiles with shapes get FUN_0042e8c0 with the same amount (document 44
-## rule: max(1, whole damage) hit points). Mines are not touched (their masks lack the box's layer 0x20).
+## Every whole tick a live damage box hurts what it overlaps: vehicles (layer 2, z their height shifted by their
+## own current v.z, document 53's general rule -- same fix as _update_mines above, for the same reported symptom
+## of a flying Heli still taking mine/explosion damage) get FUN_0040c460 with |rate| x ticks, and tiles with
+## shapes get FUN_0042e8c0 with the same amount (document 44 rule: max(1, whole damage) hit points). Mines are
+## not touched (their masks lack the box's layer 0x20).
 func _update_boxes(ticks: float) -> void:
 	_box_tick_acc += ticks
 	var n := floori(_box_tick_acc)
@@ -461,7 +467,7 @@ func _update_boxes(ticks: float) -> void:
 				continue
 			if (b.mask & Vehicle.HIT_LAYER) == 0 or (Vehicle.HIT_MASK & 0x20) == 0:
 				continue
-			if not Collision.z_ranges_overlap(0.0, v.hit_z[1], b.z_lo, b.z_hi):
+			if not Collision.z_ranges_overlap(v.hit_z[0] + v.z, v.hit_z[1] + v.z, b.z_lo, b.z_hi):
 				continue
 			if Collision.polygon_hits_box(v.hit_polygon(), b.position, b.box()):
 				if v.take_damage(dmg):
