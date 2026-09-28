@@ -1182,6 +1182,59 @@ func radar_ping_frame() -> int:
 	return clampi(int(ticks / window * rd["sprite_ids"].size()), 0, rd["sprite_ids"].size() - 1)
 
 
+## The radar cursor / enemy-direction indicator (document 108, third addendum): FUN_004122d0's tail computes an 8-way bearing
+## from the player's own base (vehicle+0x5c -- a pointer to the per-player base record, &DAT_0048c880 + player*0xd0, set at
+## vehicle creation; document 68's "child" label for it was a guess) toward the other team's current vehicle, using the
+## same bearing function (FUN_00422e70) the Jeep's compass already reuses (_compass_magnitude above), quantized to 8
+## sectors instead of 16, recomputed every RADAR_DIRECTION_TICKS. Gated by record+0x298 (a rect-table pointer, nonzero for
+## Tank/MSV/Heli, zero for the Jeep, which naturally disables this along with having no radar to draw it on at all) and a
+## small dead-zone rectangle at record+0x2ac (FUN_0041d5b0): while the enemy sits inside it (relative to the player's own
+## base), the sector reads 8 -- "no clear direction" -- and the original draws the whole cel uncropped instead of a
+## directional crop, rather than hiding it. -1 means no indicator at all (no live enemy).
+## PORT CHOICE, not traced: which enemy. The original is a 1v1 game (exactly one "other team" vehicle); this port's
+## single-player-vs-several-AI setup has none of that ambiguity in the source, so the nearest live enemy is used.
+## "the player's own base" reuses _player_spawn_px, the same untraced stand-in the Jeep's compass already uses for its
+## own "home" (document 71): the original's own base-position field (vehicle+0x5c's own +0x40/+0x44) was read this pass
+## but not connected to anything the port can independently verify against, so it is not relied on here either.
+const RADAR_DIRECTION_TICKS := 60.0
+var _direction_sector := -1
+var _direction_recompute_at_ms := -1.0e9
+
+
+## -1 (no indicator), 0-7 (a compass sector, crop that rectangle) or 8 (in the dead zone, draw the whole cel uncropped).
+func radar_direction_sector() -> int:
+	if Time.get_ticks_msec() >= _direction_recompute_at_ms:
+		_direction_recompute_at_ms = Time.get_ticks_msec() + RADAR_DIRECTION_TICKS / Vehicle.TICK_HZ * 1000.0
+		_direction_sector = _compute_direction_sector()
+	return _direction_sector
+
+
+func _compute_direction_sector() -> int:
+	var nearest: Vehicle = null
+	var nearest_d2 := INF
+	for e in enemy_vehicles:
+		var ev: Vehicle = e
+		if ev != null and is_instance_valid(ev) and ev.alive:
+			var d2: float = ev.position.distance_squared_to(vehicle.position)
+			if d2 < nearest_d2:
+				nearest_d2 = d2
+				nearest = ev
+	if nearest == null:
+		return -1
+	var s9: Dictionary = pack.hud_panels.get("panels", {}).get(str(vehicle.vehicle_type), {}).get("slot9", {})
+	var cursor: Dictionary = s9.get("cursor", {})
+	if cursor.is_empty():
+		return -1
+	var dz: Array = cursor["dead_zone"]
+	var delta := nearest.position - _player_spawn_px
+	if delta.x >= dz[0] and delta.y >= dz[1] and delta.x <= dz[2] and delta.y <= dz[3]:
+		return 8
+	var to := nearest.position - _player_spawn_px
+	var steps := floori(fposmod(rad_to_deg(to.angle()), 360.0) / 5.625)   # FUN_00422e70, the same rounding _compass_magnitude uses
+	var bearing := (steps * 0x10000) & 0x3FFFFF                            # no heading subtracted here -- an absolute bearing, not relative
+	return mini(((bearing + 0x40000) & 0x380000) >> 0x13, 7)
+
+
 var _compass_aligned: Dictionary = {}   ## Vehicle -> bool, FUN_0040d990's state+0x60 (document 71/82): plays a chime the first tick the compass reads -16
 
 

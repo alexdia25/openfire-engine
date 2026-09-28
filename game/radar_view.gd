@@ -5,17 +5,18 @@ extends TextureRect
 ## bits) through the game's palette (hud/radar.json, built by tools/build_pack.py), with the flag's blinking pole-and-pennant blip
 ## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off), the ping (documents 68, 71, 103): a 16-frame growing ring, centred on the
 ## window (it always tracks the panel's own vehicle), shown while MatchController.radar_ping_frame() is >= 0 -- the tracked vehicle
-## was hit within the last 74 ticks -- and a grid overlay, drawn last, on top of everything else including the ping, whenever the
-## vehicle's own panel record names one (document 108's addendum: NOT one shared cel -- each vehicle type has its own, sized to its
-## own radar window: Tank 1963/32x32, MSV 1973/39x34, Heli's own 1975 drawn as a plain sprite, not a blend, see set_grid()). A
-## document-9 tint-mask grid (Tank, MSV) is approximated as a plain additive white overlay, the same stand-in the hangar spotlight
-## uses (document 103); the Heli's is a PRE0=0 plain sprite and needs no such approximation, just an ordinary draw.
+## was hit within the last 74 ticks -- the cursor (document 108, third addendum): an 8-way indicator toward the nearest live enemy
+## from the player's own base, cropped from a per-type cel by MatchController.radar_direction_sector(), drawn next -- and a grid
+## overlay, drawn last, on top of everything else, whenever the vehicle's own panel record names one (document 108's addendum: NOT
+## one shared cel -- each vehicle type has its own, sized to its own radar window: Tank 1963/32x32, MSV 1973/39x34, Heli's own 1975
+## drawn as a plain sprite, not a blend, see set_grid()). A document-9 tint-mask grid or cursor (Tank, MSV) is approximated as a
+## plain additive white overlay, the same stand-in the hangar spotlight uses (document 103); the Heli's own cels are PRE0=0 plain
+## sprites and need no such approximation, just an ordinary draw.
 ## The metal bezel around the radar is part of the panel's own base cel (document 70; HudPanel._base), not drawn here.
-## NOT reproduced (untraced): the corner-bracket cursor (cel 1964: it animates via an 8-rectangle table keyed by *(tracked_vehicle+0x5c)+0x80
-## -- what fills +0x5c is not confirmed; document 68's "child" label for it was its own guess, and this pass only got as far as finding
-## it's set at vehicle creation from a per-spawn argument reached through an indirect class-dispatch table, not a direct call, document
-## 108) and the fixed-colour fill drawn behind the map when the tracked vehicle is near the level edge (FUN_004121b0 -- traced as far as
-## "a solid colour, from a runtime-computed buffer this project's static analysis can't read the value of"; the port fills black there instead.
+## NOT reproduced (untraced): the fixed-colour fill drawn behind the map when the tracked vehicle is near the level edge
+## (FUN_004121b0 -- traced as far as "a solid colour, from a runtime-computed buffer this project's static analysis can't read the
+## value of"; the port fills black there instead) and the exact position/base-object document 108's cursor trace leaves open
+## (this uses the compass's own already-untraced "home" stand-in, MatchController._player_spawn_px, for the same purpose).
 ## The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
 var scale_px := 4.0
@@ -27,6 +28,8 @@ var _win := Vector2i(32, 32)
 var _ping: TextureRect
 var _ping_tex_cache: Array[AtlasTexture] = []
 var _grid: TextureRect
+var _cursor: TextureRect
+var _cursor_data: Dictionary = {}   ## this vehicle type's own slot9.cursor (position, per-sector crop rects, cel kind)
 
 
 func setup(controller: MatchController) -> void:
@@ -45,6 +48,14 @@ func setup(controller: MatchController) -> void:
 		_ping.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		_ping.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_ping)
+	# the cursor (document 108's third addendum): built AFTER _ping, BEFORE _grid, matching FUN_004122d0's own draw order
+	_cursor = TextureRect.new()
+	_cursor.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_cursor.stretch_mode = TextureRect.STRETCH_SCALE
+	_cursor.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_cursor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cursor.visible = false
+	add_child(_cursor)
 	# built AFTER _ping so it draws on top (FUN_004122d0 draws the grid last, over the ping too); starts empty and hidden until
 	# set_grid() is called with this vehicle type's own grid cel (document 108's addendum -- there is no single shared one)
 	_grid = TextureRect.new()
@@ -80,6 +91,54 @@ func set_grid(grid_sprite_id: Variant, _is_negative: bool) -> void:
 		_grid.material = null   # a plain sprite (the Heli's, PRE0=0): draw as-is, no blend approximation needed
 	_grid.visible = true
 	# _is_negative: FUN_004122d0's own alternate branch for a negative cel (a toggling tint, per the header); not otherwise reproduced
+
+
+## Called once per vehicle type change (HudPanel._layout), alongside set_grid(): cursor_data is this type's own "slot9.cursor"
+## (hud_panels.json), or empty for the Jeep, which has no radar to draw one on at all.
+func set_cursor(cursor_data: Dictionary) -> void:
+	_cursor_data = cursor_data
+	if cursor_data.is_empty():
+		_cursor.visible = false
+		return
+	var s := mc.pack.get_sprite(String(cursor_data["sprite_id"]))
+	if s.is_empty():
+		_cursor.visible = false
+		return
+	_cursor_atlas = AtlasTexture.new()
+	_cursor_atlas.atlas = mc.pack.get_texture(int(s.get("page", 0)))
+	_cursor_full_region = Rect2(float(s["x"]), float(s["y"]), float(s["w"]), float(s["h"]))
+	if String(s.get("kind", "sprite")) == "effect":
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		_cursor.material = mat
+	else:
+		_cursor.material = null
+	var pos: Array = cursor_data["pos"]
+	_cursor.position = Vector2(float(pos[0]), float(pos[1])) * scale_px
+
+
+var _cursor_atlas: AtlasTexture
+var _cursor_full_region := Rect2()
+
+
+## Updates the cursor's crop from MatchController.radar_direction_sector(): -1 hides it, 0-7 crops that sector's rectangle
+## (clockwise from the top, document 108), 8 (the dead zone) shows the whole cel uncropped, matching FUN_004122d0's own
+## "puVar8[0xd] = 0xe" fallback for that case.
+func _update_cursor() -> void:
+	if _cursor_data.is_empty() or _cursor_atlas == null:
+		return
+	var sector := mc.radar_direction_sector()
+	_cursor.visible = sector >= 0
+	if sector < 0:
+		return
+	if sector < 8:
+		var r: Array = _cursor_data["rects"][sector]
+		_cursor_atlas.region = Rect2(_cursor_full_region.position + Vector2(float(r[0]), float(r[1])), Vector2(float(r[2]), float(r[3])))
+		_cursor.size = Vector2(float(r[2]), float(r[3])) * scale_px
+	else:
+		_cursor_atlas.region = _cursor_full_region
+		_cursor.size = _cursor_full_region.size * scale_px
+	_cursor.texture = _cursor_atlas
 
 
 ## The window size in tiles (from the vehicle's panel record) and the screen pixels per tile.
@@ -161,6 +220,7 @@ func _process(_delta: float) -> void:
 		_ping.visible = frame >= 0
 		if frame >= 0:
 			_ping.texture = _ping_texture(frame)
+	_update_cursor()
 
 
 func _ping_texture(frame: int) -> AtlasTexture:
