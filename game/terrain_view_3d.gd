@@ -331,6 +331,9 @@ func _spawn_match() -> void:
 	# Debug-only: RF_DEBUG_FLASH=1 holds the player in the hit-flash variant for screenshots.
 	if OS.get_environment("RF_DEBUG_FLASH") == "1" and controller.vehicle != null:
 		controller.vehicle.hit_flash_remaining = 99.0
+	# Debug-only: RF_DEBUG_PING=<ticks ago> registers a hit that many ticks in the past, for screenshots of the radar ping (document 103).
+	if OS.get_environment("RF_DEBUG_PING") != "" and controller.vehicle != null:
+		controller._player_hit_at_ms = Time.get_ticks_msec() - float(OS.get_environment("RF_DEBUG_PING")) / Vehicle.TICK_HZ * 1000.0
 	# Debug-only: RF_DEBUG_DOCK=1 places the vehicle on its own pad centre, for screenshots of the docking sink (with RF_DEBUG_FIRE=1 to trigger it).
 	if OS.get_environment("RF_DEBUG_DOCK") == "1" and controller.vehicle != null:
 		var t := Vector2i(int(floor(controller.vehicle.position.x / pack.tile_size_px)), int(floor(controller.vehicle.position.y / pack.tile_size_px)))

@@ -3,9 +3,11 @@ extends TextureRect
 ## The radar of the original (documents 68, 69): a 32 x 32 window of a one-pixel-per-tile map, centred on the player's tile, coloured by
 ## FUN_00412dc0's rules (land 0x87, water 0x91, per-coastal-id colours for the team buildings and structures, split by the tile's pool
 ## bits) through the game's palette (hud/radar.json, built by tools/build_pack.py), with the flag's blinking pole-and-pennant blip
-## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off). NOT reproduced (untraced): the grid overlay (cel 1963), the corner-bracket
-## cursor (cel 1964), the Jeep's direction arrow, the bitmap background outside the map, and the
-## panel frame around it. The window size and position come from the vehicle's panel record (document 70); the on-screen scale is the port's choice.
+## (descriptor 0x4404b0 / 0x4404c0, 15 ticks on, 15 off) and the ping (documents 68, 71, 103): a 16-frame growing ring, centred on the
+## window (it always tracks the panel's own vehicle), shown while MatchController.radar_ping_frame() is >= 0 -- the tracked vehicle
+## was hit within the last 74 ticks. NOT reproduced (untraced): the grid overlay (cel 1963), the corner-bracket
+## cursor (cel 1964), the bitmap background outside the map, and the panel frame around it. The window size and position come from
+## the vehicle's panel record (document 70); the on-screen scale is the port's choice.
 
 var scale_px := 4.0
 
@@ -13,6 +15,8 @@ var mc: MatchController
 var _img: Image
 var _rd: Dictionary
 var _win := Vector2i(32, 32)
+var _ping: TextureRect
+var _ping_tex_cache: Array[AtlasTexture] = []
 
 
 func setup(controller: MatchController) -> void:
@@ -24,6 +28,13 @@ func setup(controller: MatchController) -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	stretch_mode = TextureRect.STRETCH_SCALE
 	expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	if _rd.has("ping"):   # built before configure() so its first call can size it
+		_ping = TextureRect.new()
+		_ping.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_ping.stretch_mode = TextureRect.STRETCH_SCALE
+		_ping.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		_ping.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(_ping)
 	var w: Array = _rd.get("window", [32, 32])
 	configure(Vector2i(int(w[0]), int(w[1])), scale_px)
 
@@ -36,6 +47,11 @@ func configure(window: Vector2i, scale: float) -> void:
 	texture = ImageTexture.create_from_image(_img)
 	custom_minimum_size = Vector2(_win) * scale_px
 	size = custom_minimum_size
+	if _ping != null:
+		# FUN_004122d0 places the ring at (width - cel_width, height - cel_height) * 0x8000 from the panel corner: since the
+		# ping cels are the same 32 x 32 as the traced window, that offset is always 0 -- the ring exactly fills the window.
+		_ping.size = size
+		_ping.position = Vector2.ZERO
 
 
 func _col(idx: int) -> Color:
@@ -94,6 +110,23 @@ func _process(_delta: float) -> void:
 				if qx >= 0 and qy >= 0 and qx < _win.x and qy < _win.y:
 					_img.set_pixel(qx, qy, col)
 	(texture as ImageTexture).update(_img)
+	if _ping != null:
+		var frame := mc.radar_ping_frame()
+		_ping.visible = frame >= 0
+		if frame >= 0:
+			_ping.texture = _ping_texture(frame)
+
+
+func _ping_texture(frame: int) -> AtlasTexture:
+	while _ping_tex_cache.size() <= frame:
+		var id := String(_rd["ping"]["sprite_ids"][_ping_tex_cache.size()])
+		var s := mc.pack.get_sprite(id)
+		var at := AtlasTexture.new()
+		if not s.is_empty():
+			at.atlas = mc.pack.get_texture(int(s.get("page", 0)))
+			at.region = Rect2(float(s["x"]), float(s["y"]), float(s["w"]), float(s["h"]))
+		_ping_tex_cache.append(at)
+	return _ping_tex_cache[frame]
 
 
 ## The whole level as the radar bitmap (one pixel per tile): what the map window of the choice screen shows (document 78).

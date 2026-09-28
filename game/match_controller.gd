@@ -464,7 +464,8 @@ func _update_boxes(ticks: float) -> void:
 			if not Collision.z_ranges_overlap(0.0, v.hit_z[1], b.z_lo, b.z_hi):
 				continue
 			if Collision.polygon_hits_box(v.hit_polygon(), b.position, b.box()):
-				v.take_damage(dmg)
+				if v.take_damage(dmg):
+					_register_hit(v)
 		_box_damage_tiles(entry, dmg)
 
 
@@ -524,7 +525,8 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 		if not Collision.shell_z_overlaps(p.z, v.hit_z[0] + v.z, v.hit_z[1] + v.z):
 			continue
 		if Collision.segment_hits_polygon(from, to, v.hit_polygon()):
-			v.take_damage(p.damage)
+			if v.take_damage(p.damage):
+				_register_hit(v)
 			impact_effect.emit("0x444b68", to)  # surface 3, object hit
 			return true
 	return false
@@ -1150,6 +1152,34 @@ func _compass_magnitude(v: Vehicle, target: Vector2) -> int:
 	if turn < 0x100000:
 		return mini((0x10000 - (turn >> 6)) >> 12, 15)
 	return -1
+
+
+## The radar ping (documents 68, 71, 103): FUN_004122d0's kind-6 radar callback draws one of 16 growing-ring cels over the
+## panel's own tracked vehicle exactly when `now - state+0x4c` is in (-10, 64) -- state+0x4c is the same "hit until" deadline
+## (document 47/59: set to now + 10 on a successful hit), so the window is the 74 ticks starting at the hit itself. Tracked here,
+## not in vehicle.gd, since take_damage()'s own callers already know the moment a hit registers. The ring's own growth curve
+## (state+0x20, read through a fixed-point multiply against a per-panel constant) did not resolve in the time traced so far --
+## state+0x20 is written in the same hit handler but as a debounce/count field, not confirmed to be a clean elapsed-time
+## fraction -- so the 16 frames are spread evenly across the confirmed 74-tick window instead: the trigger is traced, the
+## growth curve is a marked approximation of it (tools/data/radar.json's "window_ticks").
+var _player_hit_at_ms := -1.0e9
+
+
+func _register_hit(v: Vehicle) -> void:
+	if v == vehicle:
+		_player_hit_at_ms = Time.get_ticks_msec()
+
+
+## -1 if the player's vehicle wasn't hit recently enough to ping, else 0-15 into radar.json's "ping" sprite array.
+func radar_ping_frame() -> int:
+	var rd: Dictionary = pack.radar_data.get("ping", {})
+	if rd.is_empty():
+		return -1
+	var window: float = float(rd["window_ticks"])
+	var ticks := (Time.get_ticks_msec() - _player_hit_at_ms) / 1000.0 * Vehicle.TICK_HZ
+	if ticks < 0.0 or ticks >= window:
+		return -1
+	return clampi(int(ticks / window * rd["sprite_ids"].size()), 0, rd["sprite_ids"].size() - 1)
 
 
 var _compass_aligned: Dictionary = {}   ## Vehicle -> bool, FUN_0040d990's state+0x60 (document 71/82): plays a chime the first tick the compass reads -16
