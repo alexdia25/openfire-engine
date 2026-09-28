@@ -235,6 +235,29 @@ func _build_terrain_ground() -> void:
 	# world Y (2D "down") -> node Z ("forward").
 	ground.position = Vector3(_map_size_px.x * 0.5, 0.0, _map_size_px.y * 0.5)
 	add_child(ground)
+	_build_backdrop()
+
+
+## The finite ground mesh's own honest limitation, noted above: near a large map's edge, the tilted camera's
+## near-horizontal rays can reach past the mesh before the eye level (the horizon), showing Godot's own default
+## background beyond it -- a stark, un-textured void where real terrain should be (there is no real art beyond
+## the level's own bounds to texture an overhang with). Reported: a level with a spawn point close to its own
+## edge (a big map makes this worse -- the camera pulls back further, so the rays overshoot by more) looked like
+## starting "off the map" entirely. PORT CHOICE, not traced (there is nothing in the original to trace: its own
+## camera and view distance are not mapped onto this one, document 90): a flat sand-toned backdrop instead of
+## Godot's own default clear colour, so the seam reads as a hazy horizon rather than a hole in the world.
+const BACKDROP_COLOUR := Color8(196, 164, 122)
+
+
+func _build_backdrop() -> void:
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = BACKDROP_COLOUR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_DISABLED   # only the void behind the ground plane should change -- the
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR                # ground's own directional-light shading (_build_light) must not
+	var we := WorldEnvironment.new()
+	we.environment = env
+	add_child(we)
 
 
 ## Document 40 follow-up: real Node3D decorations (game/decoration_field_3d.gd), not baked
