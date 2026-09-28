@@ -66,6 +66,15 @@ const SWOOP_START_TILT_DEG := 70.0
 
 @export var pack_path: String = "res://packs/original_pc"
 @export var level_id: String = "RFMAP001"
+## Set by GameFlow (PORTING_PLAN.md 2.8) when it instantiates this scene as the "Level" state: on Enter after the
+## win/loss sequence, this view re-emits `continue_pressed` for GameFlow to act on instead of reloading itself, and
+## the dev level-switch keys (`[`/`]`, PageUp/PageDown) are disabled -- level select is how you change levels once a
+## real front end exists to switch to. A standalone run (a headless test, or the editor's "Play this map") leaves
+## this false and keeps the old behaviour: reload the scene itself, and the debug keys work.
+@export var managed_by_flow: bool = false
+## The win/loss sequence the player was shown has finished and they pressed Enter. Only emitted when
+## `managed_by_flow` is true; a standalone run reloads itself instead (see `_hud.continue_pressed` below).
+signal continue_pressed
 
 var pack: Pack
 var level: LevelData
@@ -289,7 +298,13 @@ func _spawn_match() -> void:
 	if controller.vehicle != null:
 		_hud = PlaceholderHud.new()
 		add_child(_hud)
-		_hud.setup(controller)
+		_hud.setup(controller, managed_by_flow)
+		if managed_by_flow:
+			_hud.continue_pressed.connect(func(): continue_pressed.emit())
+		else:
+			_hud.continue_pressed.connect(func():
+				Engine.time_scale = 1.0
+				get_tree().reload_current_scene())
 		if OS.get_environment("RF_DEBUG_AUTOPLAY") == "1":
 			var ap := DebugAutoplay.new()
 			add_child(ap)
@@ -460,7 +475,7 @@ func _on_gate_created(g: Gate) -> void:
 	add_child(view)
 	view.setup(pack, g)
 	_gate_views[g.tile] = view
-	_decoration_field.refresh()
+	_decoration_field.refresh_tile(g.tile)
 
 
 func _on_gate_removed(g: Gate) -> void:
@@ -468,7 +483,7 @@ func _on_gate_removed(g: Gate) -> void:
 	if view != null:
 		view.queue_free()
 		_gate_views.erase(g.tile)
-	_decoration_field.refresh()
+	_decoration_field.refresh_tile(g.tile)
 
 
 ## The home pad swapped between its hatch art and the transparent hole (document 89): the level's art grid was already changed by MatchController.
@@ -489,7 +504,7 @@ func _on_tile_destroyed(tile: Vector2i) -> void:
 ## Op 21 of a bush/palm collapse script (FUN_0042d9f0): the decoration is gone at once.
 func _clear_tile_decoration(tile: Vector2i) -> void:
 	level.set_coastal_id(tile.x, tile.y, 0)
-	_decoration_field.refresh()
+	_decoration_field.refresh_tile(tile)
 
 
 func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
@@ -518,7 +533,7 @@ func _apply_tile_destroyed(tile: Vector2i, coastal_id: int) -> void:
 			art = (offset + variation) & 0x7F
 	level.set_art_id(tile.x, tile.y, art)
 	controller.tile_state_applied(tile)
-	_decoration_field.refresh()
+	_decoration_field.refresh_tile(tile)
 	_tile_renderer.mark_tile(tile)
 	_terrain_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
@@ -662,9 +677,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match event.keycode:
 		KEY_BRACKETRIGHT, KEY_PAGEDOWN:
-			_switch_level(1)
+			if not managed_by_flow:   # level select is how you change levels once GameFlow exists (PORTING_PLAN.md 2.8)
+				_switch_level(1)
 		KEY_BRACKETLEFT, KEY_PAGEUP:
-			_switch_level(-1)
+			if not managed_by_flow:
+				_switch_level(-1)
 		KEY_H:   # dev: toggle the panel layout live (not saved; the setting is user://settings.cfg [hud] layout, or RF_HUD)
 			GameSettings.hud_layout = HudLayout.MODERN if HudLayout.is_classic() else HudLayout.CLASSIC
 			print("[dev] hud layout ", GameSettings.hud_layout)

@@ -17,14 +17,21 @@ var _banner: Label
 var _ribbon: WinRibbon
 var _finished := false
 
+## The win/loss sequence (ribbon, jingle, banner) has run its course and the player pressed Enter (PORTING_PLAN.md
+## 2.8): TerrainView3D listens for this rather than this HUD deciding what "continue" means itself, since that
+## differs between a standalone run (reload the scene) and a level GameFlow is managing (return to it, an outro, or
+## mission failed, once the win/loss presentation the player actually saw has been allowed to play out).
+signal continue_pressed
 
-func setup(controller: MatchController) -> void:
+
+func setup(controller: MatchController, managed_by_flow: bool = false) -> void:
 	mc = controller
 	_status = _label(Vector2(12, 8), 18)
 	_objective = _label(Vector2(12, 34), 16)
 	_stock = _label(Vector2(12, 58), 14)
 	_keys = _label(Vector2(12, 0), 13)
-	_keys.text = "arrows drive   space fire   dock: stand still on your pad centre + fire (V = quick swap, port-only); in the grid: arrows, Space   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun   [ ] previous / next level (dev)"
+	_keys.text = ("arrows drive   space fire   dock: stand still on your pad centre + fire (V = quick swap, port-only); in the grid: arrows, Space   F flag   B swim (Jeep)   X heli weapon   M mine   Q/E/R turret, gun"
+			+ ("" if managed_by_flow else "   [ ] previous / next level (dev)"))
 	_keys.anchor_top = 1.0
 	_keys.anchor_bottom = 1.0
 	_keys.offset_top = -26.0
@@ -136,5 +143,4 @@ func _objective_text(v: Vehicle) -> String:
 func _unhandled_input(event: InputEvent) -> void:
 	if _finished and event is InputEventKey and event.pressed and not event.echo \
 			and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER):
-		Engine.time_scale = 1.0
-		get_tree().reload_current_scene()
+		continue_pressed.emit()

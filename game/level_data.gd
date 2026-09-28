@@ -25,6 +25,14 @@ var decorations: Array = []  ## [{x, y, coastal_id}] -- see Pack.get_decoration_
 ## existing one). {} means the map uses the pack's default roster (`Pack.vehicle_roster`) unchanged. Resolved against
 ## a pack by `Pack.roster_for(self)`; never resolved here, since loading a level does not require a pack yet.
 var roster_override: Dictionary = {}
+## The level's own front-end scenes (PORTING_PLAN.md 2.8, the "game flow" state machine; EDITOR_PLAN.md's level-flow
+## panel writes this): `{"intro": "<scene id>", "outro": "<scene id>", "mid_level": [{"trigger": "<name>", "scene":
+## "<scene id>"}]}`, every key optional. A scene id names a file in the pack's `scenes/<id>.json` (`StoryScene`'s
+## format: a placeholder for the eventual visual-novel presentation). Missing = that step of the flow is skipped
+## entirely, not shown empty -- this is the normal case (none of Return Fire's own levels define any of these).
+## `mid_level`'s triggers are not wired to any real gameplay signal yet; the field is carried and validated, ready
+## for whichever trigger kinds a level actually needs once one does. Overridable the same way as `roster_override`.
+var flow: Dictionary = {}
 var _decoration_lookup: Dictionary = {}
 var _jitter: Array[Vector2] = []
 
@@ -47,6 +55,7 @@ func load_from(level_dir: String, override_paths: Array[String] = []) -> bool:
 		return false
 
 	roster_override = {}
+	flow = doc.get("flow", {}).duplicate() if doc.get("flow") is Dictionary else {}
 	for override_path in override_paths:
 		var od: Variant = JSON.parse_string(FileAccess.get_file_as_string(override_path))
 		if not (od is Dictionary):
@@ -55,6 +64,8 @@ func load_from(level_dir: String, override_paths: Array[String] = []) -> bool:
 			doc["side_colours"] = od["side_colours"]
 		for id in od.get("roster", {}):
 			roster_override[id] = od["roster"][id]
+		if od.get("flow") is Dictionary:
+			flow.merge(od["flow"], true)
 
 	width = int(doc.get("width", 0))
 	height = int(doc.get("height", 0))
