@@ -9,7 +9,7 @@ extends Node3D
 
 var gate: Gate
 var _pack: Pack
-var _parts: Array = []  ## [{mi, desc_i, part_i, last_key}]
+var _parts: Array = []  ## [{mi, desc_i, part_i, last_key, shift}]
 
 
 func setup(pack: Pack, g: Gate) -> void:
@@ -26,8 +26,26 @@ func setup(pack: Pack, g: Gate) -> void:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 			mi.material_override = mat
 			add_child(mi)
-			_parts.append({"mi": mi, "mat": mat, "di": di, "pi": pi, "key": ""})
+			_parts.append({"mi": mi, "mat": mat, "di": di, "pi": pi, "key": "", "shift": Vector3.ZERO})
+	_compute_coplanar_shifts()
 	_refresh(true)
+
+
+## Both wings are painted in list order like the original, so a part sharing an earlier one's exact plane
+## (reported: the gate's tower flickering with camera angle -- the same tie class as the vehicles, document
+## 102, and the decoration field's shadow, both already fixed with CoplanarParts) needs an outward nudge to
+## win the depth test the way the original's later paint always would. Computed once from the closed pose
+## across both descriptors together: the door's own animation only slides parts within their own plane, so a
+## shift found here still resolves the tie at every opening frame.
+func _compute_coplanar_shifts() -> void:
+	var quads: Array = []
+	for p in _parts:
+		var d: Dictionary = gate.data["descs"][p["di"]]
+		var part: Dictionary = d["parts"][p["pi"]]
+		quads.append(_corners(d, part, 16.0))
+	var shifts := CoplanarParts.shifts(quads)
+	for i in _parts.size():
+		_parts[i]["shift"] = shifts[i]
 
 
 func _process(_delta: float) -> void:
@@ -61,6 +79,10 @@ func _refresh(force: bool) -> void:
 		var tex := _pack.get_texture(int(s.get("page", 0)))
 		(p["mat"] as StandardMaterial3D).albedo_texture = tex
 		var corners := _corners(d, part, dyn_value)
+		var shift: Vector3 = p["shift"]
+		if shift != Vector3.ZERO:
+			for i in corners.size():
+				corners[i] += shift
 		(p["mi"] as MeshInstance3D).mesh = _quad(corners, s, tex)
 
 

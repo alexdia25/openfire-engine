@@ -9,8 +9,8 @@ extends Node3D
 ## composition (a ring of flat cards + an invented palm-trunk card + PALM_SCALE): no decoration
 ## in the original references the trunk cel that composition drew.
 ##
-## All quads are batched into one ArrayMesh per atlas page (thousands of parts, one draw call
-## each would be wasteful) and use alpha-scissor instead of blending, so no depth sorting is
+## All quads are batched into one ArrayMesh per atlas page, per chunk (thousands of parts, one draw
+## call each would be wasteful) and use alpha-scissor instead of blending, so no depth sorting is
 ## needed for the hard-edged pixel art.
 ##
 ## Per-tile position jitter (document 44, FUN_004365c0 / FUN_00436540): a descriptor whose
@@ -40,27 +40,56 @@ const SHADOW_ALPHA := 5.0 / 32.0
 ## CoplanarParts) since only one kind (the shadow) ever needs the shift, and it always shifts the same way.
 const SHADOW_Z_BIAS := 0.5 + CoplanarParts.COPLANAR_STEP
 
+## Decorations are batched per CHUNK_TILES x CHUNK_TILES tile block, not one mesh set for the whole
+## level: a single tile's state change (a crushed bush, a gate opening) used to rebuild EVERY
+## decoration on the map -- up to ~11000 quads for one tile, a stutter on every hit that got worse
+## the bigger the level (reported: level 95's frame-rate issues on any destruction, and sometimes
+## just from driving over a crushable bush). Rebuilding only the tile's own chunk bounds the cost to
+## that chunk's own decoration count regardless of level size. Decoration entries are mutated in
+## place (LevelData.set_coastal_id et al. never add or remove entries), so the chunk index built once
+## at setup() stays valid for the level's whole lifetime.
+const CHUNK_TILES := 8
+
 var pack: Pack
 var level: LevelData
+var _chunks: Dictionary = {}          ## Vector2i(chunk) -> Node3D
+var _indices_by_chunk: Dictionary = {}  ## Vector2i(chunk) -> Array[int] (indices into level.decorations)
 
 
 func setup(shared_pack: Pack, shared_level: LevelData) -> void:
 	pack = shared_pack
 	level = shared_level
-	_build()
+	_indices_by_chunk.clear()
+	for i in level.decorations.size():
+		var entry: Dictionary = level.decorations[i]
+		var key := _chunk_key(int(entry.get("x", 0)), int(entry.get("y", 0)))
+		if not _indices_by_chunk.has(key):
+			_indices_by_chunk[key] = []
+		(_indices_by_chunk[key] as Array).append(i)
+	for key in _indices_by_chunk:
+		_build_chunk(key)
 
 
-## Rebuilds every mesh from the level's current decoration list (after a tile changed state).
-func refresh() -> void:
-	for c in get_children():
-		c.queue_free()
-	_build()
+func _chunk_key(tx: int, ty: int) -> Vector2i:
+	return Vector2i(floori(float(tx) / CHUNK_TILES), floori(float(ty) / CHUNK_TILES))
 
 
-func _build() -> void:
+## Rebuilds only the chunk this tile's decoration lives in, after that tile changed state.
+func refresh_tile(tile: Vector2i) -> void:
+	var key := _chunk_key(tile.x, tile.y)
+	if _indices_by_chunk.has(key):
+		_build_chunk(key)
+
+
+func _build_chunk(chunk_key: Vector2i) -> void:
+	var old: Node = _chunks.get(chunk_key)
+	if old != null:
+		old.queue_free()
+		_chunks.erase(chunk_key)
 	var tile := pack.tile_size_px
 	var builders := {}  # [page index, kind] -> SurfaceTool
-	for entry in level.decorations:
+	for i in _indices_by_chunk[chunk_key]:
+		var entry: Dictionary = level.decorations[i]
 		var parts: Array = pack.get_decoration_parts(int(entry.get("coastal_id", 0)))
 		var cx := (float(entry.get("x", 0)) + 0.5) * tile
 		var cz := (float(entry.get("y", 0)) + 0.5) * tile
@@ -81,20 +110,25 @@ func _build() -> void:
 			if s.is_empty():
 				continue
 			var page := int(s.get("page", 0))
-			var key := [page, String(s.get("kind", "sprite"))]
-			if not builders.has(key):
+			var bkey := [page, String(s.get("kind", "sprite"))]
+			if not builders.has(bkey):
 				var st := SurfaceTool.new()
 				st.begin(Mesh.PRIMITIVE_TRIANGLES)
-				builders[key] = st
+				builders[bkey] = st
 			var off: Array = part.get("offset", [0.0, 0.0])
 			var j := jit if part.get("jitter", false) else Vector2.ZERO
 			var zoff: float = part.get("zoff", 0.0)
-			var ground_y: float = SHADOW_Z_BIAS if key[1] == "effect" else 0.5
+			var ground_y: float = SHADOW_Z_BIAS if bkey[1] == "effect" else 0.5
 			var corners: Array[Vector3] = []
 			for c in part["corners"]:
 				corners.append(Vector3(cx + j.x + off[0] + c[0], c[2] + zoff + ground_y, cz + j.y + off[1] + c[1]))
-			_add_quad(builders[key], corners, s, pack.get_texture(page))
+			_add_quad(builders[bkey], corners, s, pack.get_texture(page))
 
+	if builders.is_empty():
+		return
+	var root := Node3D.new()
+	add_child(root)
+	_chunks[chunk_key] = root
 	for key in builders:
 		var tex := pack.get_texture(int(key[0]))
 		var st: SurfaceTool = builders[key]
@@ -114,7 +148,7 @@ func _build() -> void:
 		else:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 		mi.material_override = mat
-		add_child(mi)
+		root.add_child(mi)
 
 
 ## Same corner -> UV mapping and split-diagonal choice as VehicleRender3D._quad:
