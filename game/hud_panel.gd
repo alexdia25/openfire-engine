@@ -154,9 +154,11 @@ func _layout(t: int) -> void:
 ## Which colour table a weapon bar (kind 4, FUN_00411da0) draws with (document 103). The bar does `CMP [slot + 0x14], 0` and takes the ammunition table
 ## (0x446778, the dark olive) when the flag is set, else the fuel table (0x446760, amber). The element factory (FUN_00412cd0) zeroes the flag, and only the
 ## Heli sets it: at creation (0x40baee: panel + 0xd0 = slot 7's flag = 1) and in its weapon switch (FUN_0040e7a0, 0x40e7d9..0x40e800: slot 6's flag = the
-## selected-weapon bit 0x10000000, slot 7's = its opposite). So every weapon bar is amber, except the Heli's bar for the weapon that is not selected.
-static func uses_ammo_colours(vehicle_type: int, slot: int, selected_slot: int) -> bool:
-	return vehicle_type == 3 and slot != selected_slot
+## selected-weapon bit 0x10000000, slot 7's = its opposite). So every weapon bar is amber, except a two-weapon-select vehicle's (the Heli's `heli_guns`
+## module, PORTING_PLAN.md 2.7.2) bar for the weapon that is not selected -- a capability of that module, not the vehicle_type (`has_module`, not a
+## hardcoded type number, so a mod's own two-weapon-select vehicle gets the same rule with no change here).
+static func uses_ammo_colours(v: Vehicle, slot: int, selected_slot: int) -> bool:
+	return v.has_module("heli_guns") and slot != selected_slot
 
 
 ## The lamp's cel in compass_lamps.png for a compass value (FUN_00412960): the row is the cel (0 = cel 1969 for a negative value, 1 = cel 1971), the column is the
@@ -165,12 +167,29 @@ static func lamp_region(value: int) -> Rect2i:
 	return Rect2i(mini(absi(value), 16) * 16, 0 if value < 0 else 16, 16, 16)
 
 
+## Document 75, step 3: the MSV's mine layer only works with two players (`Vehicle.mine_layer_enabled`); with
+## it off -- single player, the normal case -- its own ammo bar reads empty too, not full-but-unusable (issue
+## #31: confirmed intended behaviour, not a bug -- the reserve really is full, the LAYER is just off). A
+## capability of the vehicle's own mine_layer module and its own ammo_slot parameter, the same way
+## uses_ammo_colours() keys off has_module() rather than a hardcoded vehicle type or slot number.
+static func _is_disabled_mine_slot(v: Vehicle, slot: int) -> bool:
+	if v.mine_layer_enabled or not v.has_module("mine_layer"):
+		return false
+	for w in v.weapons:
+		if w.get_script() == VehicleModules.MODULES.get("mine_layer"):
+			return int(w.params.get("ammo_slot", 1)) == slot
+	return false
+
+
 ## A bar's value as the fraction of its maximum: fuel, or the ammunition of its weapon slot.
 func _fraction(b: Dictionary, v: Vehicle) -> float:
 	if int(b["slot"]) < 0:
 		return clampf(v.fuel / v.fuel_max, 0.0, 1.0)
-	var mx := float(v.ammo_max[int(b["slot"])])
-	return clampf(float(v.ammo[int(b["slot"])]) / mx, 0.0, 1.0) if mx > 0.0 else 0.0
+	var slot := int(b["slot"])
+	if _is_disabled_mine_slot(v, slot):
+		return 0.0
+	var mx := float(v.ammo_max[slot])
+	return clampf(float(v.ammo[slot]) / mx, 0.0, 1.0) if mx > 0.0 else 0.0
 
 
 func _update_bar(b: Dictionary, v: Vehicle, delta: float) -> void:
@@ -194,7 +213,7 @@ func _update_bar(b: Dictionary, v: Vehicle, delta: float) -> void:
 			key = "4"
 		b["fill"].color = _rgb(words[key])
 	else:   # ammunition: FUN_00411da0 (thresholds at 1/16, 1/4 and 3/16; the colour table is chosen by the slot's flag, see uses_ammo_colours)
-		var words2: Dictionary = hp["ammo_rgb"] if uses_ammo_colours(v.vehicle_type, int(b["slot"]), v.heli_weapon_slot()) else hp["fuel_rgb"]
+		var words2: Dictionary = hp["ammo_rgb"] if uses_ammo_colours(v, int(b["slot"]), v.heli_weapon_slot()) else hp["fuel_rgb"]
 		if f < span / 4.0:
 			key = "0" if f < span / 16.0 else "2"
 		elif f < floorf(span / 16.0) * 3.0:
