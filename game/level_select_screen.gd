@@ -39,5 +39,26 @@ func setup(pack: Pack) -> void:
 	var ids := pack.list_levels()
 	ids.sort()
 	for id in ids:
-		list.add_item(id)
+		var name := _peek_name(pack.level_dir(id))
+		list.add_item("%s - %s" % [_level_number(id), name] if name != "" else id)
 	list.item_activated.connect(func(i): level_chosen.emit(ids[i]))
+
+
+## The level's display name without parsing the whole file: "name" sits near the top of level.json (matches
+## editor/map_view_panel.gd's own _peek_name -- same small job, kept self-contained here rather than shared).
+static func _peek_name(dir: String) -> String:
+	var f := FileAccess.open(dir.path_join("level.json"), FileAccess.READ)
+	if f == null:
+		return ""
+	var head := f.get_buffer(600).get_string_from_utf8()
+	var re := RegEx.create_from_string("\"name\"\\s*:\\s*\"([^\"]*)\"")
+	var m := re.search(head)
+	return m.get_string(1) if m != null else ""
+
+
+## The number in a level id ("117" from "RFMAP117"), or the id itself if it has none (a mod's own id, not the
+## original's RFMAPnnn convention).
+static func _level_number(id: String) -> String:
+	var re := RegEx.create_from_string("(\\d+)$")
+	var m := re.search(id)
+	return m.get_string(1) if m != null else id

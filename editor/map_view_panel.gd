@@ -125,11 +125,18 @@ static func _peek_name(dir: String) -> String:
 	return m.get_string(1) if m != null else ""
 
 
+## The number in a level id ("117" from "RFMAP117"), or the id itself if it has none (a mod's own id).
+static func _level_number(id: String) -> String:
+	var re := RegEx.create_from_string("(\\d+)$")
+	var m := re.search(id)
+	return m.get_string(1) if m != null else id
+
+
 func _fill_list() -> void:
 	_levels.clear()
 	var q := _search.text.strip_edges().to_lower()
 	for id in _names:
-		var label := "%s   %s" % [id, _names[id]]
+		var label: String = "%s - %s" % [_level_number(id), _names[id]] if _names[id] != "" else id
 		if q != "" and not label.to_lower().contains(q):
 			continue
 		var i := _levels.add_item(label)
