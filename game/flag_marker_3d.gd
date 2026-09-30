@@ -4,8 +4,10 @@ extends Node3D
 ## and the cloth with its pole (cel 1829 + frame, a 20 x 16 quad leaning 4 units, descriptor 0x440448); carried, two quads
 ## (descriptor 0x440318): the cloth seen from above (cel 1855 + frame) at height 10.5 and from the side (cel 1803 + frame) at 4.5-12.5,
 ## trailing behind the pole. Both turn with the flag's own heading (clockwise from north, node yaw = -heading). The original also
-## tilts the ground cloth toward the camera by a value read from its camera record (`(cam+0x24 + 0xffe70000) >> 3`); that
-## camera-specific tilt is NOT reproduced (untraced against this project's 3D camera).
+## tilts the ground cloth by `(cam.pitch - 25.0) / 8.0`, indexing a runtime-built rotation-matrix table it hand-composes with the
+## flag's heading matrix and the camera's view matrix before its own perspective-divide (traced in full in document 65) -- a
+## correction for its own fixed-function pipeline not composing a real camera transform. Godot's camera already projects this
+## quad's real 3D orientation correctly at any pitch, so there is no equivalent gap here; deliberately not ported.
 
 var flag: FlagMarker
 var pack: Pack

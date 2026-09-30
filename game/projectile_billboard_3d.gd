@@ -161,9 +161,11 @@ func _add_descriptor_parts(pack: Pack) -> bool:
 	return drew
 
 
-## The Jeep missile (document 61): descriptor 0x4548f0, one quad (x -2.7..0, y -2.7..2.8, drawn as read) of cel
+## The Jeep missile (document 61): descriptor 0x4548f0, one quad (x -2.7..0, y -2.7..2.8) of cel
 ## 1779 + spin frame (+ 12 for the green team; init callback 0x436be0), turning 3 degrees a tick, drawn at its height;
 ## its shadow (object class 4, cel 1076, flag 0x10) is on the ground offset by the height in x and y (FUN_00409b50).
+## The quad's own asymmetry is confirmed genuine, not a mirrored half: the draw function (0x41b750, decompiled in
+## full) only composes rotation/camera matrices and projects the descriptor's corners as given, with no flip step.
 const MISSILE_CORNERS := [Vector3(-2.7, 0.0, -2.7), Vector3(0.0, 0.0, -2.7), Vector3(0.0, 0.0, 2.8), Vector3(-2.7, 0.0, 2.8)]
 
 

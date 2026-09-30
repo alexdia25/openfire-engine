@@ -251,7 +251,12 @@ func _pick_missile_target(v: Vehicle) -> Vector2:
 
 
 ## The missile came down (z < 0) without hitting anything: FUN_00415730 picks the landing record by what it fell on
-## (0 ground, 1 water, 2 the pavement tiles 0x49-0x53).
+## (0 ground, 1 water, 2 the pavement tiles 0x49-0x53). At the landing point itself, deep water (2) is always water;
+## but a SHALLOW point (1) is refined by FUN_0042f5b0, which samples the four corners of a +-12 unit box (the
+## record's own per-type override at [that record]+0x3b was not chased down; 12 is the traced fallback) around the
+## point against class 0 (land): if any corner is land, the shore is close enough that the impact counts as ground,
+## not a splash -- only a shallow point with no land in that box plays the water record.
+const MISSILE_WATER_BOX_HALF := 12.0
 func _missile_lands(p: Projectile) -> void:
 	var tsz := float(pack.tile_size_px)
 	var tx := int(floor(p.position.x / tsz))
@@ -260,13 +265,23 @@ func _missile_lands(p: Projectile) -> void:
 	# 1 water, 2 pavement
 	var shell_like: bool = (p.impact_table == "0x448970") and not p.lob
 	var record := "0x444740" if shell_like else "0x444840"
-	if Water.class_at(level, pack, p.position) != 0:
-		record = "0x4445b8" if shell_like else "0x4445e8"  # water (shallow counts: FUN_0042f5b0 samples the class around)
+	var cls := Water.class_at(level, pack, p.position)
+	var is_water := cls == 2 or (cls == 1 and not _land_within(p.position, MISSILE_WATER_BOX_HALF))
+	if is_water:
+		record = "0x4445b8" if shell_like else "0x4445e8"
 	elif tx >= 0 and ty >= 0 and tx < level.width and ty < level.height:
 		var art := level.get_art_id(tx, ty) & 0x7F
 		if art > 0x48 and art < 0x54:
 			record = "0x444968" if shell_like else "0x444a30"
 	impact_effect.emit(record, p.position)
+
+
+## FUN_0042f5b0: true if any of the four corners of a +-half box around `pos` classes as land (0).
+func _land_within(pos: Vector2, half: float) -> bool:
+	for corner in [Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half)]:
+		if Water.class_at(level, pack, pos + corner) == 0:
+			return true
+	return false
 
 
 func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
@@ -354,7 +369,10 @@ func home_position() -> Vector2:
 ## around home, whose terrain art has bit 3 clear and is below 0x54: an art of 0x49-0x53 always counts, land arts (0, 3, 0x34-0x48) only when the tile
 ## above, below, left or right is art 0x49-0x59 (a road or pad). Each mine lands at a random spot 6-30 units into a randomly chosen candidate tile and
 ## a candidate is used once per pass. When the road-side list runs out, a second list (FUN_0042a430: the same tiles without the road-side test) supplies the rest.
-## UNTRACED: the random numbers (FUN_0041d3d0's sequence; a seeded generator here).
+## Not seeded from the level (document 75, addendum): FUN_00436540 (the tile-jitter table, document 44) brackets its own tile_seed-seeded build
+## between `_rand()` (captured before) and `srand(that captured value)` (after) -- it deliberately hands the RNG back to whatever non-deterministic
+## stream was already running (ultimately a startup-time seed) rather than leaving it on tile_seed, so every OTHER consumer of FUN_0041d3d0, mine
+## scatter included, is provably not level-seeded in the original: there is no fixed "original sequence" a per-level seed here could match.
 func _place_start_mines() -> void:
 	var m := int(level.vehicle_params.get("M", 255))
 	var count := 0
@@ -365,8 +383,6 @@ func _place_start_mines() -> void:
 	if count <= 0:
 		return
 	var home := _tile_of(_player_spawn_px)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = level.tile_seed
 	for relaxed in [false, true]:   # the first pass (road-side tiles), then FUN_0042a430's relaxed list for what is left
 		if count <= 0:
 			break
@@ -376,10 +392,10 @@ func _place_start_mines() -> void:
 				if _mine_candidate(x, y, home, relaxed):
 					cands.append(Vector2i(x, y))
 		while count > 0 and not cands.is_empty():
-			var i := rng.randi_range(0, cands.size() - 1)
+			var i := randi() % cands.size()
 			var t := cands[i]
 			cands.remove_at(i)
-			var at := Vector2(t.x * pack.tile_size_px + rng.randi_range(0, 24) + 6, t.y * pack.tile_size_px + rng.randi_range(0, 24) + 6)
+			var at := Vector2(t.x * pack.tile_size_px + (randi() % 25) + 6, t.y * pack.tile_size_px + (randi() % 25) + 6)
 			if Water.class_at(level, pack, at) == 2:   # FUN_00409e30 refuses deep water
 				continue
 			_on_mine_dropped(at, null)
@@ -1137,7 +1153,9 @@ func _update_flags(delta: float) -> void:
 ## carrying it, else home (also when the flag lies more than 90 degrees to the side). The value only says how well the Jeep points at the target
 ## (no left/right): within 11.25 degrees 16, else 15 falling to 12 at 90 degrees (`(0x10000 - (angle >> 6)) >> 12`, angle in 22-bit turns);
 ## behind, a flag target falls back to home, and a home target shows 0. A flag target is negative, a home target positive.
-## UNTRACED: the home position is taken as the player's spawn (the original reads a pointer at 0x48c8b4 + player * 0x34).
+## The home position is the player's spawn: 0x48c8b4 + player*0x34 (word-indexed, i.e. byte stride 0xD0) is a field of the same per-player base
+## record as document 108's "player's own base" (vehicle+0x5c), pointing to the level's own fixed pad/dock marker -- confirmed by disassembly,
+## not a stand-in (document 71, addendum).
 func compass_value(v: Vehicle) -> int:
 	var flag: FlagMarker = flags.get(v.player_index() ^ 1)
 	if flag != null and flag.carrier != v:
@@ -1201,9 +1219,9 @@ func radar_ping_frame() -> int:
 ## directional crop, rather than hiding it. -1 means no indicator at all (no live enemy).
 ## PORT CHOICE, not traced: which enemy. The original is a 1v1 game (exactly one "other team" vehicle); this port's
 ## single-player-vs-several-AI setup has none of that ambiguity in the source, so the nearest live enemy is used.
-## "the player's own base" reuses _player_spawn_px, the same untraced stand-in the Jeep's compass already uses for its
-## own "home" (document 71): the original's own base-position field (vehicle+0x5c's own +0x40/+0x44) was read this pass
-## but not connected to anything the port can independently verify against, so it is not relied on here either.
+## "the player's own base" reuses _player_spawn_px, the same value the Jeep's compass uses for its own "home" (document 71,
+## addendum): both read the same per-player base record's fields (vehicle+0x5c), confirmed by disassembly to point at the
+## level's own fixed pad/dock marker, so _player_spawn_px is the correct value here too, not a stand-in.
 const RADAR_DIRECTION_TICKS := 60.0
 var _direction_sector := -1
 var _direction_recompute_at_ms := -1.0e9
