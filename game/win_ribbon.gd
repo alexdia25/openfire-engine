@@ -13,9 +13,12 @@ extends Control
 ## already at full by the time the jingle ever starts and doesn't move again until after it has stopped, so it is never actually heard attenuated.
 ## The jingle now starts the instant the ribbon phase begins (document 101, addendum: FUN_00430b10's frame 0 opens and starts the stream the same frame it draws the bitmap,
 ## with no delay between the two, whatever fade-in the port draws the bitmap with) -- it had waited for the port's own invented fade-in to finish first, which nothing traced asked for.
-## NOT MODELLED, confirmed real (not "nothing to do" -- see document 101's addendum and issue #60): the original decodes the .STM file's Cinepak video track live (real
-## ICSendMessage decompress calls with frame-drop/catch-up timing, not a discard) and shows it, almost certainly full-screen behind this ribbon bitmap. This file only ever
-## draws the static ribbon; there is no video backdrop here at all. A from-scratch Cinepak decoder is a real feature, not a quick trace fix.
+## The video backdrop (issue #60) is now real: CinepakDecoder decodes the same .cvid Cinepak stream
+## tools/extract_win_jingles.py already extracts alongside the audio, played full-screen behind the ribbon
+## via StmVideo, in sync with the jingle's own AudioStreamPlayer position. Confirmed pixel-for-pixel against
+## ffmpeg's own Cinepak decoder on all four tiers (document 101's addendum). Whether it is *exactly*
+## full-screen, or some other placement, is still a port choice -- nothing traced pins down the video's own
+## on-screen rect (see document 101's addendum on the still-unconfirmed decompression target).
 
 const FADE_OUT_S := 1.0        ## FUN_0042fdd0(0, 1000)
 const RIBBON_FADE_IN_S := 0.5  ## port choice
@@ -34,6 +37,8 @@ var _done := false
 var _ribbon: TextureRect
 var _t := -1.0
 var _tex: Texture2D
+var _video: TextureRect
+var _stm: StmVideo
 
 
 func setup(pack: Pack) -> void:
@@ -45,6 +50,12 @@ func setup(pack: Pack) -> void:
 	_black.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_black)
 	_black.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_video = TextureRect.new()
+	_video.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_video.stretch_mode = TextureRect.STRETCH_SCALE
+	_video.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_video.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_video)
 	_ribbon = TextureRect.new()
 	_ribbon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ribbon.stretch_mode = TextureRect.STRETCH_SCALE
@@ -73,7 +84,14 @@ func _load(winner_idx: int) -> Texture2D:
 
 
 ## The victory jingle for a level's LEVL (FUN_00430620: the tier byte table, clamped to tier 3; music/jingles.json from tools/extract_win_jingles.py), or null.
+## Also stashes the matching tier's own dict and directory in `_video_tier`/`_video_dir` so `start()` can load its video (issue #60), if the pack has one.
+var _video_tier: Dictionary
+var _video_dir := ""
+
+
 func _load_jingle(levl: int) -> AudioStream:
+	_video_tier = {}
+	_video_dir = ""
 	for i in range(_pack.layers.size() - 1, -1, -1):
 		var dir := "%s/music" % _pack.layers[i]
 		var path := "%s/jingles.json" % dir
@@ -86,9 +104,12 @@ func _load_jingle(levl: int) -> AudioStream:
 		var tiers: Array = doc.get("tiers", [])
 		if by_levl.is_empty() or tiers.is_empty():
 			continue
-		var tier := mini(int(by_levl[clampi(levl, 0, by_levl.size() - 1)]), tiers.size() - 1)
-		var file := "%s/%s" % [dir, String(tiers[tier]["file"])]
+		var tier_idx := mini(int(by_levl[clampi(levl, 0, by_levl.size() - 1)]), tiers.size() - 1)
+		var tier: Dictionary = tiers[tier_idx]
+		var file := "%s/%s" % [dir, String(tier["file"])]
 		if FileAccess.file_exists(file):
+			_video_tier = tier
+			_video_dir = _pack.layers[i]
 			return AudioStreamOggVorbis.load_from_file(file)
 	return null
 
@@ -109,6 +130,12 @@ func start(winner_idx: int, levl: int = 0) -> bool:
 	_done = false
 	_ribbon.texture = _tex
 	_ribbon.size = Vector2(_tex.get_size()) * SCALE_HIGH
+	_video.texture = null
+	_stm = null
+	if not _video_tier.is_empty():
+		var stm := StmVideo.new()
+		if stm.load_tier(_video_dir, _video_tier):
+			_stm = stm
 	_t = 0.0
 	visible = true
 	return true
@@ -126,6 +153,10 @@ func _process(delta: float) -> void:
 		_player.play()
 		if OS.get_environment("RF_DEBUG_MUSIC") == "1":
 			print("[win] jingle started, %.1f s" % _jingle.get_length())
+	if _stm != null and _jingle_started and _player.playing:
+		var tex := _stm.advance(_player.get_playback_position())
+		if tex != null:
+			_video.texture = tex
 	if _out_t >= 0.0:
 		_out_t += delta
 		fade_in = 1.0 - clampf(_out_t / RIBBON_FADE_OUT_S, 0.0, 1.0)
@@ -138,6 +169,7 @@ func _process(delta: float) -> void:
 	var vp := get_viewport_rect().size
 	size = vp   # a Control under a CanvasLayer is not laid out by anchors (placeholder_hud.gd sizes its fade the same way)
 	_black.size = vp
+	_video.size = vp
 	_ribbon.position = Vector2((vp.x - _ribbon.size.x) * 0.5, vp.y * TOP_FRACTION)
 
 
