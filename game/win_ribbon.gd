@@ -6,9 +6,13 @@ extends Control
 ## level's LEVL picks one of four by the byte table at 0x44e120), and fades it out over 500 ms when the jingle ends; the handler then returns to the front end.
 ## Traced: the fade to black (1000 ms), the ribbon choice, its placement (centred, top edge at y 180 of a 240-high low-res screen, doubled in high-res), the jingle's choice
 ## and that the ribbon is held until it ends, the 500 ms fade-out.
-## PORT CHOICES / UNTRACED: the port has no front end, so `sequence_done` (after the fade-out) only shows the restart hint; the 500 ms fade-in of the ribbon and the moment the
-## jingle starts (once the ribbon is fully in: the original starts it with the ribbon sequence) are the port's; the jingle's volume (0 dB) is untraced; the black background is inferred (the sequence has no scene draw between the fade and the bitmap); the high-resolution bitmap is drawn at
-## 1.5x so it is 540 wide, the size the low-res one would have at the port's 3x scale.
+## PORT CHOICES / UNTRACED: the port has no front end, so `sequence_done` (after the fade-out) only shows the restart hint; the 500 ms fade-in of the ribbon is the port's (the
+## original's own bitmap appears at once, entry+0xc = 0 in the step table); the black background is inferred (the sequence has no scene draw between the fade and the bitmap);
+## the high-resolution bitmap is drawn at 1.5x so it is 540 wide, the size the low-res one would have at the port's 3x scale.
+## The jingle's 0 dB volume is CONFIRMED, not a guess (document 101, addendum): the original does tie the stream's volume to a shared fade variable, but that variable is
+## already at full by the time the jingle ever starts and doesn't move again until after it has stopped, so it is never actually heard attenuated.
+## The jingle now starts the instant the ribbon phase begins (document 101, addendum: FUN_00430b10's frame 0 opens and starts the stream the same frame it draws the bitmap,
+## with no delay between the two, whatever fade-in the port draws the bitmap with) -- it had waited for the port's own invented fade-in to finish first, which nothing traced asked for.
 
 const FADE_OUT_S := 1.0        ## FUN_0042fdd0(0, 1000)
 const RIBBON_FADE_IN_S := 0.5  ## port choice
@@ -113,8 +117,8 @@ func _process(delta: float) -> void:
 	_t += delta
 	_black.color.a = clampf(_t / FADE_OUT_S, 0.0, 1.0)
 	var fade_in := clampf((_t - FADE_OUT_S) / RIBBON_FADE_IN_S, 0.0, 1.0)
-	if _jingle != null and not _jingle_started and fade_in >= 1.0:
-		_jingle_started = true   # the ribbon sequence (FUN_00430b10) starts the stream with the ribbon
+	if _jingle != null and not _jingle_started and _t >= FADE_OUT_S:
+		_jingle_started = true   # the ribbon sequence (FUN_00430b10) starts the stream the same frame it draws the bitmap
 		_player.stream = _jingle
 		_player.play()
 		if OS.get_environment("RF_DEBUG_MUSIC") == "1":
