@@ -13,6 +13,9 @@ extends Control
 ## already at full by the time the jingle ever starts and doesn't move again until after it has stopped, so it is never actually heard attenuated.
 ## The jingle now starts the instant the ribbon phase begins (document 101, addendum: FUN_00430b10's frame 0 opens and starts the stream the same frame it draws the bitmap,
 ## with no delay between the two, whatever fade-in the port draws the bitmap with) -- it had waited for the port's own invented fade-in to finish first, which nothing traced asked for.
+## NOT MODELLED, confirmed real (not "nothing to do" -- see document 101's addendum and issue #60): the original decodes the .STM file's Cinepak video track live (real
+## ICSendMessage decompress calls with frame-drop/catch-up timing, not a discard) and shows it, almost certainly full-screen behind this ribbon bitmap. This file only ever
+## draws the static ribbon; there is no video backdrop here at all. A from-scratch Cinepak decoder is a real feature, not a quick trace fix.
 
 const FADE_OUT_S := 1.0        ## FUN_0042fdd0(0, 1000)
 const RIBBON_FADE_IN_S := 0.5  ## port choice
