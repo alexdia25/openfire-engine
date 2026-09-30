@@ -1297,10 +1297,13 @@ func _declare_win(team: int) -> void:
 	match_over.emit(team)
 
 
-## The lift objects' shared update FUN_0042ec50 (document 99), every tick a lift is alive (here: while the pad is open): what lies at the pad is dealt with. Class 10 (mines)
-## within 20 units (squared distance below 0x190) are destroyed without an explosion (`OR [obj+0xc], 0x200` then FUN_0042c4d0); class 12 (a flag) in the cells around the pad:
-## the pad team's own flag is returned (Ding, FUN_00432600), the OTHER team's flag counts as captured: FUN_0040b370(the pad's team), the match is won. NOT modelled: class 17
-## (something hitting the pad within a radius from its descriptor is destroyed with an explosion, FUN_0042e080). ASSUMED: "the cells around the pad" as the 3 x 3 tiles around it.
+## The lift objects' shared update FUN_0042ec50 (document 99), every tick a lift is alive (only during its own rise/sink, confirmed against document 89 -- not the choice
+## screen, which ends before the lift object exists). Class 10 (mines) within 20 units (squared distance below 0x190) are destroyed without an explosion (`OR [obj+0xc], 0x200`
+## then FUN_0042c4d0); class 12 (a flag) in the cells around the pad: the pad team's own flag is returned (Ding, FUN_00432600), the OTHER team's flag counts as captured:
+## FUN_0040b370(the pad's team), the match is won. "The cells around the pad" (FUN_0042bd40) turned out to be a tight, radius-bounded expansion, not a flat 3x3 -- but every
+## class here has its own small fixed radius (well under one tile), so this direct distance check is provably at least as inclusive as any tile-bounded scan; not a gap.
+## NOT modelled: class 17 (identified: a short-lived ground-splash marker a class-14 explosion-debris/shrapnel piece leaves on landing on a vehicle, swept up here with the
+## same 0x444740/0x444840 ground-impact record pair document 61's missile landing uses). The port has no shrapnel/debris system yet, so nothing lands here to clear.
 func _pad_clear() -> void:
 	if match_finished or not pad_open or vehicle == null:
 		return
