@@ -69,6 +69,9 @@ with nothing underneath it.
 
 ## Using it in a game
 
+The full walk-through, from an empty repo to an export with the pack inside, is
+[`docs/STARTING_A_GAME.md`](docs/STARTING_A_GAME.md). In short:
+
 ```bash
 git submodule add https://github.com/alexdia25/openfire-engine.git addons/openfire_engine
 ```
