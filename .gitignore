@@ -1,0 +1,14 @@
+# The dev test harness tools/run_tests.sh generates (contains a link back to this checkout; remove it with
+# tools/run_tests.sh --clean, never rm -rf)
+/.harness/
+
+# Godot
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp

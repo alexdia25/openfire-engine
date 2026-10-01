@@ -1,7 +1,7 @@
 extends Control
 ## The mod tool (EDITOR_PLAN.md; phase E0): open or create a mod pack layered over the game's base pack, edit its sprites and team
 ## colours, check it, save it. Desktop only (the web build has no writable filesystem, PORTING_PLAN.md 2.5.1).
-## Run:  godot --path . res://editor/editor_main.tscn
+## Run:  godot --path . res://addons/openfire_engine/editor/editor_main.tscn
 ##
 ## Debug / screenshot switches (like the game's RF_DEBUG_*): RF_EDITOR_MOD=<dir> opens that mod; RF_EDITOR_TAB=<index>
 ## picks a tab; RF_EDITOR_SELECT=<sprite id> selects a sprite; RF_EDITOR_COLOUR=<name> selects a colour (Team colours

@@ -134,7 +134,7 @@ func start_level(level_id: String) -> void:
 
 func _enter_level(level_id: String) -> void:
 	_clear_current()
-	var view: Node3D = load("res://game/terrain_view_3d.tscn").instantiate()
+	var view: Node3D = load("res://addons/openfire_engine/game/terrain_view_3d.tscn").instantiate()
 	view.pack_path = pack_path
 	view.level_id = level_id
 	view.managed_by_flow = true   # this view's own win/loss screen (ribbon, jingle, banner) is the outro/mission-failed

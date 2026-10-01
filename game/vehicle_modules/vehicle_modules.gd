@@ -6,15 +6,15 @@ extends RefCounted
 ## definitions (and so mods) only choose and configure existing ones.
 
 const MODULES := {
-	"ground": preload("res://game/vehicle_modules/ground_drive.gd"),
-	"rotor": preload("res://game/vehicle_modules/rotor_drive.gd"),
-	"gun_mount": preload("res://game/vehicle_modules/gun_mount.gd"),
-	"cannon": preload("res://game/vehicle_modules/cannon.gd"),
-	"rocket_salvo": preload("res://game/vehicle_modules/rocket_salvo.gd"),
-	"lobbed_missile": preload("res://game/vehicle_modules/lobbed_missile.gd"),
-	"heli_guns": preload("res://game/vehicle_modules/heli_guns.gd"),
-	"mine_layer": preload("res://game/vehicle_modules/mine_layer.gd"),
-	"hull_water": preload("res://game/vehicle_modules/hull_water.gd"),
+	"ground": preload("res://addons/openfire_engine/game/vehicle_modules/ground_drive.gd"),
+	"rotor": preload("res://addons/openfire_engine/game/vehicle_modules/rotor_drive.gd"),
+	"gun_mount": preload("res://addons/openfire_engine/game/vehicle_modules/gun_mount.gd"),
+	"cannon": preload("res://addons/openfire_engine/game/vehicle_modules/cannon.gd"),
+	"rocket_salvo": preload("res://addons/openfire_engine/game/vehicle_modules/rocket_salvo.gd"),
+	"lobbed_missile": preload("res://addons/openfire_engine/game/vehicle_modules/lobbed_missile.gd"),
+	"heli_guns": preload("res://addons/openfire_engine/game/vehicle_modules/heli_guns.gd"),
+	"mine_layer": preload("res://addons/openfire_engine/game/vehicle_modules/mine_layer.gd"),
+	"hull_water": preload("res://addons/openfire_engine/game/vehicle_modules/hull_water.gd"),
 }
 
 

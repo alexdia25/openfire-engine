@@ -308,7 +308,7 @@ func _play() -> void:
 		ws.save()
 	OS.set_environment("RF_PACK", ws.mod_dir)
 	OS.set_environment("RF_DEBUG_LEVEL", level_id)
-	OS.create_process(OS.get_executable_path(), ["--path", ProjectSettings.globalize_path("res://"), "res://game/terrain_view_3d.tscn"])
+	OS.create_process(OS.get_executable_path(), ["--path", ProjectSettings.globalize_path("res://"), "res://addons/openfire_engine/game/terrain_view_3d.tscn"])
 	OS.unset_environment("RF_PACK")
 	OS.unset_environment("RF_DEBUG_LEVEL")
 
