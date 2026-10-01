@@ -92,6 +92,7 @@ var _boxes: Array = []           ## live ExplosionBox damage boxes, each with th
 var _box_tick_acc := 0.0
 var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
+var submarine_present := false   ## a submarine object is running: the music's Sub line (16) plays while it is. The original spawns it when a vehicle strays far off the map (FUN_0040e100 -> FUN_00434e80); the port has no submarine yet.
 ## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
 var players := 1
 ## Tiles with a mine on them (tile word bit 31, set by FUN_00409e30, shown on the radar in colour 0xc9).

@@ -8,6 +8,12 @@ extends RefCounted
 ##  - vehicle_line()   = FUN_0040f2f0, which theme a newly created vehicle gets.
 ## The audio side (fading, the track files) is game/music_manager.gd. Lines are read from the pack's music/music.json (tools/extract_music.py).
 
+## A game object a request can be tied to (the original's `source` argument of FUN_0040f1c0, an object pointer whose serial at +8 is read back later). The director cuts the
+## line when the object it was tied to ends: the owner calls forget() when the object is destroyed (FUN_0040f2a0). `serial` identifies the object.
+class Source extends RefCounted:
+	var serial := 0
+
+
 signal line_changed(from_line: int, to_line: int, transition: int)   ## the requested line is now the playing one; `transition` is the traced type 0..3 (document 98)
 
 const STATE_IDLE := 0
@@ -20,6 +26,7 @@ const STATE_SUB := 6
 const STATE_FLAG_FOUND := 7
 const STATE_DEATH := 9
 
+const LINE_WIN := 13
 const LINE_DEATH := 15
 const LINE_BUNKER := 14
 const LINE_FLAG_FOUND := 11
@@ -30,7 +37,7 @@ const PRIORITY_DECAY_WINDOW := 0x28
 
 var lines: Array = []          ## music.json's "lines"
 var music_enabled := true      ## DAT_00443008 (the "voices" option): off mutes every line whose enabled bit is 0
-var players := 1               ## DAT_00442fbc
+var players := 1               ## DAT_00442fbc: 1 or 2 (two players share one director; the game's tick calls the state machine once whichever mode runs)
 
 var requested := -1            ## DAT_0048c740: the line asked for (-1 = silence)
 var playing := -1              ## DAT_0048c744
@@ -49,8 +56,14 @@ var death_pending := false         ## DAT_0048c78c, set when the player's vehicl
 var death_line := 15               ## the dying vehicle's own death line (table 0x4466e4: Tank 3, Jeep 5, MSV 7, Heli 10)
 var death_is_tracked := true       ## the dying vehicle is the one the theme follows
 var choosing := 0                  ## DAT_0048c734: players currently on the vehicle-choice screen
-var in_game_view := true           ## the player's mode handler is the game view (FUN_00408d60): false during the loss sequence and the choice
+var in_game_view := true           ## player 1's mode handler is the game view (FUN_00408d60): false during the loss sequence and the choice
+var in_game_view_p2 := false       ## player 2's, counted only when `players` is 2 (FUN_0040f600 checks DAT_0048b7cc after DAT_0048b580)
 var has_tracked_vehicle := false   ## DAT_0048c748 valid
+# the source object (FUN_0040f1c0 / FUN_0040efe0): `pending_*` is what the latest request named, `bound_*` what FUN_0040efe0 follows from tick to tick
+var pending_source: Source = null      ## DAT_0048c788 (every request overwrites it, even a refused or repeated one, with its own source or null)
+var pending_serial := -1               ## DAT_0048c754
+var bound_source: Source = null        ## DAT_0048c790
+var bound_serial := -1                 ## DAT_0048c784
 var use_alt := false               ## DAT_004462f8: the next start is a loop restart (the line's alternate start track); the audio side reads and clears it
 
 
@@ -65,9 +78,12 @@ func _entry(line: int) -> Dictionary:
 
 
 ## FUN_0040f1c0. Returns 0 on success or when nothing changes, -1 when refused (a lower priority, or the equal-priority window).
-func request(line: int, prio: int) -> int:
+func request(line: int, prio: int, source: Source = null) -> int:
 	if line > 17:
 		return -10
+	pending_source = source
+	if source != null:
+		pending_serial = source.serial
 	var entry := _entry(line)
 	if not entry.is_empty() and not music_enabled and int(entry["enabled_bit0"]) == 0:
 		entry = {}
@@ -115,9 +131,9 @@ static func vehicle_line(rule: String, own_flag_carried: bool, other_flag_near: 
 
 ## FUN_0040b980's activation block, run once when a vehicle is created: it becomes the tracked object and asks for the record's line at the record's priority (both 0x80
 ## for all four vehicles). The bit is the caller's to set every tick (see bit_vehicle).
-func vehicle_created(record_line: int, record_priority: int) -> void:
+func vehicle_created(record_line: int, record_priority: int, source: Source = null) -> void:
 	if record_line >= 0:
-		request(record_line, record_priority)
+		request(record_line, record_priority, source)
 	has_tracked_vehicle = true
 
 
@@ -143,14 +159,49 @@ func _clear_bits() -> void:
 ## One game tick: FUN_0040f3c0 (the state machine), then FUN_0040efe0's decay and line change. `vehicle_theme` is a Callable returning the theme for the vehicle bit.
 func tick(vehicle_theme: Callable = Callable()) -> void:
 	_state_machine(vehicle_theme)
+	_update()
+
+
+## FUN_0040efe0 (after the state machine's request): the priority decay, the cut when the object the music was tied to has gone, the change to the requested line, then the
+## binding of the latest request's source object.
+func _update() -> void:
 	if priority > 0 and floor_priority < priority:
 		priority -= 1
+	if bound_source != null:
+		var gone := bound_source.serial != bound_serial
+		bound_source = null
+		if gone:
+			request(-1, 0x7fffffff)   # the tied object ended: silence at once, whatever the priority
 	if requested != playing:
 		var t := _transition_type(requested, playing)
 		previous = playing
 		var old := playing
 		playing = requested
 		line_changed.emit(old, playing, t)
+	if bound_source != pending_source:
+		bound_source = pending_source
+		bound_serial = pending_serial
+	if bound_source != null and bound_source.serial != bound_serial:
+		bound_source = null
+		requested = -1
+
+
+## FUN_0040f2a0: the object `source` was destroyed; any request tied to it no longer matches its serial.
+func forget(source: Source) -> void:
+	if source == null:
+		return
+	if source == bound_source:
+		bound_serial = -1
+	if source == pending_source:
+		pending_serial = -1
+
+
+## The match is won (FUN_004056a0, run when the win handler starts for a side that won): the priority is reset and the Win line (13) is requested at 0xff and started at
+## once, while the victory jingle's own stream (document 101) plays. The line is a sting that, when it ends, leaves silence (see segment_ended()).
+func win() -> void:
+	priority = 0
+	request(LINE_WIN, 0xff)
+	_update()
 
 
 ## The transition type for starting `to` while `from` plays: the line's default byte, or the entry of its own list that names the playing line (FUN_0040efe0).
@@ -235,8 +286,10 @@ func segment_ended() -> String:
 		use_alt = true
 		request(id, 0x80)   # FUN_0040f1c0(line, 0x80): the same line again, played from its alternate start
 		return "loop"
+	if int(entry["id"]) == LINE_WIN:
+		return "ended"   # the Win sting is over: nothing follows it (0x40f632 returns at once)
 	priority = 0
-	if in_game_view and previous >= 0:
+	if (in_game_view or (players == 2 and in_game_view_p2)) and previous >= 0:
 		state = STATE_IDLE
 		request(previous, 100)
 	else:

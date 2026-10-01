@@ -3,11 +3,14 @@ extends Node
 ## Plays the game's music (document 98): watches the match the way the original's interface bits do, feeds game/music_director.gd (the traced decision logic) once a game
 ## tick, and plays what it decides from the tracks the pack's music/music.json lists (any AudioFiles format).
 ## A line plays its tracks from `start` up to `end` (exclusive) as one gapless playlist; a looping line then repeats from its alternate track; a sting plays once.
-## PORT CHOICES / UNTRACED: the fade-out length of a type-0 transition (the original's mixer command 6 fades by a rate not read), the music volume, and that the first start of a
-## match is the vehicle's theme at once (the original opens on the hangar screen with the Bunker theme; the port starts in the vehicle).
+## PORT CHOICE: the first start of a match is the vehicle's theme at once (the original opens on the hangar screen with the Bunker theme; the port starts in the vehicle).
 
 const TICK_HZ := 62.5
-const FADE_OUT_S := 0.75       ## PORT CHOICE
+## A type-0 transition fades the old line out before the new one starts (document 98). Traced: FUN_0040ef00 sends mixer command 6 (target volume 0), and FUN_00411540 moves the
+## music's mixer word 0x7fff -> 0 by 0x444 per timer unit, a unit being timeGetTime() >> 4 = 16 ms (0x411110 reads it): 0x7fff / 0x444 = 30 units = 0.48 s. The word maps to
+## (word - 0x7fff) / 10 hundredths of a dB (FUN_00423af0, document 100), so the fade is linear in dB, down to -32.77 dB, and the old line then stops.
+const FADE_OUT_S := 0.48
+const FADE_RANGE_DB := 32.767
 const VOLUME_DB := 0.0         ## the original's music mixer volume is 0x7fff = 0 dB (document 100: FUN_00423af0, channel -1)
 ## Per vehicle, from its definition's `music` group (PORTING_PLAN.md 2.7.2; read from RFIRE.BIN by tools/extract_vehicle_types.py):
 ## `theme_line` / `priority`, FUN_0040b980's own request for a new vehicle (record bytes +0x2bc / +0x2bd: 0, 4, 6, 8 at 0x80);
@@ -23,7 +26,9 @@ var _player: AudioStreamPlayer
 var _acc := 0.0
 var _pending := {}                      ## {"line": int, "alt": bool} waiting for the fade-out to finish
 var _fading := false
-var _gain := 1.0
+var _fade := 0.0                        ## 0 = full volume .. 1 = the fade's end
+var _vehicle_source: MusicDirector.Source = null   ## the player's current vehicle object, which a request tied to it is cut with (FUN_0040f2a0)
+var _last_exists := false
 var _last_undocking := false
 var _last_death_phase := 0
 var _last_finished := false
@@ -109,9 +114,9 @@ func _process(delta: float) -> void:
 		_acc -= 1.0
 		_tick()
 	if _fading:
-		_gain = maxf(_gain - delta / FADE_OUT_S, 0.0)
-		_player.volume_db = VOLUME_DB + linear_to_db(maxf(_gain, 0.0001))
-		if _gain <= 0.0:
+		_fade = minf(_fade + delta / FADE_OUT_S, 1.0)
+		_player.volume_db = VOLUME_DB - FADE_RANGE_DB * _fade
+		if _fade >= 1.0:
 			_fading = false
 			_player.stop()
 			_start_pending()
@@ -123,6 +128,10 @@ func _poll() -> void:
 	if mc.undocking and not _last_undocking:
 		_vehicle_created()   # the choice was confirmed: FUN_0040b1c0 creates the vehicle (FUN_0040b980 sets the bit)
 	_last_undocking = mc.undocking
+	var exists := _vehicle_exists()
+	if _last_exists and not exists:
+		director.forget(_vehicle_source)   # the vehicle object is gone (destroyed, or it docked)
+	_last_exists = exists
 	if mc.death_phase != 0 and _last_death_phase == 0:
 		director.vehicle_destroyed(int(_music(v, "death_line", 3)))
 	_last_death_phase = mc.death_phase
@@ -130,14 +139,19 @@ func _poll() -> void:
 		director.bit_flag_appeared = true
 	_flag_count = mc.flags.size()
 	if mc.match_finished and not _last_finished:
-		director.stop()   # FUN_00405660 at the end of the match
+		if mc.winner_idx >= 0:
+			director.win()   # FUN_004225d0 -> the win handler's FUN_004056a0: the Win line, beside the victory jingle
+		else:
+			director.stop()   # FUN_00405660: no side won (the player ran out of vehicles)
 	_last_finished = mc.match_finished
 	director.choosing = 1 if mc.selecting else 0
 	director.in_game_view = not (mc.selecting or mc.undocking or mc.death_phase != 0)
 
 
 func _vehicle_created() -> void:
-	director.vehicle_created(int(_music(mc.vehicle, "theme_line", 0)), int(_music(mc.vehicle, "priority", 0x80)))
+	director.forget(_vehicle_source)   # a new vehicle object replaces the old (a quick swap creates one too)
+	_vehicle_source = MusicDirector.Source.new()
+	director.vehicle_created(int(_music(mc.vehicle, "theme_line", 0)), int(_music(mc.vehicle, "priority", 0x80)), _vehicle_source)
 
 
 func _tick() -> void:
@@ -147,6 +161,7 @@ func _tick() -> void:
 	if mc.match_finished:
 		return   # the end-of-match handler has replaced the game view's loops that run the director (document 92)
 	director.bit_flag_carried = _flag_carried_by_other_team()
+	director.bit_sub = mc.submarine_present   # FUN_00434b30 sets bit 0x1000 every tick the submarine object runs
 	director.bit_vehicle = _vehicle_exists()   # FUN_0040b980 sets the bit every tick the vehicle's handler runs
 	director.tick(_vehicle_theme)
 
@@ -192,7 +207,7 @@ func _on_line_changed(from_line: int, to_line: int, transition: int) -> void:
 
 func _start_pending() -> void:
 	var line: int = int(_pending.get("line", -1))
-	_gain = 1.0
+	_fade = 0.0
 	_player.volume_db = VOLUME_DB
 	if line < 0:
 		return
