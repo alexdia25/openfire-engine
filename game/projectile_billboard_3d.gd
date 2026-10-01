@@ -2,12 +2,9 @@ class_name ProjectileBillboard3D
 extends Node3D
 ## Pairs a real, unmodified, invisible Projectile (game/projectile.gd -- movement/lifetime logic
 ## only) with a 3D presentation. The art is the original's Tank shell (document 46/48): projectile
-## type 0's draw descriptor is one flat 4x4-unit quad of cel 1075 plus a ground-shadow quad (cel
-## 1076, effect page). The height above the ground is still a placeholder (the real object carries a
-## z), and the sphere below is only a fallback if the pack lacks those sprites.
-
-const SHELL_ID := "projectile.shell.01"
-const SHADOW_ID := "effect.shadow.hard.projectile_shell"
+## type 0's draw descriptor is one flat 4x4-unit quad plus a ground-shadow quad; which sprites they are is the pack's
+## (Pack.projectile_art: "shell", "shadow"). The height above the ground is still a placeholder (the real object carries
+## a z), and the sphere below is only a fallback if the pack has no shell art.
 const QUAD_SIZE := 4.0
 const SHADOW_ALPHA := 5.0 / 32.0
 ## A projectile's shadow object (class 4, update FUN_00409bd0) sits at the projectile's position plus (0.332 x height,
@@ -54,10 +51,11 @@ func setup(shared_projectile: Projectile, pack: Pack = null) -> void:
 		projectile.tree_exited.connect(queue_free)
 		return
 
-	if pack != null and not pack.get_sprite(SHELL_ID).is_empty():
+	var shell := String(pack.projectile_art.get("shell", "")) if pack != null else ""
+	if pack != null and not pack.get_sprite(shell).is_empty():
 		_shadow_offset = Vector3(SHADOW_DX * 7.0, 0.0, SHADOW_DY * 7.0)
-		_add_quad(pack, SHADOW_ID, -SHELL_HEIGHT_PX + 0.5, true)
-		_add_quad(pack, SHELL_ID, 0.0, false)
+		_add_quad(pack, String(pack.projectile_art.get("shadow", "")), -SHELL_HEIGHT_PX + 0.5, true)
+		_add_quad(pack, shell, 0.0, false)
 		_height = SHELL_HEIGHT_PX
 		global_position = Vector3(projectile.position.x, _height, projectile.position.y)
 		projectile.tree_exited.connect(queue_free)
@@ -179,7 +177,7 @@ func _setup_missile() -> void:
 	_body.material_override = _body_mat
 	add_child(_body)
 	_shadow = MeshInstance3D.new()
-	var sp := _pack.get_sprite(SHADOW_ID)
+	var sp := _pack.get_sprite(String(_pack.projectile_art.get("shadow", "")))
 	if not sp.is_empty():
 		var tex := _pack.get_texture(int(sp.get("page", 0)))
 		_shadow.mesh = _quad_mesh(MISSILE_CORNERS, sp, tex)
@@ -234,6 +232,8 @@ func _quad_mesh(c: Array, sp: Dictionary, tex: Texture2D) -> ArrayMesh:
 
 func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool) -> void:
 	var sp := pack.get_sprite(sprite_id)
+	if sp.is_empty():
+		return   # e.g. a pack with shell art but no shadow
 	var tex := pack.get_texture(int(sp.get("page", 0)))
 	var tw := float(tex.get_width())
 	var th := float(tex.get_height())

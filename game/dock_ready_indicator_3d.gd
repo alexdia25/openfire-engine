@@ -15,7 +15,6 @@ extends Node3D
 ## second" belongs entirely to the untraced palette rotate, not to this.
 
 const SHADER := preload("res://addons/openfire_engine/game/shaders/background_recolour_3d.gdshader")
-const SPRITE_ID := "effect.glow.001"
 
 var mc: MatchController
 var _quad: MeshInstance3D
@@ -23,7 +22,7 @@ var _quad: MeshInstance3D
 
 func setup(controller: MatchController, pack: Pack) -> void:
 	mc = controller
-	var s := pack.get_sprite(SPRITE_ID)
+	var s := pack.get_sprite(String(pack.home_pad.get("dock_ready_glow", "")))   # the pack's own glow (terrain/home_pad.json)
 	if s.is_empty():
 		return
 	var recolour_step := float(s.get("recolour_step", 0.0))

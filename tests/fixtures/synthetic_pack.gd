@@ -9,6 +9,7 @@ extends RefCounted
 ##   vehicles     three (VEHICLES), each drawn as the team-coloured body with a turret that turns with turret_deg
 ##   levels       two 16 x 16 playable levels with a spawn point per side; LEVEL02 also has a field of decorations
 ##                (DECORATION_ID on every other tile) spanning all four of DecorationField3D's 8 x 8 chunks
+##   home pad     its mechanism art (terrain/home_pad.json) and the projectile art, all fixture frames
 ##   terrain, audio, effects   just enough tables for the rest of the engine to load
 ##
 ## Its ids are deliberately generic ("fx.*", "LEVEL01") so a test never passes because it happens to know some
@@ -95,6 +96,14 @@ static func build(root: String) -> String:
 	PackWriter.write_json(dir.path_join("terrain/decorations.json"), {"decoration_types": {str(DECORATION_ID): [
 		{"sprite_id": "fx.turret", "flags": 0, "corners": [[-8.0, -8.0, 6.0], [8.0, -8.0, 6.0], [8.0, 8.0, 0.0], [-8.0, 8.0, 0.0]],
 			"offset": [0.0, 0.0], "zoff": 0.0, "jitter": false}]}})
+
+	# the home pad's mechanism art (Pack.home_pad), drawn with fixture frames; the lift plate is the team pair
+	PackWriter.write_json(dir.path_join("terrain/home_pad.json"), {
+		"pit_walls": {"north": "fx.wheel", "west": "fx.wheel", "east": "fx.hull", "south": "fx.hull"},
+		"hazard_strip": "fx.turret", "lift_plate": TEAM_PAIR, "leaves": {"left": TEAM_PAIR, "right": TEAM_PAIR},
+		"dock_ready_glow": "fx.turret"})
+	PackWriter.write_json(dir.path_join("vehicles/projectile_types.json"), {"types": [], "descriptors": {},
+		"art": {"shell": "fx.turret", "shadow": "fx.tile"}})
 
 	PackWriter.write_json(dir.path_join("audio/audio.json"), {
 		"Ding": {"file": "ding.wav", "category": "sfx", "priority": 0},

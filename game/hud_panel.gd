@@ -104,8 +104,9 @@ func _layout(t: int) -> void:
 		return
 	visible = true
 	_frame.visible = false
-	if HudLayout.is_classic() and mc.pack.get_sprite("ui.hud.panel_blank") != {}:   # the frame around the base: template slot 2, cel 1940 at (-3, -2)
-		var fa := _atlas("ui.hud.panel_blank")
+	var frame_id := String(hp.get("frame_sprite_id", ""))   # the frame around the base (template slot 2, document 96): the pack's own
+	if HudLayout.is_classic() and mc.pack.get_sprite(frame_id) != {}:
+		var fa := _atlas(frame_id)
 		_frame.texture = fa
 		_frame.position = HudLayout.FRAME_OFFSET * _s
 		_frame.size = fa.region.size * _s

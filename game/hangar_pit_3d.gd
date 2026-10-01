@@ -3,11 +3,12 @@ extends Node3D
 ## The home pad's pit and two-leaf lid (document 89), drawn while MatchController.pad_open (the pad tile is then the transparent art 92, a real hole in the ground).
 ## Every number below is read from the lift object's drawing descriptors, class `0x44db40` / `0x44db90` slot `+0x14` = `0x44dab0`, whose `+4` chain is the pit
 ## (`0x44dab0`, callback `0x42ebb0`), the vehicle (`0x44d8f8`, `0x42eae0`) and the leaves (`0x44d890`, `0x42ea10`):
-##  - four pit walls, a 28 x 28 shaft from z 0 down to -31 (corners `0x44d940`, parts `0x44d9d0`: north `pit_wall.02`, west `.03`, east and south `.01`), and the 32 x 4
+##  - four pit walls, a 28 x 28 shaft from z 0 down to -31 (corners `0x44d940`, parts `0x44d9d0`), and the 32 x 4
 ##    hazard strip along the front edge (part 4, corners 8-11, y -16 to -12; drawn a second time, 3 high, over the leaves by 0x42ea10);
 ##  - the plate under the vehicle, 32 x 30 (`0x44d8d8`, cel `0x33d`, flag 8 = team variant), which is at the OBJECT's height, so it rises and sinks with the vehicle;
 ##  - the two leaves, 16 x 31 each (corners `0x44d7d0`, cels `0x336` / `0x338`, flag 8), at z 0, `0.3 * age + 5` units either side of the centre
 ##    (MatchController.pad_leaf_offset), not drawn once `0.3 * age >= 18`.
+## Which sprite each part is drawn with is the pack's (Pack.home_pad, terrain/home_pad.json), not this file's.
 ## UNTRACED, port choices: object space is taken as the world's axes (the undock object's heading is 180 degrees and the original's rotation of the pit walls was not
 ## read), and whether the walls move with the object's height (here they are fixed at the ground: the physical reading). The hazard border around the open pit is the
 ## pad tile's own art 92 (2 wide on the west, east and south, open on the north where the strip is), not part of this object: the original queues that tile again after
@@ -72,24 +73,31 @@ func _build(team: int) -> void:
 	var colour := mc.level.side_colour(team)   # PORTING_PLAN.md 2.7.7
 	var c := [Vector3(-HALF, 0, -HALF), Vector3(HALF, 0, -HALF), Vector3(HALF, 0, HALF), Vector3(-HALF, 0, HALF),
 			Vector3(-HALF, -WALL_DEPTH, -HALF), Vector3(HALF, -WALL_DEPTH, -HALF), Vector3(HALF, -WALL_DEPTH, HALF), Vector3(-HALF, -WALL_DEPTH, HALF)]
-	for w in [["structure.hangar_pit_wall.02", [0, 1, 5, 4]], ["structure.hangar_pit_wall.03", [0, 3, 7, 4]],
-			["structure.hangar_pit_wall.01", [2, 1, 5, 6]], ["structure.hangar_pit_wall.01", [2, 3, 7, 6]]]:
+	var art := pack.home_pad   # the pack's own pad art (terrain/home_pad.json); a missing entry draws nothing
+	var walls: Dictionary = art.get("pit_walls", {})
+	for w in [["north", [0, 1, 5, 4]], ["west", [0, 3, 7, 4]], ["east", [2, 1, 5, 6]], ["south", [2, 3, 7, 6]]]:
 		var quad: Array[Vector3] = []
 		for i in w[1]:
 			quad.append(c[i])
-		add_child(_quad(String(w[0]), quad))
-	add_child(_quad("structure.hangar_hazard_strip.01", _rect(-16, -16, 16, -12, STRIP_Y)))
-	_plate = _quad(pack.team_variant(["structure.hangar_lift_plate.tan", "structure.hangar_lift_plate.green"], colour), _rect(-16, -15, 16, 15, 0.0))
+		add_child(_quad(String(walls.get(w[0], "")), quad))
+	var strip := String(art.get("hazard_strip", ""))
+	add_child(_quad(strip, _rect(-16, -16, 16, -12, STRIP_Y)))
+	_plate = _quad(_side_art(art.get("lift_plate", []), colour), _rect(-16, -15, 16, 15, 0.0))
 	add_child(_plate)
-	_leaf_ids = [pack.team_variant(["structure.hangar_leaf.left.tan", "structure.hangar_leaf.left.green"], colour),
-			pack.team_variant(["structure.hangar_leaf.right.tan", "structure.hangar_leaf.right.green"], colour)]
+	var leaves: Dictionary = art.get("leaves", {})
+	_leaf_ids = [_side_art(leaves.get("left", []), colour), _side_art(leaves.get("right", []), colour)]
 	_leaf_off = -2.0
 	_leaf_left = _quad(_leaf_ids[0], _rect(-8, -15, 8, 16, LEAF_Y))
 	_leaf_right = _quad(_leaf_ids[1], _rect(-8, -15, 8, 16, LEAF_Y))
 	add_child(_leaf_left)
 	add_child(_leaf_right)
-	_strip_over = _quad("structure.hangar_hazard_strip.01", _rect(-16, -15, 16, -12, STRIP_OVER_Y))   # 0x42ea10's third draw: cel 0x33f, corners 0x44d800
+	_strip_over = _quad(strip, _rect(-16, -15, 16, -12, STRIP_OVER_Y))   # 0x42ea10's third draw: cel 0x33f, corners 0x44d800
 	add_child(_strip_over)
+
+
+## A per-side art list ([side 0, side 1, ...] team variants) in the colour the level gives this side; "" if there is none.
+func _side_art(ids: Variant, colour: String) -> String:
+	return pack.team_variant(ids, colour) if ids is Array and not (ids as Array).is_empty() else ""
 
 
 ## Corners (top-left, top-right, bottom-right, bottom-left) of a flat rectangle in the original's (x, y) with y down the screen, at height h.

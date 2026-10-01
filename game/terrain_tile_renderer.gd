@@ -9,10 +9,9 @@ extends Node2D
 ## Two layers draw in order: the underlay replaces the tile's pixels (an opaque clear colour, or transparent for the pad's hole, blend_disabled so it overwrites
 ## instead of blending), then the art is drawn over it.
 
-## The one tile art that is a real hole (document 89): the home pad's open state, art 92 = "structure.hangar_pit_surround" (a hazard border on three sides, transparent
-## centre). Every other tile gets an opaque clear-colour underlay first, so the baked texture (whose viewport is transparent) looks exactly as it did when the
-## viewport cleared to that colour.
-const HOLE_SPRITE_ID := "structure.hangar_pit_surround"
+## A tile art can be a real hole (document 89: the home pad's open state, a hazard border with a transparent centre): its
+## terrain/tileset.json entry says so with "hole": true. Every other tile gets an opaque clear-colour underlay first, so
+## the baked texture (whose viewport is transparent) looks exactly as it did when the viewport cleared to that colour.
 
 var pack: Pack
 var level: LevelData
@@ -98,7 +97,8 @@ func _draw_layer(layer: Node2D, underlay: bool) -> void:
 		var sprite_id := _tile_sprite_id(t.x, t.y)
 		var dst := Rect2(t.x * tile, t.y * tile, tile, tile)
 		if underlay:
-			layer.draw_rect(dst, Color(0, 0, 0, 0) if sprite_id == HOLE_SPRITE_ID else clear)
+			var hole: bool = pack.tileset.get(str(level.get_art_id(t.x, t.y)), {}).get("hole", false)
+			layer.draw_rect(dst, Color(0, 0, 0, 0) if hole else clear)
 			continue
 		if sprite_id == "":
 			continue

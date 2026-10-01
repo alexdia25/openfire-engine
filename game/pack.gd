@@ -64,6 +64,13 @@ var water_tables: Dictionary = {}       ## document 62: coast shapes, boxes for 
 var gates: Dictionary = {}              ## "43"/"44" -> gate object data (document 56)
 var coastal_damage: Dictionary = {}   ## "<coastal_id>" -> {hp, base_art, destroyed_coastal, ...} (document 44)
 var audio: Dictionary = {}            ## cue id -> {file, category, priority} (document 82)
+## terrain/home_pad.json: the art of a side's home pad mechanism (document 89) -- {pit_walls: {north, west, east, south},
+## hazard_strip, lift_plate: [per side], leaves: {left: [per side], right: [per side]}, dock_ready_glow}, sprite ids.
+## A pack without it (or without one of its entries) simply doesn't draw that part.
+var home_pad: Dictionary = {}
+## vehicles/projectile_types.json "art": {shell, shadow}, the default projectile's quad and the ground shadow projectiles
+## cast (documents 46, 48, 63). Empty: a projectile without a draw descriptor of its own falls back to a plain sphere.
+var projectile_art: Dictionary = {}
 var tile_size_px: int = 32
 
 
@@ -561,11 +568,13 @@ func _load_layer(dir: String) -> bool:
 	_overlay(coastal_shapes, _layer_doc(dir, "terrain/coastal_shapes.json").get("coastal", {}))
 	_overlay(gates, _layer_doc(dir, "terrain/gates.json").get("gates", {}))
 	_overlay(water_tables, _layer_doc(dir, "terrain/water.json"))
+	_overlay(home_pad, _layer_doc(dir, "terrain/home_pad.json"))
 
 	var pdoc := _layer_doc(dir, "vehicles/projectile_types.json")
 	if pdoc.has("types"):
 		projectile_types = pdoc["types"]
 	_overlay(projectile_descriptors, pdoc.get("descriptors", {}))
+	_overlay(projectile_art, pdoc.get("art", {}))
 	_overlay(_legacy_vehicle_types, _layer_doc(dir, "vehicles/vehicle_types.json").get("types", {}))
 	var roster_doc := _layer_doc(dir, "vehicles/roster.json")
 	if roster_doc.has("vehicles"):
