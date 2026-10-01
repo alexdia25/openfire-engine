@@ -314,7 +314,7 @@ func _spawn_match() -> void:
 		var pit := HangarPit3D.new()
 		add_child(pit)
 		pit.setup(controller, pack)
-		var start_type: int = ["tank", "jeep", "msv", "heli"].find(OS.get_environment("RF_VEHICLE"))
+		var start_type := pack.vehicle_index(OS.get_environment("RF_VEHICLE"))
 		if start_type > 0:
 			controller.vehicle.set_vehicle_type(start_type)
 	controller.match_over.connect(_on_match_over)

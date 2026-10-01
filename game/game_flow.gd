@@ -69,7 +69,8 @@ func _show_placeholder(title: String, message: String, buttons: Array) -> void:
 
 
 func _show_title() -> void:
-	_show_placeholder("RETURN FIRE", "", [["Start", func(): _show_main_menu()]])
+	var headline: String = pack.manifest.get("title", pack.manifest.get("name", ""))
+	_show_placeholder(headline.to_upper(), "", [["Start", func(): _show_main_menu()]])
 
 
 func _show_main_menu() -> void:
