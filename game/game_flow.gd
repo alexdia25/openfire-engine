@@ -54,12 +54,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		_show_level_select()
 
 
-func _start_menu_music() -> void:
+func _start_menu_music(line: int = MusicDirector.LINE_BUNKER) -> void:
 	if _menu_music != null and is_instance_valid(_menu_music):
-		return
+		if _menu_music.menu_line == line:
+			return
+		_stop_menu_music()
 	_menu_music = MusicManager.new()
 	add_child(_menu_music)
-	if not _menu_music.setup_menu(pack):
+	if not _menu_music.setup_menu(pack, line):
 		_stop_menu_music()
 
 
@@ -81,9 +83,9 @@ func _clear_level() -> void:
 	_level_view = null
 
 
-func _show_placeholder(title: String, message: String, buttons: Array) -> void:
+func _show_placeholder(title: String, message: String, buttons: Array, music_line: int = MusicDirector.LINE_BUNKER) -> void:
 	_clear_current()
-	_start_menu_music()
+	_start_menu_music(music_line)
 	var s := PlaceholderScreen.new()
 	add_child(s)
 	_current = s
@@ -92,7 +94,7 @@ func _show_placeholder(title: String, message: String, buttons: Array) -> void:
 
 func _show_title() -> void:
 	var headline: String = pack.manifest.get("title", pack.manifest.get("name", ""))
-	_show_placeholder(headline.to_upper(), "", [["Start", func(): _show_main_menu()]])
+	_show_placeholder(headline.to_upper(), "", [["Start", func(): _show_main_menu()]], MusicDirector.LINE_DRUMS)
 
 
 func _show_main_menu() -> void:

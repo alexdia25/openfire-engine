@@ -29,6 +29,7 @@ var _last_death_phase := 0
 var _last_finished := false
 var _flag_count := 0
 var _started := false
+var menu_line := -1                     ## the line a front-end manager plays
 var _menu := false                      ## front-end mode (no match): the hangar theme loops under the menus
 
 
@@ -53,15 +54,18 @@ func setup(p: Pack, controller: MatchController) -> bool:
 	return true
 
 
-## Front-end mode: the menus before a level (title, main menu, settings, level select) have no match to watch, so the director is told the player is on the
-## vehicle choice, which makes it ask for the Bunker line (the hangar theme) and loop it. PORT CHOICE: the original's title-screen "Drums" line (17) names tracks the
-## pack doesn't hold, so the menus use Bunker. Returns false when the pack has no music or music is off.
-func setup_menu(p: Pack) -> bool:
+## Front-end mode: the screens before a level have no match to watch, so `line` is simply requested and the director loops it (a sting would play once). The
+## title screen asks for Drums (LINE_DRUMS), the other menus for Bunker, the hangar theme. A line whose tracks the pack doesn't hold falls back to Bunker.
+## Returns false when the pack has no music or music is off.
+func setup_menu(p: Pack, line: int) -> bool:
 	if not setup(p, null):
 		return false
 	_menu = true
-	director.choosing = 1
+	if line < 0 or line >= director.lines.size() or not _tracks.has(int(director.lines[line]["start_track"])):
+		line = MusicDirector.LINE_BUNKER
+	menu_line = line
 	director.in_game_view = false
+	director.request(line, 0x80)
 	return true
 
 

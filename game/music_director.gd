@@ -25,6 +25,7 @@ const LINE_BUNKER := 14
 const LINE_FLAG_FOUND := 11
 const LINE_FLAG_CARRIED := 12
 const LINE_SUB := 16
+const LINE_DRUMS := 17        ## the title screen's line (tracks 28 and 29, cut from SOUND/Drums.WAV)
 const PRIORITY_DECAY_WINDOW := 0x28
 
 var lines: Array = []          ## music.json's "lines"
