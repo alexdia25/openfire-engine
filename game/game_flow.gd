@@ -35,7 +35,7 @@ static var settings_entries: Array = []
 var pack: Pack
 var _current: Control = null   ## the front-end screen on screen now (title / menu / settings / multiplayer / level select / a story scene)
 var _level_view: Node3D = null   ## the running TerrainView3D, while a level is in progress
-var _menu_music: MusicManager = null   ## the hangar theme under the front-end screens; gone while a level runs (the level has its own MusicManager)
+var _menu_music: MusicManager = null   ## the Drums line under the front-end screens, one unbroken loop from the title screen to level select; gone while a level runs (the level has its own MusicManager)
 var _overlay: StoryScene = null   ## a mid-level scene playing over the (paused) live level; see trigger_mid_level()
 
 
@@ -54,14 +54,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_show_level_select()
 
 
-func _start_menu_music(line: int = MusicDirector.LINE_BUNKER) -> void:
+func _start_menu_music() -> void:
 	if _menu_music != null and is_instance_valid(_menu_music):
-		if _menu_music.menu_line == line:
-			return
-		_stop_menu_music()
+		return
 	_menu_music = MusicManager.new()
 	add_child(_menu_music)
-	if not _menu_music.setup_menu(pack, line):
+	if not _menu_music.setup_menu(pack):
 		_stop_menu_music()
 
 
@@ -83,9 +81,9 @@ func _clear_level() -> void:
 	_level_view = null
 
 
-func _show_placeholder(title: String, message: String, buttons: Array, music_line: int = MusicDirector.LINE_BUNKER) -> void:
+func _show_placeholder(title: String, message: String, buttons: Array) -> void:
 	_clear_current()
-	_start_menu_music(music_line)
+	_start_menu_music()
 	var s := PlaceholderScreen.new()
 	add_child(s)
 	_current = s
@@ -94,7 +92,7 @@ func _show_placeholder(title: String, message: String, buttons: Array, music_lin
 
 func _show_title() -> void:
 	var headline: String = pack.manifest.get("title", pack.manifest.get("name", ""))
-	_show_placeholder(headline.to_upper(), "", [["Start", func(): _show_main_menu()]], MusicDirector.LINE_DRUMS)
+	_show_placeholder(headline.to_upper(), "", [["Start", func(): _show_main_menu()]])
 
 
 func _show_main_menu() -> void:
