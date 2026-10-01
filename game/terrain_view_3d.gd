@@ -93,6 +93,7 @@ var _hud: PlaceholderHud                     ## port-only placeholder (document 
 var _last_death_phase := 0                   ## debug print (RF_DEBUG_KILL)
 var _ground_margin_px := 0.0                 ## the off-map border baked around the ground plane (Pack.off_map), world units each side
 var _debug_offmap_done := false             ## RF_DEBUG_OFFMAP has been applied
+var _debug_soldiers_done := false           ## RF_DEBUG_SOLDIERS has been applied
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
@@ -306,6 +307,7 @@ func _spawn_match() -> void:
 	controller.mine_added.connect(_on_mine_added)
 	controller.mine_exploded.connect(_on_mine_exploded)
 	controller.edge_guard_created.connect(_on_edge_guard_created)
+	controller.soldier_created.connect(_on_soldier_created)
 	for existing in controller.mines:   # the mines scattered at the start (document 75) were added before this connection
 		_on_mine_added(existing)
 
@@ -598,6 +600,13 @@ func _on_edge_guard_created(g: EdgeGuard) -> void:
 	gv.setup(g, pack)
 
 
+## A foot soldier (issue #74) came out of a building: it draws itself until it is removed.
+func _on_soldier_created(s: Soldier) -> void:
+	var sv := SoldierView3D.new()
+	add_child(sv)
+	sv.setup(s, pack)
+
+
 func _on_mine_added(m: Mine) -> void:
 	var mv := MineView3D.new()
 	add_child(mv)
@@ -774,6 +783,17 @@ func _process(delta: float) -> void:
 		controller.vehicle.position = Vector2(float(xy[0]), float(xy[1]))
 		controller.vehicle.z = 40.0
 		_debug_offmap_done = true
+
+	# Debug-only: RF_DEBUG_SOLDIERS=<x>,<y> puts the player (once out of the hangar) at that world position and releases every building's soldiers
+	# (issue #74, document 116), for screenshots.
+	if OS.get_environment("RF_DEBUG_SOLDIERS") != "" and controller != null and controller.selecting:
+		controller.confirm_selection()   # pass the hangar choice
+	if OS.get_environment("RF_DEBUG_SOLDIERS") != "" and not _debug_soldiers_done and controller != null and controller.vehicle != null \
+			and not controller.selecting and not controller.vehicle.docked and controller.view_fade >= 1.0:
+		var sxy := OS.get_environment("RF_DEBUG_SOLDIERS").split(",")
+		controller.vehicle.position = Vector2(float(sxy[0]), float(sxy[1]))
+		controller.debug_release_soldiers()
+		_debug_soldiers_done = true
 
 	if OS.get_environment("RF_DEBUG_KILL") != "" and controller != null and controller.death_phase != _last_death_phase:
 		_last_death_phase = controller.death_phase

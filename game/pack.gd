@@ -73,6 +73,12 @@ var home_pad: Dictionary = {}
 ## loop_end_frame, loop_period, dive_wrap_base, projectile (type), muzzle: [x, y, z], launch_pitch_deg}. Empty: the match
 ## never creates one.
 var edge_guard: Dictionary = {}
+## world/infantry.json: the foot soldiers (Soldier, issue #74, documents 113 and 116): the behaviour numbers, `sprites` (per team,
+## 5 directions x 10 frames of sprite ids), `quad` / `shadow_quad` (corners (x, y, z)), `shadow_sprite`, `footprint` ({box, z,
+## layer, mask}), `dir_source` / `mirror` (the 8 octants), `grenades` (the 16-entry count table), `separation_offsets` and
+## `buildings` ({coastal id: {min, max, flip_team}}: the buildings that release soldiers when a hit leaves them 1 hit point).
+## Empty: the match never creates a soldier.
+var infantry: Dictionary = {}
 ## vehicles/projectile_types.json "art": {shell, shadow}, the default projectile's quad and the ground shadow projectiles
 ## cast (documents 46, 48, 63). Empty: a projectile without a draw descriptor of its own falls back to a plain sphere.
 var projectile_art: Dictionary = {}
@@ -579,6 +585,7 @@ func _load_layer(dir: String) -> bool:
 	_overlay(water_tables, _layer_doc(dir, "terrain/water.json"))
 	_overlay(home_pad, _layer_doc(dir, "terrain/home_pad.json"))
 	_overlay(edge_guard, _layer_doc(dir, "world/edge_guard.json"))
+	_overlay(infantry, _layer_doc(dir, "world/infantry.json"))
 
 	var pdoc := _layer_doc(dir, "vehicles/projectile_types.json")
 	if pdoc.has("types"):

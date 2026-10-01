@@ -79,6 +79,8 @@ signal mine_exploded(position: Vector2)
 ## The map-edge guard (Return Fire's submarine; game/edge_guard.gd, issue #68) was created / removed itself.
 signal edge_guard_created(guard: EdgeGuard)
 signal edge_guard_removed(guard: EdgeGuard)
+## A foot soldier (Soldier, issue #74, documents 113 and 116) came out of a building or a wreck; it draws itself until it is removed.
+signal soldier_created(soldier: Soldier)
 
 var pack: Pack
 var pack_path: String = ""       ## re-passed to each spawned Vehicle/EnemyVehicle, see below
@@ -96,6 +98,7 @@ var _box_tick_acc := 0.0
 var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
 var edge_guard: EdgeGuard = null   ## the live map-edge guard, at most one (DAT_0045ae20)
+var soldiers: Array = []         ## live Soldier objects (class 14)
 var submarine_present := false   ## the guard exists: the music's Sub line (16) plays while it does (FUN_00434b30 sets interface bit 0x1000 on every tick it runs)
 ## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
 var players := 1
@@ -392,6 +395,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 
 func _process(delta: float) -> void:
 	_update_edge_guard(delta)
+	_update_soldiers(delta)
 	_update_death(delta)
 	_update_dock(delta)
 	_update_flags(delta)
@@ -411,11 +415,238 @@ func _process(delta: float) -> void:
 		var from: Vector2 = p.prev_checked
 		var to: Vector2 = p.global_position
 		p.prev_checked = to
-		if _shell_hits_tile(p, from, to) or _shell_hits_vehicle(p, from, to):
+		if _shell_hits_tile(p, from, to) or _shell_hits_vehicle(p, from, to) or _shell_hits_soldier(p, from, to):
 			p.queue_free()
 		elif (p.lob or p.vertical) and p.z < 0.0:
 			_missile_lands(p)
 			p.queue_free()
+
+
+
+## ---- Foot soldiers (document 116, issue #74) ------------------------------------------------------------------------
+## Class 14 "MAN". Two sources: a building tile whose coastal entry asks for them (FUN_00434980, called by the damage functions when a hit
+## leaves exactly 1 hit point) and a destroyed vehicle's crewman (FUN_00434950; the wreck's trigger is not traced, so the port makes none).
+## The soldier's behaviour is Soldier; this section is its world: movement and collision, the grenade, crushing and killing.
+const SOLDIER_HEARING := 424.0   ## PORT CHOICE: the original's voices fall off linearly to silence at 424 units (FUN_004082b0); cues here are flat, so only play near the player
+
+
+func _soldier_footprint() -> Dictionary:
+	return pack.infantry.get("footprint", {"box": [-2.0, -1.5, 2.0, 0.05], "z": [0.0, 2.0], "layer": 1, "mask": 255})
+
+
+func _soldier_rect(at: Vector2) -> Rect2:
+	var b: Array = _soldier_footprint()["box"]
+	return Rect2(at + Vector2(b[0], b[1]), Vector2(float(b[2]) - float(b[0]), float(b[3]) - float(b[1])))
+
+
+## FUN_00434980: the soldiers a building releases. The count is n + rand(n) with n = max - min from the entry's flags (the pack's
+## `buildings` table), their team the tile's (flipped for the prison-like ids), each placed over the left half of the building's first
+## shape as the original's rand((maxx - minx) / 2) and -rand(-miny) read, or on the tile when it has no shape.
+func _release_soldiers(t: Vector2i, id: int) -> void:
+	var b: Dictionary = pack.infantry.get("buildings", {}).get(str(id), {})
+	if b.is_empty() or level == null:
+		return
+	var n := int(b.get("max", 0)) - int(b.get("min", 0))
+	if n < 1:
+		return
+	var count := n + randi() % n
+	var side := level.get_variant(t.x, t.y)
+	if bool(b.get("flip_team", false)):
+		side ^= 1
+	var tsz := float(pack.tile_size_px)
+	var c := (Vector2(t) + Vector2(0.5, 0.5)) * tsz
+	var info := pack.get_coastal_shapes(id)
+	var shapes: Array = info.get("shapes", [])
+	for _i in count:
+		var at := c
+		if not shapes.is_empty():
+			var sh: Dictionary = shapes[0]
+			var box: Array = sh.get("box", [0.0, 0.0, 0.0, 0.0])
+			var w := int(float(box[2]) - float(box[0])) >> 1
+			var h := int(-float(box[1]))
+			var base: Vector2 = c + Vector2(sh["off"][0], sh["off"][1])
+			at = base + Vector2(float(box[0]) + float(randi() % maxi(w, 1)), -float(randi() % maxi(h, 1)))
+		_new_soldier(at, side)
+
+
+func _new_soldier(at: Vector2, side: int) -> Soldier:
+	if pack.infantry.is_empty():
+		return null
+	var s := Soldier.new(pack.infantry, at, side)
+	s.mover = _soldier_probe
+	s.targets = _soldier_targets
+	s.water = func(p: Vector2) -> bool: return Water.class_at(level, pack, p) != 0
+	s.thrower = _soldier_throw
+	soldiers.append(s)
+	soldier_created.emit(s)
+	return s
+
+
+## Debug-only (RF_DEBUG_SOLDIERS): release the soldiers of every building tile in the level that has any, as if each were shot down to one hit point.
+func debug_release_soldiers() -> void:
+	var table: Dictionary = pack.infantry.get("buildings", {})
+	for ty in level.height:
+		for tx in level.width:
+			var id := level.get_coastal_id(tx, ty)
+			if table.has(str(id)):
+				_release_soldiers(Vector2i(tx, ty), id)
+
+
+func _soldier_targets() -> Array:
+	var out := []
+	for v in [vehicle] + enemy_vehicles:
+		if v != null and is_instance_valid(v) and v.alive and not v.docked:
+			out.append(v)
+	return out
+
+
+## FUN_0042c830's collision for a soldier at `to`: tile shapes whose layer/mask pass (the soldier's own tile callback FUN_00433c40 blocks
+## every one of them, so the vehicle callbacks do not apply), the bars of an open gate, another soldier. Vehicles do not block: a
+## soldier that touches one is crushed (`_soldier_vs_vehicles`).
+func _soldier_probe(s: Soldier, to: Vector2, pass_tiles: bool) -> Dictionary:
+	var tsz := float(pack.tile_size_px)
+	if to.x < 0.0 or to.y < 0.0 or to.x >= level.width * tsz or to.y >= level.height * tsz:
+		return {"blocked": true, "tile_box": Rect2(), "object": null}
+	var fp := _soldier_footprint()
+	var layer := int(fp["layer"])
+	var mask := int(fp["mask"])
+	var z0 := float(fp["z"][0])
+	var z1 := float(fp["z"][1])
+	var rect := _soldier_rect(to)
+	var poly := PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
+	if not pass_tiles:
+		var tx := int(floor(to.x / tsz))
+		var ty := int(floor(to.y / tsz))
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var t := Vector2i(tx + dx, ty + dy)
+				if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+					continue
+				var id := level.get_coastal_id(t.x, t.y)
+				if id == 0:
+					continue
+				var info := pack.get_coastal_shapes(id)
+				if info.is_empty():
+					continue
+				var centre := (Vector2(t) + Vector2(0.5, 0.5)) * tsz
+				if info.get("jitter", false):
+					centre += level.jitter_at(t.x, t.y)
+				for sh in info["shapes"]:
+					if not Collision.vehicle_collides_with(layer, mask, int(sh["layer"]), int(sh["mask"])):
+						continue
+					if not Collision.z_ranges_overlap(z0, z1, float(sh["z"][0]), float(sh["z"][1])):
+						continue
+					var origin: Vector2 = centre + Vector2(sh["off"][0], sh["off"][1])
+					var hit := false
+					var sbox: Array = sh.get("box", [0.0, 0.0, 0.0, 0.0])
+					if int(sh["type"]) == 2:
+						hit = Collision.polygon_hits_box(poly, origin, sh["box"])
+					elif int(sh["type"]) == 3:
+						var tp := PackedVector2Array()
+						for pt in sh["poly"]:
+							tp.append(origin + Vector2(pt[0], pt[1]))
+						hit = Collision.polygons_hit(poly, tp)
+					if hit:
+						var wb := Rect2(origin + Vector2(sbox[0], sbox[1]), Vector2(float(sbox[2]) - float(sbox[0]), float(sbox[3]) - float(sbox[1])))
+						return {"blocked": true, "tile_box": wb, "tile_center": centre, "object": null}
+		for gt in gates:
+			var g: Gate = gates[gt]
+			if to.distance_to(g.centre) > 64.0:
+				continue
+			for b in g.bars():
+				if Collision.polygon_hits_box(poly, b["origin"], b["box"]):
+					var bb: Array = b["box"]
+					var wb2 := Rect2(b["origin"] + Vector2(bb[0], bb[1]), Vector2(float(bb[2]) - float(bb[0]), float(bb[3]) - float(bb[1])))
+					return {"blocked": true, "tile_box": wb2, "tile_center": g.centre, "object": null}
+	for o in soldiers:
+		if o != s and not o.finished and _soldier_rect(o.position).intersects(rect):
+			return {"blocked": true, "tile_box": Rect2(), "object": o}
+	return {"blocked": false}
+
+
+func _update_soldiers(delta: float) -> void:
+	if soldiers.is_empty():
+		return
+	var ticks := delta * Vehicle.TICK_HZ
+	for s in soldiers.duplicate():
+		s.tick(ticks)
+		if s.finished:
+			soldiers.erase(s)
+			continue
+		_soldier_vs_vehicles(s)
+
+
+## FUN_00433c60: a Vehicle (either team) that touches a soldier crushes it (a Heli high above does not: the z ranges must overlap).
+func _soldier_vs_vehicles(s: Soldier) -> void:
+	var fp := _soldier_footprint()
+	var b: Array = fp["box"]
+	for v in [vehicle] + enemy_vehicles:
+		if v == null or not is_instance_valid(v) or not v.alive or v.docked:
+			continue
+		if not Collision.vehicle_collides_with(Vehicle.HIT_LAYER, Vehicle.HIT_MASK, int(fp["layer"]), int(fp["mask"])):
+			continue
+		if not Collision.z_ranges_overlap(v.hit_z[0] + v.z, v.hit_z[1] + v.z, float(fp["z"][0]), float(fp["z"][1])):
+			continue
+		if Collision.polygon_hits_box(v.hit_polygon(), s.position, b):
+			_kill_soldier(s)
+			return
+
+
+## FUN_00433ce0 (a hit) and FUN_00433c60 (a crush) end the same way: the scream (`ManCrush`, 0x44b718) and removal. The body mark the
+## original leaves on land (a class-17 `Stay`, 60 ticks) is not drawn yet.
+func _kill_soldier(s: Soldier) -> void:
+	if s.finished:
+		return
+	s.kill()
+	soldiers.erase(s)
+	if vehicle != null and vehicle.position.distance_to(s.position) < SOLDIER_HEARING:
+		vehicle.sound_cue.emit("ManCrush")
+
+
+## FUN_004159a0 (the same grenade the Jeep lobs, document 61): launched at a point already scattered by the soldier, with the thrower
+## immune to its own shot. One of the three throw sounds, uniformly (FUN_004159a0 plays (&PTR_PTR_0044b9ec)[rand(3)]).
+func _soldier_throw(s: Soldier, aim: Vector2) -> void:
+	var p := Projectile.new()
+	p.shooter = s
+	world.add_child(p)
+	p.team = "tan" if s.team == 0 else "green"
+	p.colour = level.side_colour(s.team)
+	p.start_lob(s.position, 0.0, aim)
+	_projectiles.append(p)
+	projectile_spawned.emit(p)
+	if vehicle != null and vehicle.position.distance_to(s.position) < SOLDIER_HEARING:
+		vehicle.sound_cue.emit(MINE_THROW_CUES[randi() % 3])
+
+
+## A shell or grenade passing through a soldier's shape (layer / mask / z as for any object, document 53) kills it and is spent. A flat
+## shell flies at z 7 +- 1.5, above the soldier's z 0-2, so only low shots, descending ones and grenades reach it.
+func _shell_hits_soldier(p: Projectile, from: Vector2, to: Vector2) -> bool:
+	var fp := _soldier_footprint()
+	if not Collision.shell_collides_with(int(fp["layer"]), int(fp["mask"])):
+		return false
+	for s in soldiers.duplicate():
+		if s == p.shooter or s.finished:
+			continue
+		if not Collision.shell_z_overlaps(p.z, float(fp["z"][0]), float(fp["z"][1])):
+			continue
+		if Collision.segment_hits_box(from, to, s.position, fp["box"]):
+			_kill_soldier(s)
+			impact_effect.emit("0x444b68", to)   # surface 3, object hit
+			return true
+	return false
+
+
+## An explosion's damage box overlapping a soldier's shape kills it (its hit callback ignores the amount).
+func _box_kill_soldiers(b: ExplosionBox) -> void:
+	var fp := _soldier_footprint()
+	if (b.mask & int(fp["layer"])) == 0 or (int(fp["mask"]) & 0x20) == 0:
+		return
+	if not Collision.z_ranges_overlap(float(fp["z"][0]), float(fp["z"][1]), b.z_lo, b.z_hi):
+		return
+	var box_rect := Rect2(b.position + Vector2(-b.half_x, -b.half_y), Vector2(b.half_x * 2.0, b.half_y * 2.0))
+	for s in soldiers.duplicate():
+		if box_rect.intersects(_soldier_rect(s.position)):
+			_kill_soldier(s)
 
 
 const MINE_THROW_CUES := ["ThrowGrenade1_a", "ThrowGrenade1_b", "ThrowGrenade1_c"]
@@ -571,6 +802,7 @@ func _update_boxes(ticks: float) -> void:
 			if Collision.polygon_hits_box(v.hit_polygon(), b.position, b.box()):
 				if v.take_damage(dmg):
 					_register_hit(v)
+		_box_kill_soldiers(b)
 		_box_damage_tiles(entry, dmg)
 
 
@@ -1047,6 +1279,8 @@ func _damage_tile_amount(t: Vector2i, id: int, damage: float) -> bool:
 		return false
 	var dmg := maxi(int(damage), 1)
 	if hp > dmg:
+		if hp > 1 and hp - dmg < 2:
+			_release_soldiers(t, id)   # FUN_0042e8c0 / FUN_0042e7f0: the hit that leaves exactly 1 hit point throws the building's soldiers
 		_tile_hp[t] = hp - dmg
 		return false
 	_tile_hp.erase(t)
