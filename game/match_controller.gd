@@ -178,8 +178,27 @@ func _spawn_vehicle_and_enemies() -> void:
 		var t := pack.vehicle_index(String(entry.get("id", "")))
 		if t >= 0:
 			vehicle_stock[t] = int(vp.get(String(entry.get("stock_key", "")), int(entry.get("default_stock", 0))))
-	_take_stock(vehicle.vehicle_type)   # the first vehicle is created like any other
 	vehicle.mine_layer_enabled = vehicle.mine_layer_enabled or players > 1
+	# Document 89/95: the reference footage's vehicle-choice hangar screen is the exact same
+	# mechanism every time it appears -- "game start, level 2 start, and two respawns after a
+	# death" -- not something special to dying; `_finish_player_death()` and the quick-swap
+	# `switch_player_vehicle()` already use it. This used to create the first vehicle already
+	# alive, stocked and controllable in the open, skipping that sequence only at match start.
+	# Instead, start it parked under a closed pad exactly as a respawn leaves one before opening
+	# the choice: `_update_dock()`'s existing per-tick state machine then plays the real
+	# hatch-opens/camera-swoop undock (documents 89/90) with no further change needed here.
+	# Stock is spent on confirm (`confirm_selection()`), not here -- there is no "already spent"
+	# vehicle to account for the way a respawn's dead one is.
+	# `pack.manifest`'s own `spawn_through_hangar` (default true, the traced behaviour) lets a
+	# game built on this engine opt out, per-pack, if it has no hangar/choice screen at all.
+	if pack.manifest.get("spawn_through_hangar", true):
+		_pad_centre = vehicle.position
+		vehicle.z = DOCK_MIN_DEPTH
+		vehicle.docked = true
+		view_fade = 0.0
+		_open_selection()
+	else:
+		_take_stock(vehicle.vehicle_type)   # the first vehicle is created like any other
 
 	for other_sp in level.spawn_points:
 		if int(other_sp.get("team", 0)) == player_team:
@@ -1580,6 +1599,29 @@ func pad_leaf_offset() -> float:
 		return -1.0
 	var off := DOCK_SINK_RATE * pad_age
 	return -1.0 if off >= PAD_LEAF_HIDE else off + PAD_LEAF_START
+
+
+## Test/tooling convenience: if the match opened on the hangar (`_spawn_vehicle_and_enemies()`'s
+## `spawn_through_hangar`), synchronously waits out the entry fade, confirms the auto-picked
+## selection and fast-forwards the undock -- exactly the "vehicle sitting ready to drive" state
+## every caller that isn't itself testing the hangar/undock sequence wants to start from. A no-op
+## once already past it (`spawn_through_hangar` off, or called again later).
+func skip_start_hangar() -> void:
+	var dt := 1.0 / Vehicle.TICK_HZ
+	var n := 0
+	while selecting and (select_anim == null or select_anim.fade < 1.0) and n < 1000:
+		_process(dt)
+		n += 1
+	if selecting:
+		confirm_selection()
+	n = 0
+	while undocking and n < 2000:
+		_process(dt)
+		n += 1
+	n = 0
+	while pad_rising and n < 2000:   # `vehicle.frozen` only clears once the rise actually finishes, not when `undocking` itself does
+		_process(dt)
+		n += 1
 
 
 func switch_player_vehicle() -> void:
