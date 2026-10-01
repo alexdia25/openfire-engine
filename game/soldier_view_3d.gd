@@ -12,6 +12,9 @@ var _body: MeshInstance3D
 var _shadow: MeshInstance3D
 var _body_mat: StandardMaterial3D
 var _shadow_mat: StandardMaterial3D
+## The shadow part's flag 0x10 means a ground shadow: the cel is a white mask drawn as translucent black (the shell's shadow, projectile_billboard_3d.gd).
+const SHADOW_ALPHA := 5.0 / 32.0
+const SHADOW_LIFT := 0.5
 var _shown := ""
 
 
@@ -20,8 +23,11 @@ func setup(s: Soldier, pack: Pack) -> void:
 	_pack = pack
 	_body_mat = _material()
 	_shadow_mat = _material()
+	_shadow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_shadow_mat.albedo_color = Color(0.0, 0.0, 0.0, SHADOW_ALPHA)
 	_shadow = MeshInstance3D.new()
 	_shadow.material_override = _shadow_mat
+	_shadow.position.y = SHADOW_LIFT
 	add_child(_shadow)
 	_body = MeshInstance3D.new()
 	_body.material_override = _body_mat
@@ -56,14 +62,25 @@ func _sprite_id() -> String:
 	return String(frames[int(f["frame"])])
 
 
+func _wade_sprite_id(f: Dictionary) -> String:
+	var ids: Array = _pack.infantry.get("wade_sprites", {}).get("tan" if soldier.team == 0 else "green", [])
+	var i: int = int(f["frame"]) - int(_pack.infantry.get("wade", {}).get("frame_first", 10))
+	return String(ids[i]) if i >= 0 and i < ids.size() else ""
+
+
 func _refresh() -> void:
 	position = Vector3(soldier.position.x, 0.0, soldier.position.y)
 	var f := soldier.draw_frame()
-	var key := "%s|%s" % [_sprite_id(), f["mirror"]]
+	var wade: bool = f["wade"]
+	_shadow.visible = not wade
+	rotation_degrees.y = -float(soldier.heading) * Soldier.STEP_DEG if wade else 0.0   # the ripple quad turns with the heading, the body does not
+	var id := _wade_sprite_id(f) if wade else _sprite_id()
+	var key := "%s|%s|%s" % [id, f["mirror"], wade]
 	if key == _shown:
 		return
 	_shown = key
-	_build(_body, _body_mat, _sprite_id(), _pack.infantry.get("quad", []), bool(f["mirror"]))
+	var quad: Array = _pack.infantry.get("wade", {}).get("quad", []) if wade else _pack.infantry.get("quad", [])
+	_build(_body, _body_mat, id, quad, bool(f["mirror"]) and not wade)
 	if _shadow.mesh == null:
 		_build(_shadow, _shadow_mat, String(_pack.infantry.get("shadow_sprite", "")), _pack.infantry.get("shadow_quad", []), false)
 

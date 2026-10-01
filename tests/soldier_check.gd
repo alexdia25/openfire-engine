@@ -26,6 +26,9 @@ func _table() -> Dictionary:
 		"footprint": {"box": [-2.0, -1.5, 2.0, 0.05], "z": [0.0, 2.0], "layer": 1, "mask": 255},
 		"quad": [[-4.0, -1.5, 4.5], [4.0, -1.5, 4.5], [4.0, 1.5, 0.0], [-4.0, 1.5, 0.0]],
 		"shadow_quad": [[0.0, -2.5, 0.0], [8.0, -2.5, 0.0], [4.0, 1.5, 0.0], [-4.0, 1.5, 0.0]], "shadow_sprite": "fx.tile",
+		"wade": {"frame_first": 10, "quad": [[-4.0, -4.0, 0.5], [4.0, -4.0, 0.5], [4.0, 12.0, 0.5], [-4.0, 12.0, 0.5]]},
+		"wade_sprites": {"tan": set[0], "green": set[0]}, "corpse": {"lifetime": 120, "quad": [[-4.0, -4.0, 0.0], [4.0, -4.0, 0.0], [4.0, 4.0, 0.0], [-4.0, 4.0, 0.0]]},
+		"corpse_sprites": ["fx.hull", "fx.hull", "fx.hull", "fx.hull", "fx.hull", "fx.hull"], "undrawn_ticks": 120, "active_half_extent": 512.0,
 		"sprites": {"tan": set, "green": set}, "dir_source": [0, 1, 2, 3, 4, 3, 2, 1],
 		"mirror": [false, false, false, false, false, true, true, true],
 		"buildings": {"7": {"min": 1, "max": 3, "flip_team": false}, "8": {"min": 4, "max": 8, "flip_team": true}}}
@@ -58,6 +61,7 @@ func _init() -> void:
 	_geometry()
 	_behaviour()
 	_world(pack)
+	_leftovers(pack)
 	if _failures == 0:
 		print("soldier: all ok")
 	quit(_failures)
@@ -261,3 +265,76 @@ func _world(pack: Pack) -> void:
 	box.advance(1.0)
 	mc._box_kill_soldiers(box)
 	_check(victim.finished, "an explosion's damage box kills a soldier inside it")
+
+
+func _leftovers(pack: Pack) -> void:
+	# wading: a soldier in water draws the ripple on frames 10-17 moving, 18-19 standing (descriptor 0x44e9c0), never the body frames
+	var v := FakeVehicle.new()
+	v.position = Vector2(100.0, 0.0)
+	get_root().add_child(v)
+	var w := Soldier.new(_table(), Vector2.ZERO, 0)
+	w.targets = func(): return [v]
+	w.mover = func(_s, _to, _p): return {"blocked": false}
+	w.water = func(_p): return true
+	w.grenades = 0
+	var wade_ok := true
+	for i in 200:
+		w.tick(1.0)
+		if w.anim == Soldier.Anim.WADE:
+			wade_ok = wade_ok and w.phase >= 10.0 and w.phase < 18.0 and w.draw_frame()["wade"]
+	_check(wade_ok and w.draw_frame()["wade"], "a soldier wading walks frames 10-17 of the ripple, not the body")
+	var still := Soldier.new(_table(), Vector2.ZERO, 0)
+	still.water = func(_p): return true
+	still.mover = func(_s, _to, _p): return {"blocked": false}
+	still.targets = func(): return []
+	for i in 100:
+		still.tick(1.0)
+	_check(still.anim == Soldier.Anim.WADE_STAND and still.phase >= 18.0 and still.phase < 20.0, "standing in water cycles frames 18-19")
+	# the body mark, the crewman, and the off-screen removal on a match
+	var level := LevelData.new()
+	level.load_from(pack.level_dir("LEVEL01"))
+	var root := Node2D.new()
+	get_root().add_child(root)
+	var mc := MatchController.new()
+	root.add_child(mc)
+	mc.setup(pack, level, pack.pack_dir, root)
+	var made := []
+	mc.ground_mark_created.connect(func(m): made.append(m))
+	mc.vehicle.position = Vector2(60.0, 60.0)
+	var dead := mc._new_soldier(Vector2(300.0, 300.0), 1)
+	mc._kill_soldier(dead)
+	_check(made.size() == 1 and made[0].variant >= 0 and made[0].variant < 6 and made[0].variant % 2 == 1, "a soldier killed on land leaves a body mark of variant 2 * rand(3) + team")
+	for i in 119:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(not made[0].finished, "the mark is still there after 119 ticks")
+	for i in 3:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(made[0].finished and mc.marks.is_empty(), "and gone after 120")
+	var poly := PackedVector2Array([Vector2(-6, -8), Vector2(6, -8), Vector2(6, 8), Vector2(-6, 8)])
+	var info := {"position": Vector2(200.0, 200.0), "heading_deg": 0.0, "team": "green", "vehicle_type": 0, "z": 0.0, "hp_depleted": true, "polygon": poly.duplicate()}
+	for i in poly.size():
+		info["polygon"][i] += Vector2(200.0, 200.0)
+	var before := mc.soldiers.size()
+	mc._on_vehicle_wrecked({"position": Vector2(200.0, 200.0), "heading_deg": 0.0, "team": "green", "z": 0.0, "hp_depleted": false, "polygon": info["polygon"]})
+	for i in 20:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(mc.soldiers.size() == before, "a vehicle that did not die of damage leaves no crewman")
+	mc._on_vehicle_wrecked(info)
+	for i in 7:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(mc.soldiers.size() == before, "the crewman waits the wreck's 8 ticks")
+	for i in 3:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(mc.soldiers.size() == before + 1 and mc.soldiers.back().team == 1, "then one crewman of the wreck's team steps out")
+	var crew: Soldier = mc.soldiers.back()
+	_check(not Collision.polygon_hits_box(info["polygon"], crew.position, [-2.0, -1.5, 2.0, 0.05]), "placed clear of the wreck's footprint")
+	# far from every vehicle for 120 ticks: removed
+	mc.vehicle.position = Vector2(60.0, 60.0)
+	var far := mc._new_soldier(Vector2(60.0 + 900.0, 60.0), 1)
+	far.mover = func(_s, _to, _p): return {"blocked": true, "tile_box": Rect2(), "object": null}
+	for i in 119:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(not far.finished, "a soldier far from every vehicle is still there after 119 ticks")
+	for i in 3:
+		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
+	_check(far.finished, "and removed after 120 (the original's undrawn removal)")

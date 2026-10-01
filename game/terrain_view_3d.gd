@@ -308,6 +308,7 @@ func _spawn_match() -> void:
 	controller.mine_exploded.connect(_on_mine_exploded)
 	controller.edge_guard_created.connect(_on_edge_guard_created)
 	controller.soldier_created.connect(_on_soldier_created)
+	controller.ground_mark_created.connect(_on_ground_mark_created)
 	for existing in controller.mines:   # the mines scattered at the start (document 75) were added before this connection
 		_on_mine_added(existing)
 
@@ -605,6 +606,12 @@ func _on_soldier_created(s: Soldier) -> void:
 	var sv := SoldierView3D.new()
 	add_child(sv)
 	sv.setup(s, pack)
+
+
+func _on_ground_mark_created(m: GroundMark) -> void:
+	var gv := GroundMarkView3D.new()
+	add_child(gv)
+	gv.setup(m, pack)
 
 
 func _on_mine_added(m: Mine) -> void:

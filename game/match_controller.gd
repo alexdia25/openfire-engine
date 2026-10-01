@@ -81,6 +81,8 @@ signal edge_guard_created(guard: EdgeGuard)
 signal edge_guard_removed(guard: EdgeGuard)
 ## A foot soldier (Soldier, issue #74, documents 113 and 116) came out of a building or a wreck; it draws itself until it is removed.
 signal soldier_created(soldier: Soldier)
+## A ground mark (the original's class 17 "Stay"): the body a soldier leaves, for a number of ticks.
+signal ground_mark_created(mark: GroundMark)
 
 var pack: Pack
 var pack_path: String = ""       ## re-passed to each spawned Vehicle/EnemyVehicle, see below
@@ -99,6 +101,8 @@ var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
 var edge_guard: EdgeGuard = null   ## the live map-edge guard, at most one (DAT_0045ae20)
 var soldiers: Array = []         ## live Soldier objects (class 14)
+var _crew_queue: Array = []      ## wrecks waiting to land: {ticks, team, position, heading_deg, polygon} (FUN_0040cd00)
+var marks: Array = []            ## live GroundMarks
 var submarine_present := false   ## the guard exists: the music's Sub line (16) plays while it does (FUN_00434b30 sets interface bit 0x1000 on every tick it runs)
 ## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
 var players := 1
@@ -172,6 +176,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.dock_check = can_dock
 	vehicle.dock_requested.connect(_begin_dock)
 	vehicle.drowned.connect(_on_player_destroyed)
+	vehicle.wrecked.connect(_on_vehicle_wrecked)
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
 	var vp: Dictionary = level.vehicle_params
@@ -225,6 +230,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		enemy.shot.connect(_on_vehicle_shot.bind(enemy))
 		enemy.destroyed.connect(_drop_carried_flags)
 		enemy.drowned.connect(_drop_carried_flags)
+		enemy.wrecked.connect(_on_vehicle_wrecked)
 		enemy_vehicles.append(enemy)
 
 
@@ -565,15 +571,81 @@ func _soldier_probe(s: Soldier, to: Vector2, pass_tiles: bool) -> Dictionary:
 
 
 func _update_soldiers(delta: float) -> void:
+	var ticks := delta * Vehicle.TICK_HZ
+	for m in marks.duplicate():
+		m.tick(ticks)
+		if m.finished:
+			marks.erase(m)
+	for c in _crew_queue.duplicate():
+		c["ticks"] = float(c["ticks"]) - ticks
+		if float(c["ticks"]) <= 0.0:
+			_crew_queue.erase(c)
+			_spawn_crewman(c)
 	if soldiers.is_empty():
 		return
-	var ticks := delta * Vehicle.TICK_HZ
 	for s in soldiers.duplicate():
 		s.tick(ticks)
 		if s.finished:
 			soldiers.erase(s)
 			continue
 		_soldier_vs_vehicles(s)
+		_soldier_undrawn(s, ticks)
+
+
+## FUN_00433ab0 removes a soldier 120 ticks after its draw callback last stamped it. The port has no per-object "drawn" flag, so this
+## stands in for it: a soldier counts as drawn while it is within `active_half_extent` of a live vehicle (PORT CHOICE, issue #74: 512 units,
+## the Tank's per-type extent that FUN_0040a7b0 uses for its spawn rectangle, record +0x27c * 16).
+func _soldier_undrawn(s: Soldier, ticks: float) -> void:
+	var half := float(pack.infantry.get("active_half_extent", 512.0))
+	for v in [vehicle] + enemy_vehicles:
+		if v != null and is_instance_valid(v) and v.alive and absf(v.position.x - s.position.x) <= half and absf(v.position.y - s.position.y) <= half:
+			s.undrawn = 0.0
+			return
+	s.undrawn += ticks
+	if s.undrawn > float(pack.infantry.get("undrawn_ticks", 120.0)):
+		s.kill()
+		soldiers.erase(s)
+
+
+## FUN_0040cd00: a wreck of a vehicle that was destroyed by damage (the state's hit points were below 1 when the wreck was made, which sets the
+## wreck's flag 0x1000000 in FUN_0040c7e0) releases one crewman once it has landed and settled (flag 0x4000000 from FUN_0040c8f0: speed 0,
+## height below 1, not over deep water). The landing time is the port's own guess (document 87, issue #29): the fall under the wreck's gravity
+## plus the 8 ticks FUN_0040cca0 waits.
+func _on_vehicle_wrecked(info: Dictionary) -> void:
+	if pack.infantry.is_empty() or not bool(info.get("hp_depleted", false)):
+		return
+	var z := float(info.get("z", 0.0))
+	var fall := sqrt(2.0 * z / 0.025) if z > 0.0 else 0.0
+	_crew_queue.append({"ticks": fall + 8.0, "team": 0 if String(info.get("team", "tan")) == "tan" else 1, "position": info["position"],
+			"heading_deg": float(info.get("heading_deg", 0.0)), "polygon": info.get("polygon", PackedVector2Array())})
+
+
+func _spawn_crewman(c: Dictionary) -> void:
+	var at: Vector2 = c["position"]
+	if Water.class_at(level, pack, at) == 2:
+		return    # a wreck in deep water is never "settled" (DAT_004580f4 == 2)
+	var s := _new_soldier(at, int(c["team"]))
+	if s == null:
+		return
+	# step it out along (wreck heading - 90 degrees), 3 units at a time, until its footprint no longer overlaps the wreck's (FUN_0041e4c0 loop)
+	var poly: PackedVector2Array = c["polygon"]
+	if poly.size() >= 3:
+		var h := (int(floorf(fposmod(float(c["heading_deg"]) + 90.0, 360.0) / Soldier.STEP_DEG)) - 16) & 63
+		var dir := Soldier.step_vector(h) * 3.0
+		for _i in 60:
+			if Collision.polygon_hits_box(poly, s.position, _soldier_footprint()["box"]):
+				s.position += dir
+			else:
+				break
+
+
+func _spawn_corpse(s: Soldier) -> void:
+	var cfg: Dictionary = pack.infantry.get("corpse", {})
+	if cfg.is_empty() or Water.class_at(level, pack, s.position) != 0:
+		return    # FUN_00433ce0: only on land, not in water
+	var m := GroundMark.new(s.position, int(cfg.get("lifetime", 120)), randi() % 3 * 2 + s.team)
+	marks.append(m)
+	ground_mark_created.emit(m)
 
 
 ## FUN_00433c60: a Vehicle (either team) that touches a soldier crushes it (a Heli high above does not: the z ranges must overlap).
@@ -599,6 +671,7 @@ func _kill_soldier(s: Soldier) -> void:
 		return
 	s.kill()
 	soldiers.erase(s)
+	_spawn_corpse(s)
 	if vehicle != null and vehicle.position.distance_to(s.position) < SOLDIER_HEARING:
 		vehicle.sound_cue.emit("ManCrush")
 

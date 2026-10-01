@@ -37,6 +37,7 @@ var jitter := 0                  ## obj+0x71: a steering offset in steps, used f
 var target: Node2D = null        ## obj+0x2c
 var now := 0.0                   ## the match clock in ticks (0x480d38)
 var finished := false            ## removed (FUN_0042c0f0)
+var undrawn := 0.0               ## ticks since it was last near a vehicle (the original's last-drawn stamp, obj+0x5c)
 var in_water := false            ## obj+0x73
 var _timer := 0.0                ## obj+0x60
 var _home := Vector2.ZERO        ## obj+0x6c: the centre of the tile it was born in
@@ -75,7 +76,8 @@ func draw_frame() -> Dictionary:
 	var oct := ((heading + 4) & 63) >> 3
 	var src: Array = cfg.get("dir_source", [0, 1, 2, 3, 4, 3, 2, 1])
 	var mir: Array = cfg.get("mirror", [false, false, false, false, false, true, true, true])
-	return {"dir": int(src[oct]), "mirror": bool(mir[oct]), "frame": clampi(int(floorf(phase)), 0, 9)}
+	var wading := anim == Anim.WADE or anim == Anim.WADE_STAND
+	return {"dir": int(src[oct]), "mirror": bool(mir[oct]), "frame": clampi(int(floorf(phase)), 0, 19 if wading else 9), "wade": wading}
 
 
 static func heading_to(from: Vector2, to: Vector2) -> int:
@@ -332,16 +334,23 @@ func _pause() -> bool:
 
 
 ## FUN_00433ab0's animation step (0.2 frames a tick): walking cycles 0-5; STAND runs on to frame 9 and stops; THROW eases to 6.
-## Wading (the original draws a different descriptor, 0x44e9c0, not traced) keeps the land frames here.
+## Wading draws another descriptor (0x44e9c0: no body, a rotated ripple quad) on frames 10-17 (moving) and 18-19 (standing): the phase
+## wraps inside those ranges and is pulled up to the first frame of its range.
 func _animate(ticks: float) -> void:
 	var step := _f("frame_rate", 0.2) * ticks
 	match anim:
-		Anim.WALK, Anim.WADE:
+		Anim.WALK:
 			phase += step
 			if phase >= 6.0:
 				phase = fmod(phase, 6.0)
-		Anim.STAND, Anim.WADE_STAND:
+		Anim.STAND:
 			phase = minf(phase + step, 9.0)
+		Anim.WADE:
+			phase += step
+			phase = 10.0 if phase < 10.0 else (10.0 + fmod(phase - 10.0, 8.0) if phase >= 18.0 else phase)
+		Anim.WADE_STAND:
+			phase += step
+			phase = 18.0 if phase < 18.0 else (18.0 + fmod(phase - 18.0, 2.0) if phase >= 20.0 else phase)
 		Anim.THROW:
 			if phase < 6.0:
 				phase = minf(phase + step, 6.0)

@@ -511,7 +511,8 @@ func take_damage(damage: float) -> bool:
 ## value snapshot so the wreck's fall (document 87) is unaffected by whatever a `destroyed` listener
 ## does to this same node afterwards (the player's vehicle respawns in place).
 func _die() -> void:
-	wrecked.emit({"position": position, "heading_deg": heading_deg, "team": team, "colour": art_colour(), "vehicle_type": vehicle_type, "z": z})
+	wrecked.emit({"position": position, "heading_deg": heading_deg, "team": team, "colour": art_colour(), "vehicle_type": vehicle_type, "z": z,
+			"hp_depleted": hp <= 0.0, "polygon": hit_polygon()})
 	alive = false
 	destroyed.emit(self)
 
