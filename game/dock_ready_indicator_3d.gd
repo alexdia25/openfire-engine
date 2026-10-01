@@ -1,64 +1,65 @@
 class_name DockReadyIndicator3D
 extends Node3D
-## The original's own "you're in position to dock" signal (document 80): `FUN_0040b400`, called once a tick only while a vehicle sits still on its
-## own pad within the docking tolerance and is NOT pressing a fire button, rotates seven colour words of the shared palette (entries 12-14, plus two
-## bytes of entry 15) at a fixed rate (0x2666/65536 a tick, ~6.83 ticks a step, about 9.1 steps a second) -- traced down to the exact instructions
-## and independently reproduced in Python (a genuine, deterministic 7-step colour cycle). BUT: pixel-by-pixel inspection of cel 90/91's own raw
-## indexed art (document 80) found it uses NONE of those palette entries anywhere in its 32 x 32 bitmap -- so this animation does NOT touch the
-## hatch's own colours, and what it actually changes on screen (some other, unidentified sprite that happens to share those low palette entries) is
-## NOT KNOWN. This node is therefore a full INVENTION standing in for an effect whose trigger and cadence are real but whose visible target is not:
-## a border around the home pad, shown only while `MatchController.can_dock` is true, cycling a made-up hazard-light palette at the traced cadence.
-## Neither the ring shape nor its colours are the original's.
+## The original's own "you're in position to dock" signal: `FUN_0040b400`, called once a tick only while a vehicle sits
+## still on its own pad within the docking tolerance and is NOT pressing a fire button (document 80, Step 2).
+##
+## Document 80's Addendum 3 chased what it actually draws (its palette-rotate half, Addendum 1, touches no real on-screen
+## art and remains unaccounted for -- not modelled here). The SAME function also writes decoration id 89 into the home
+## pad tile's own coastal-decoration field for as long as the vehicle sits ready -- the exact mechanism document 35
+## already traced for placing bushes and saplings near the coast -- which queues a real object at the pad's tile centre
+## every frame: cel 1778 / `effect.glow.001`, one of the two real `PRE0=5` background-recolour glow masks in the whole
+## game (the hangar cursor's own spotlight, `effect.glow.002`, is the other -- issue #64). This node draws exactly that:
+## the real glow sprite, through the same generic background-recolour blend shader, sized to its own pixel dimensions in
+## world units (this project's 1-native-pixel-per-world-unit convention, matching every other traced 3D quad). No colour
+## animation: the original's decoration system draws a static part, not an animated one -- the real effect's "9.1 steps a
+## second" belongs entirely to the untraced palette rotate, not to this.
 
-const STEP_TICKS := 65536.0 / 0x2666   ## ~6.83 ticks a step, from FUN_0040b400's accumulator rate
-const COLOURS := [
-	Color(1.0, 0.85, 0.0), Color(1.0, 0.6, 0.0), Color(1.0, 0.3, 0.0),
-	Color(1.0, 0.85, 0.0), Color(1.0, 1.0, 1.0), Color(0.1, 0.1, 0.1), Color(1.0, 0.85, 0.0),
-]
+const SHADER := preload("res://addons/openfire_engine/game/shaders/background_recolour_3d.gdshader")
+const SPRITE_ID := "effect.glow.001"
 
 var mc: MatchController
-var _ring: MeshInstance3D
-var _mat: StandardMaterial3D
-var _acc := 0.0
-var _step := 0
+var _quad: MeshInstance3D
 
 
 func setup(controller: MatchController, pack: Pack) -> void:
 	mc = controller
-	var tsz := float(pack.tile_size_px)
-	var half := tsz * 0.5
-	var thick := 4.0
+	var s := pack.get_sprite(SPRITE_ID)
+	if s.is_empty():
+		return
+	var recolour_step := float(s.get("recolour_step", 0.0))
+	if recolour_step <= 0.0:
+		return   # a pack without this sprite's own blend data declines the effect, rather than guessing a strength
+	var tex := pack.get_texture(int(s.get("page", 0)))
+	if tex == null:
+		return
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var sx := float(s["x"])
+	var sy := float(s["y"])
+	var sw := float(s["w"])
+	var sh := float(s["h"])
+	var uv := [Vector2(sx / tw, sy / th), Vector2((sx + sw) / tw, sy / th),
+			Vector2((sx + sw) / tw, (sy + sh) / th), Vector2(sx / tw, (sy + sh) / th)]
+	var hw := sw * 0.5
+	var hh := sh * 0.5
+	var corners := [Vector3(-hw, 0.0, -hh), Vector3(hw, 0.0, -hh), Vector3(hw, 0.0, hh), Vector3(-hw, 0.0, hh)]
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var outer := half + 2.0
-	var inner := outer - thick
-	var corners_outer := [Vector3(-outer, 0, -outer), Vector3(outer, 0, -outer), Vector3(outer, 0, outer), Vector3(-outer, 0, outer)]
-	var corners_inner := [Vector3(-inner, 0, -inner), Vector3(inner, 0, -inner), Vector3(inner, 0, inner), Vector3(-inner, 0, inner)]
-	for i in 4:
-		var j := (i + 1) % 4
-		var quad := [corners_outer[i], corners_outer[j], corners_inner[j], corners_inner[i]]
-		for idx in [0, 1, 2, 0, 2, 3]:
-			st.add_vertex(quad[idx])
-	_ring = MeshInstance3D.new()
-	_ring.mesh = st.commit()
-	_mat = StandardMaterial3D.new()
-	_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-	_ring.material_override = _mat
-	add_child(_ring)
-	position = Vector3(mc.home_position().x, 1.2, mc.home_position().y)
-	_ring.visible = false
+	for i in [0, 1, 2, 0, 2, 3]:
+		st.set_uv(uv[i])
+		st.add_vertex(corners[i])
+	_quad = MeshInstance3D.new()
+	_quad.mesh = st.commit()
+	var mat := ShaderMaterial.new()
+	mat.shader = SHADER
+	mat.set_shader_parameter("mask_tex", tex)
+	mat.set_shader_parameter("recolour_step", recolour_step)
+	_quad.material_override = mat
+	add_child(_quad)
+	position = Vector3(mc.home_position().x, 0.3, mc.home_position().y)
+	_quad.visible = false
 
 
-func _process(delta: float) -> void:
-	var ready := mc.vehicle != null and mc.can_dock(mc.vehicle)
-	_ring.visible = ready
-	if not ready:
-		_acc = 0.0
-		_step = 0
-		return
-	_acc += delta * Vehicle.TICK_HZ
-	while _acc >= STEP_TICKS:
-		_acc -= STEP_TICKS
-		_step = (_step + 1) % COLOURS.size()
-	_mat.albedo_color = COLOURS[_step]
+func _process(_delta: float) -> void:
+	if _quad != null:
+		_quad.visible = mc.vehicle != null and mc.can_dock(mc.vehicle)

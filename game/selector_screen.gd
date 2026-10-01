@@ -16,6 +16,7 @@ extends Control
 ## all four bays. Whether the original mirrors it at all is unknown (document 78 only read "two red ticks", no flip flag in the traced table).
 
 const S := 2.0
+const BACKGROUND_RECOLOUR_2D_SHADER := preload("res://addons/openfire_engine/game/shaders/background_recolour_2d.gdshader")
 
 var mc: MatchController
 var _sel: Dictionary
@@ -34,33 +35,28 @@ func setup(controller: MatchController) -> void:
 	if _sel.is_empty():
 		return
 	mc.selection_changed.connect(_refresh)
-	# the spotlight (cel 2077, a PRE0=5 effect mask) is drawn with a per-pixel background-recolour blend in the original
-	# (PIXC 0x1f801f80, document 9's "brighten" table by the mask's raw 0-31 value) -- approximated here by an additive layer,
-	# since the pack has no real per-pixel blend yet. tools/convert_car.py stores that raw 0-31 value straight in the PNG's
-	# alpha byte (its own comment: "packed white-on-transparent... the true colour requires the runtime-built translation
-	# table this converter does not have"), so drawn as an ordinary texture its brightest pixel is ~31/255 (12%) opaque --
-	# effectively invisible next to the hangar's own art, confirmed missing against the reference footage (issue #32,
-	# document 103's hangar addendum). _glow_tex rescales that 0-31 range to a full 0-255 alpha once, at setup, so the
-	# shape (a real gradient, document 9) is visible; the colour and blend mode are still the same approximation as before.
-	_glow = Control.new()
-	_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var mat := CanvasItemMaterial.new()
-	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	_glow.material = mat
-	add_child(_glow)
-	var glow_img := mc.pack.get_sprite_image(String(_sel["sprites"]["highlight"]))
-	if glow_img != null:
-		glow_img = glow_img.duplicate()
-		glow_img.convert(Image.FORMAT_RGBA8)
-		for y in glow_img.get_height():
-			for x in glow_img.get_width():
-				var c := glow_img.get_pixel(x, y)
-				glow_img.set_pixel(x, y, Color(1.0, 1.0, 1.0, minf(c.a * 255.0 / 31.0, 1.0)))
-		_glow_tex = ImageTexture.create_from_image(glow_img)
-		_glow_size = glow_img.get_size()
-	_glow.draw.connect(func():
-		if mc.selecting and _glow_tex != null:
-			_glow.draw_texture_rect(_glow_tex, Rect2(_glow_at, _glow_size * S), false))
+	# The spotlight (cel 2077 / effect.glow.002, a PRE0=5 effect mask) is a real per-pixel background-recolour
+	# blend in the original (document 9's "brighten" table, by the mask's raw 0-31 value) -- a generic engine
+	# shader now reproduces the exact formula (issue #64) instead of the earlier additive-layer approximation,
+	# reading its strength (`recolour_step`) off the sprite's own pack data, not a constant in this file
+	# (importer/pack_builder.gd and tools/build_pack.py both write it for every PRE0=5 cel). A pack whose sprite
+	# has no `recolour_step` draws nothing here, rather than guessing a strength -- see documents 9, 80 and 103.
+	var highlight_id := String(_sel["sprites"].get("highlight", ""))
+	var highlight_sprite := mc.pack.get_sprite(highlight_id)
+	var recolour_step := float(highlight_sprite.get("recolour_step", 0.0))
+	if recolour_step > 0.0:
+		_glow = Control.new()
+		_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var mat := ShaderMaterial.new()
+		mat.shader = BACKGROUND_RECOLOUR_2D_SHADER
+		mat.set_shader_parameter("recolour_step", recolour_step)
+		_glow.material = mat
+		add_child(_glow)
+		_glow_tex = _atlas(highlight_id)
+		_glow_size = _glow_tex.region.size
+		_glow.draw.connect(func():
+			if mc.selecting and _glow_tex.atlas != null:
+				_glow.draw_texture_rect(_glow_tex, Rect2(_glow_at, _glow_size * S), false))
 
 
 func _refresh() -> void:
@@ -99,7 +95,7 @@ func _atlas(id: String) -> AtlasTexture:
 var _origin := Vector2.ZERO
 var _glow_at := Vector2(-1000, -1000)
 var _glow: Control
-var _glow_tex: ImageTexture   ## the spotlight mask with its alpha rescaled from 0-31 to 0-255 (see setup())
+var _glow_tex: AtlasTexture   ## the spotlight's raw mask (alpha carries the 0-31 level; the shader does the rest)
 var _glow_size := Vector2.ZERO
 
 
