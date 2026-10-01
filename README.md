@@ -111,6 +111,40 @@ or format that only one game has belongs in that game's repo. Return Fire's bina
 the [openfire wiki](https://github.com/alexdia25/openfire/wiki)'s worked examples. Those pages are where
 most of this engine's behaviour was traced from, and they stay there as its history.
 
+### Developing the engine from a game checkout
+
+A tier-2 change is usually driven by a game, and the quickest place to develop it is inside that game,
+against its real content. The submodule at `addons/openfire_engine/` is a complete clone of this repo,
+and Godot runs whatever is on disk, so engine edits there take effect straight away with nothing
+committed:
+
+```mermaid
+flowchart LR
+    A["switch the submodule<br/>to a branch"] --> B["edit engine + game files<br/>in the one project"]
+    B --> C["run the game, its checks,<br/>and the engine's checks"]
+    C -- "not yet" --> B
+    C -- "ready" --> D["commit + push<br/>the engine"]
+    D --> E["commit the game change<br/>with the new submodule pointer,<br/>push"]
+```
+
+1. **Put the submodule on a branch.** It starts as a detached HEAD at the game's pinned commit:
+   `git -C addons/openfire_engine switch main` (or `switch -c <topic>` for a longer change).
+2. **Edit and test freely.** Change engine files under `addons/openfire_engine/` and game files in the
+   same project. Run the game, the game's checks, and the engine's own checks
+   (`addons/openfire_engine/tools/run_tests.sh`), all against the uncommitted engine. The game's
+   `git status` shows the engine as `modified content` until then. That's expected.
+3. **Commit once it works, engine first.** Commit and push from inside `addons/openfire_engine`. Then,
+   in the game, commit the game-side change together with the new submodule pointer, and push.
+
+The order in step 3 matters: a game commit that points at an engine commit nobody else can fetch breaks
+every other clone. Setting `git config push.recurseSubmodules check` in the game repo makes git refuse
+that push.
+
+Keep unfinished engine edits out of any checkout other people or sessions run the game from. A
+`git worktree` of the game gets its own copy of the submodule (`git submodule update --init` in the
+new worktree), so changes there stay separate until they're pushed. Tier-3 code, the game's own one-offs,
+still never goes in the submodule.
+
 ## Tests
 
 ```bash

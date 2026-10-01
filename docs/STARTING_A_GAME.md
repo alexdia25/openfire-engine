@@ -35,6 +35,8 @@ Mount the engine at exactly `addons/openfire_engine/`. Its own scene and script 
 
 Anyone cloning the game later needs the submodule too:
 `git clone --recurse-submodules ...`, or `git submodule update --init` in an existing clone.
+Each clone should also run `git config push.recurseSubmodules check`, which refuses to push a game commit whose
+engine commit isn't pushed yet.
 
 ## 2. Make the Godot project
 
@@ -112,6 +114,9 @@ something an export filter has to enforce.
 
 - **Update the engine:** `git submodule update --remote addons/openfire_engine`, run the game's checks, then commit the
   new submodule pointer.
-- **Change the engine:** never edit files inside `addons/openfire_engine/` from the game's repo. Use the README's
-  [three tiers](../README.md#changing-the-engine): pack data first; a PR to openfire-engine if the change
-  generalises; the game's own code (composing or extending engine classes) if it is one-off.
+- **Change the engine:** use the README's [three tiers](../README.md#changing-the-engine). Try pack data first.
+  If the change generalises, it is an engine change. If it is one-off, it goes in the game's own code
+  (composing or extending engine classes), never in the submodule. An engine change can be developed right inside
+  the game's `addons/openfire_engine/` with nothing committed until it works. See
+  [Developing the engine from a game checkout](../README.md#developing-the-engine-from-a-game-checkout): push the
+  engine first, then the game with the new pointer.
