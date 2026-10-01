@@ -1,7 +1,7 @@
 class_name MusicManager
 extends Node
 ## Plays the game's music (document 98): watches the match the way the original's interface bits do, feeds game/music_director.gd (the traced decision logic) once a game
-## tick, and plays what it decides from the pack's music/track_NN.ogg (tools/extract_music.py; the original's tracks are pieces of the CD's audio).
+## tick, and plays what it decides from the tracks the pack's music/music.json lists (any AudioFiles format).
 ## A line plays its tracks from `start` up to `end` (exclusive) as one gapless playlist; a looping line then repeats from its alternate track; a sting plays once.
 ## PORT CHOICES / UNTRACED: the fade-out length of a type-0 transition (the original's mixer command 6 fades by a rate not read), the music volume, and that the first start of a
 ## match is the vehicle's theme at once (the original opens on the hangar screen with the Bunker theme; the port starts in the vehicle).
@@ -18,7 +18,7 @@ func _music(v: Vehicle, key: String, default: Variant) -> Variant:
 var pack: Pack
 var mc: MatchController
 var director := MusicDirector.new()
-var _tracks: Dictionary = {}            ## track number -> {"file": path, "stream": AudioStreamOggVorbis or null}
+var _tracks: Dictionary = {}            ## track number -> {"file": path, "stream": AudioStream or null} (any AudioFiles format)
 var _player: AudioStreamPlayer
 var _acc := 0.0
 var _pending := {}                      ## {"line": int, "alt": bool} waiting for the fade-out to finish
@@ -71,8 +71,7 @@ func _stream(n: int) -> AudioStream:
 		return null
 	if t["stream"] == null:
 		var path := "%s/%s" % [t["dir"], t["file"]]
-		if FileAccess.file_exists(path):
-			t["stream"] = AudioStreamOggVorbis.load_from_file(path)
+		t["stream"] = AudioFiles.load_stream(path)
 	return t["stream"]
 
 

@@ -110,7 +110,7 @@ func _load_jingle(levl: int) -> AudioStream:
 		if FileAccess.file_exists(file):
 			_video_tier = tier
 			_video_dir = _pack.layers[i]
-			return AudioStreamOggVorbis.load_from_file(file)
+			return AudioFiles.load_stream(file)
 	return null
 
 
