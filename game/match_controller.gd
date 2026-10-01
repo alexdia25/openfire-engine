@@ -76,6 +76,9 @@ const DESTROY_SOUND_CUES := {
 ## A vehicle laid a mine / a mine went off (document 60); the explosion drawn is record 0x445058.
 signal mine_added(mine: Mine)
 signal mine_exploded(position: Vector2)
+## The map-edge guard (Return Fire's submarine; game/edge_guard.gd, issue #68) was created / removed itself.
+signal edge_guard_created(guard: EdgeGuard)
+signal edge_guard_removed(guard: EdgeGuard)
 
 var pack: Pack
 var pack_path: String = ""       ## re-passed to each spawned Vehicle/EnemyVehicle, see below
@@ -92,7 +95,8 @@ var _boxes: Array = []           ## live ExplosionBox damage boxes, each with th
 var _box_tick_acc := 0.0
 var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
-var submarine_present := false   ## a submarine object is running: the music's Sub line (16) plays while it is. The original spawns it when a vehicle strays far off the map (FUN_0040e100 -> FUN_00434e80); the port has no submarine yet.
+var edge_guard: EdgeGuard = null   ## the live map-edge guard, at most one (DAT_0045ae20)
+var submarine_present := false   ## the guard exists: the music's Sub line (16) plays while it does (FUN_00434b30 sets interface bit 0x1000 on every tick it runs)
 ## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
 var players := 1
 ## Tiles with a mine on them (tile word bit 31, set by FUN_00409e30, shown on the radar in colour 0xc9).
@@ -305,6 +309,61 @@ func _land_within(pos: Vector2, half: float) -> bool:
 	return false
 
 
+## How far past the nearest edge of the map `pos` is, in units (0 inside): what FUN_00434c00 maximises, and with the
+## spawn margin the Heli's FUN_0040e0e0 test (x or y more than 0x200000 outside 0..0x10000000).
+func off_map_overshoot(pos: Vector2) -> float:
+	var tsz := float(pack.tile_size_px)
+	var dx := maxf(maxf(-pos.x, pos.x - level.width * tsz), 0.0)
+	var dy := maxf(maxf(-pos.y, pos.y - level.height * tsz), 0.0)
+	return maxf(dx, dy)
+
+
+## Issue #68 / document 112. A vehicle flagged `triggers_edge_guard` more than the table's `spawn_margin` off the map makes
+## the guard (FUN_00434e80, only if there is none); the guard then watches the player's vehicle (FUN_00434c00 scans both
+## players' slots; the port has the one) and removes itself when it has dived with nothing left to hunt.
+func _update_edge_guard(delta: float) -> void:
+	var cfg: Dictionary = pack.edge_guard
+	if cfg.is_empty() or level == null:
+		return
+	var over := {}
+	var bait := false
+	var v := vehicle
+	if v != null and is_instance_valid(v) and v.alive:
+		var o := off_map_overshoot(v.position)
+		if o > 0.0:
+			over[v] = o
+			bait = v.triggers_edge_guard() and o > float(cfg.get("spawn_margin", 32.0))
+	if edge_guard == null and bait:
+		edge_guard = EdgeGuard.new(cfg)
+		edge_guard.launcher = _launch_guard_rocket
+		edge_guard_created.emit(edge_guard)
+	if edge_guard != null:
+		edge_guard.tick(delta * Vehicle.TICK_HZ, over)
+		if edge_guard.finished:
+			var done := edge_guard
+			edge_guard = null
+			edge_guard_removed.emit(done)
+	submarine_present = edge_guard != null
+
+
+## FUN_00415480(&guard.pos, &DAT_0044ec20, heading 0, pitch 0x355555, type 10, team 0, target): the guard's one rocket.
+func _launch_guard_rocket(origin: Vector2, target: Node2D) -> Node2D:
+	var cfg: Dictionary = pack.edge_guard
+	var p := Projectile.new()
+	world.add_child(p)
+	p.configure(pack, int(cfg.get("projectile", 0)))
+	var m: Array = cfg.get("muzzle", [0.0, 0.0, 0.0])
+	p.position = origin + Vector2(float(m[0]), float(m[1]))
+	p.prev_checked = p.position
+	p.z = float(m[2])
+	p.team = "tan"   # the launch passes team index 0 (whether the vehicle's damage handler reads it is untraced)
+	p.colour = level.side_colour(0)
+	p.start_homing(target, float(cfg.get("launch_heading_deg", 0.0)), float(cfg.get("launch_pitch_deg", 0.0)))
+	_projectiles.append(p)
+	projectile_spawned.emit(p)
+	return p
+
+
 func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 	var p := Projectile.new()
 	p.shooter = shooter
@@ -330,6 +389,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 
 
 func _process(delta: float) -> void:
+	_update_edge_guard(delta)
 	_update_death(delta)
 	_update_dock(delta)
 	_update_flags(delta)

@@ -91,6 +91,7 @@ var _tile_renderer: TerrainTileRenderer
 var _decoration_field: DecorationField3D
 var _hud: PlaceholderHud                     ## port-only placeholder (document 66)
 var _last_death_phase := 0                   ## debug print (RF_DEBUG_KILL)
+var _debug_offmap_done := false             ## RF_DEBUG_OFFMAP has been applied
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
@@ -296,6 +297,7 @@ func _spawn_match() -> void:
 	controller.impact_effect.connect(_on_impact_effect)
 	controller.mine_added.connect(_on_mine_added)
 	controller.mine_exploded.connect(_on_mine_exploded)
+	controller.edge_guard_created.connect(_on_edge_guard_created)
 	for existing in controller.mines:   # the mines scattered at the start (document 75) were added before this connection
 		_on_mine_added(existing)
 
@@ -578,6 +580,13 @@ func _on_vehicle_drowned(v: Vehicle) -> void:
 	ExplosionEffect3D.spawn(self, pack, pack.get_explosion("0x444ee8"), v.position)
 
 
+## The map-edge guard (Return Fire's submarine, issue #68) exists: it draws itself until it removes itself.
+func _on_edge_guard_created(g: EdgeGuard) -> void:
+	var gv := EdgeGuardView3D.new()
+	add_child(gv)
+	gv.setup(g, pack)
+
+
 func _on_mine_added(m: Mine) -> void:
 	var mv := MineView3D.new()
 	add_child(mv)
@@ -669,6 +678,8 @@ func _camera_target_position(look_at_px: Vector2, height_px: float = camera_heig
 	var margin := pull_back
 	var desired_x := look_at_px.x
 	var desired_z := look_at_px.y + pull_back
+	if OS.get_environment("RF_DEBUG_CAMERA_FREE") == "1":   # debug-only: no edge clamp, to look past the map's edge (issue #68)
+		return Vector3(desired_x, height_px, desired_z + _layout_shift_z(height_px, tilt_deg))
 	var x := clampf(desired_x, margin, maxf(_map_size_px.x - margin, margin))
 	var z := clampf(desired_z, margin, maxf(_map_size_px.y - margin, margin))
 	return Vector3(x, height_px, z + _layout_shift_z(height_px, tilt_deg))
@@ -745,6 +756,14 @@ func _process(delta: float) -> void:
 		controller.vehicle.take_damage(100.0)
 		if OS.get_environment("RF_DEBUG_KILL_SPEED") != "":
 			Engine.time_scale = float(OS.get_environment("RF_DEBUG_KILL_SPEED"))  # (RF_DEBUG_KILL_SPEED=4 runs the sequence four times faster)
+
+	# Debug-only: RF_DEBUG_OFFMAP=<x>,<y> puts the player, once it is out of the hangar, at that world position at altitude 40
+	# (e.g. "-80,600": past the west edge), for screenshots of the map-edge guard (issue #68, document 112).
+	if OS.get_environment("RF_DEBUG_OFFMAP") != "" and not _debug_offmap_done and controller != null and controller.vehicle != null 			and not controller.selecting and not controller.vehicle.docked and controller.view_fade >= 1.0:
+		var xy := OS.get_environment("RF_DEBUG_OFFMAP").split(",")
+		controller.vehicle.position = Vector2(float(xy[0]), float(xy[1]))
+		controller.vehicle.z = 40.0
+		_debug_offmap_done = true
 
 	if OS.get_environment("RF_DEBUG_KILL") != "" and controller != null and controller.death_phase != _last_death_phase:
 		_last_death_phase = controller.death_phase

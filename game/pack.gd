@@ -68,6 +68,11 @@ var audio: Dictionary = {}            ## cue id -> {file, category, priority} (d
 ## hazard_strip, lift_plate: [per side], leaves: {left: [per side], right: [per side]}, dock_ready_glow}, sprite ids.
 ## A pack without it (or without one of its entries) simply doesn't draw that part.
 var home_pad: Dictionary = {}
+## world/edge_guard.json: the map-edge guard (Return Fire's submarine; EdgeGuard, issue #68, document 112): {frames: [sprite id
+## per animation frame], quad: [4 corners (x, y, z)], spawn_margin, hunt_ticks, aim_ticks, frame_rate, surfaced_frame,
+## loop_end_frame, loop_period, dive_wrap_base, projectile (type), muzzle: [x, y, z], launch_pitch_deg}. Empty: the match
+## never creates one.
+var edge_guard: Dictionary = {}
 ## vehicles/projectile_types.json "art": {shell, shadow}, the default projectile's quad and the ground shadow projectiles
 ## cast (documents 46, 48, 63). Empty: a projectile without a draw descriptor of its own falls back to a plain sphere.
 var projectile_art: Dictionary = {}
@@ -569,6 +574,7 @@ func _load_layer(dir: String) -> bool:
 	_overlay(gates, _layer_doc(dir, "terrain/gates.json").get("gates", {}))
 	_overlay(water_tables, _layer_doc(dir, "terrain/water.json"))
 	_overlay(home_pad, _layer_doc(dir, "terrain/home_pad.json"))
+	_overlay(edge_guard, _layer_doc(dir, "world/edge_guard.json"))
 
 	var pdoc := _layer_doc(dir, "vehicles/projectile_types.json")
 	if pdoc.has("types"):

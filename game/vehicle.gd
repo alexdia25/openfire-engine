@@ -694,6 +694,12 @@ func carries_flags() -> bool:
 	return rule("flags.carries_flag")
 
 
+## True for a vehicle whose straying off the map makes the match create the edge guard (the Heli: only its drive function,
+## FUN_0040e0e0, makes the call; issue #68, document 112).
+func triggers_edge_guard() -> bool:
+	return rule("flags.triggers_edge_guard")
+
+
 ## True for a vehicle that lands on the pad before it docks (the rotor drive; the record's +0x258 is 0x40eb00).
 func lands_before_docking() -> bool:
 	return drive != null and drive.has_method("landing_rotor")
