@@ -3,9 +3,8 @@ extends HSplitContainer
 ## The mod tool's Team colours tab (EDITOR_PLAN.md 3.2): the colour library (original, port preset, this mod), a picker
 ## that adds or changes a colour in the mod, and a live preview of sample team art in the selected colour.
 
-## Sample team sets shown in the preview (whichever of these exist in the stack).
-const SAMPLES := ["vehicle.tank.hull.04", "vehicle.tank.turret.top.01", "vehicle.jeep", "vehicle.msv", "vehicle.heli",
-	"structure.building_wall", "marker.flag.cloth.tan.01", "structure.hangar_hatch.tan", "vehicle.wreck"]
+## How many pieces of team art the preview shows (see `samples()`).
+const SAMPLE_COUNT := 9
 
 var ws: ModWorkspace
 var _list: ItemList
@@ -119,10 +118,7 @@ func _load_selected() -> void:
 			else "Team paint is aimed at this hue, saturation and brightness (the mean of the paint pixels)."
 	for c in _preview.get_children():
 		c.queue_free()
-	for prefix in SAMPLES:
-		var id := _first_team_art(prefix)
-		if id == "":
-			continue
+	for id in samples(ws.pack):
 		var s := ws.pack.get_sprite(ws.pack.team_sprite(id, _selected))
 		if s.is_empty():
 			continue
@@ -144,11 +140,17 @@ func _load_selected() -> void:
 		box.add_child(l)
 
 
-func _first_team_art(prefix: String) -> String:
-	if ws.pack.team_sets.has(prefix) or ws.pack.team_masks.has(prefix):
-		return prefix
-	var best := ""
-	for id in ws.pack.team_sets:
-		if String(id).begins_with(prefix) and (best == "" or ws.pack.get_sprite(String(id))["w"] * ws.pack.get_sprite(String(id))["h"] > ws.pack.get_sprite(best)["w"] * ws.pack.get_sprite(best)["h"]):
-			best = String(id)
-	return best
+## The team art the preview shows a colour on, whatever the pack's own is: the largest frame of each object (an id's
+## first two segments, e.g. "vehicle.tank"), the largest objects first, at most SAMPLE_COUNT.
+static func samples(pack: Pack) -> Array:
+	var area := func(id: String) -> int:
+		var s := pack.get_sprite(id)
+		return int(s.get("w", 0)) * int(s.get("h", 0))
+	var best := {}   # object -> its largest team-art id
+	for id in Array(pack.team_sets.keys()) + Array(pack.team_masks.keys()):
+		var obj := ".".join(String(id).split(".").slice(0, 2))
+		if area.call(String(id)) > 0 and (not best.has(obj) or area.call(String(id)) > area.call(best[obj])):
+			best[obj] = String(id)
+	var ids: Array = best.values()
+	ids.sort_custom(func(a, b): return area.call(a) > area.call(b) or (area.call(a) == area.call(b) and a < b))
+	return ids.slice(0, SAMPLE_COUNT)

@@ -124,7 +124,10 @@ func _process(_delta: float) -> void:
 	_objective.text = _objective_text(v)
 	_fade.color.a = 1.0 - mc.view_fade
 	_fade.size = get_viewport().get_visible_rect().size
-	_stock.text = "vehicles left (placeholder display): Tank %s  Jeep %s  MSV %s  Heli %s" % [_n(mc.vehicle_stock[0]), _n(mc.vehicle_stock[1]), _n(mc.vehicle_stock[2]), _n(mc.vehicle_stock[3])]
+	var left := []   # every vehicle type the pack defines, by its own name: a roster need not be the original four
+	for t in mc.vehicle_stock.size():
+		left.append("%s %s" % [String(mc.pack.vehicle_value(t, "name", "#%d" % t)).capitalize(), _n(mc.vehicle_stock[t])])
+	_stock.text = "vehicles left (placeholder display): " + "  ".join(left)
 
 
 func _objective_text(v: Vehicle) -> String:

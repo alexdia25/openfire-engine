@@ -37,6 +37,22 @@ var _decoration_lookup: Dictionary = {}
 var _jitter: Array[Vector2] = []
 
 
+## A level's display name without parsing the whole file, for lists of many levels: "name" is looked for in the
+## file's first bytes, where a converter that writes keys in order puts it. Only if it isn't there is the whole file
+## parsed after all -- a level.json written with sorted keys (PackWriter's, so anything the mod tool saves) has its
+## long "decorations" list first. "" if the level has no name.
+static func peek_name(level_dir: String) -> String:
+	var path := level_dir.path_join("level.json")
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var m := RegEx.create_from_string("\"name\"\\s*:\\s*\"([^\"]*)\"").search(f.get_buffer(600).get_string_from_utf8())
+	if m != null:
+		return m.get_string(1)
+	var doc: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	return String(doc["name"]) if doc is Dictionary and doc.get("name") is String else ""
+
+
 ## `override_paths`: every layer's `level.override.json` for this level, base to top (`Pack.level_override_paths()`),
 ## applied here in that order so a later mod's edit wins. An override may set `side_colours` (replacing the level's
 ## own) and `roster` (per-id: null removes, an object adds or merges) -- see `roster_override` above. The generated

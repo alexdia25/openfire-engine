@@ -114,15 +114,9 @@ func _list_levels() -> void:
 		_show_level(ws.pack.list_levels()[0])
 
 
-## The level's display name without parsing the whole file: "name" sits near the top of level.json.
+## The level's display name (LevelData.peek_name, shared with the game's level select).
 static func _peek_name(dir: String) -> String:
-	var f := FileAccess.open(dir.path_join("level.json"), FileAccess.READ)
-	if f == null:
-		return ""
-	var head := f.get_buffer(600).get_string_from_utf8()
-	var re := RegEx.create_from_string("\"name\"\\s*:\\s*\"([^\"]*)\"")
-	var m := re.search(head)
-	return m.get_string(1) if m != null else ""
+	return LevelData.peek_name(dir)
 
 
 ## The number in a level id ("117" from "RFMAP117"), or the id itself if it has none (a mod's own id).
