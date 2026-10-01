@@ -27,6 +27,11 @@ extends Node
 
 @export var pack_path: String = ""   ## "" = the game's own base pack (ModLoader.base_pack_dir())
 
+## Entries a game adds to the Settings screen, as [label, Callable], shown above "Back" in the order added. The engine
+## has no settings of its own on that screen yet; this is how a game puts its own there (e.g. Return Fire's "re-import
+## the game files"). Static, so a game registers them once, before or after GameFlow starts.
+static var settings_entries: Array = []
+
 var pack: Pack
 var _current: Control = null   ## the front-end screen on screen now (title / menu / settings / multiplayer / level select / a story scene)
 var _level_view: Node3D = null   ## the running TerrainView3D, while a level is in progress
@@ -81,7 +86,18 @@ func _show_main_menu() -> void:
 
 
 func _show_settings() -> void:
-	_show_placeholder("Settings", "Not built yet.", [["Back", func(): _show_main_menu()]])
+	var buttons := settings_entries.duplicate()
+	buttons.append(["Back", func(): _show_main_menu()])
+	_show_placeholder("Settings", "Not built yet." if settings_entries.is_empty() else "", buttons)
+
+
+## Adds a button to the Settings screen (see `settings_entries`); a label already there is replaced, not duplicated.
+static func add_settings_entry(label: String, action: Callable) -> void:
+	for e in settings_entries:
+		if e[0] == label:
+			e[1] = action
+			return
+	settings_entries.append([label, action])
 
 
 func _show_multiplayer() -> void:
