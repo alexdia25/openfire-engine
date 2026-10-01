@@ -189,9 +189,10 @@ func _spawn_vehicle_and_enemies() -> void:
 	# hatch-opens/camera-swoop undock (documents 89/90) with no further change needed here.
 	# Stock is spent on confirm (`confirm_selection()`), not here -- there is no "already spent"
 	# vehicle to account for the way a respawn's dead one is.
-	# `pack.manifest`'s own `spawn_through_hangar` (default true, the traced behaviour) lets a
-	# game built on this engine opt out, per-pack, if it has no hangar/choice screen at all.
-	if pack.manifest.get("spawn_through_hangar", true):
+	# `pack.manifest`'s own `spawn_through_hangar` decides; without one, a pack starts this way only
+	# if it has a hangar/choice screen to show (hud/selector.json) -- otherwise the start would be a
+	# black screen waiting on a choice nothing can display.
+	if pack.manifest.get("spawn_through_hangar", not pack.selector_data.is_empty()):
 		_pad_centre = vehicle.position
 		vehicle.z = DOCK_MIN_DEPTH
 		vehicle.docked = true

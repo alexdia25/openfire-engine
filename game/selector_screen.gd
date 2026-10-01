@@ -57,6 +57,9 @@ func setup(controller: MatchController) -> void:
 		_glow.draw.connect(func():
 			if mc.selecting and _glow_tex.atlas != null:
 				_glow.draw_texture_rect(_glow_tex, Rect2(_glow_at, _glow_size * S), false))
+	# a match that starts in the hangar (MatchController._spawn_vehicle_and_enemies) has already opened it during its
+	# setup(), before this screen existed to hear selection_changed: show the state as it is now, not only on changes
+	_refresh()
 
 
 func _refresh() -> void:
