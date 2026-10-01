@@ -102,8 +102,12 @@ func start_pitched(pitch_deg: float, bonus_units_per_tick: float) -> void:
 ##    velocity only approaches it by `accel_xy` (x and y) and `accel_z` units a tick per tick, so the shot turns wide;
 ##  - it moves by that velocity; z below 0 is the ground.
 ## There is NO lifetime test in the traced tick: the shot flies until it hits something or loses its target (the link to the
-## vehicle is cleared when the vehicle is destroyed), when it simply vanishes. The smoke puffs it leaves are not drawn (untraced
-## effect hook: a random 1 in 4 ticks, every tick while its pitch is still turning).
+## vehicle is cleared when the vehicle is destroyed), when it simply vanishes. It leaves smoke (FUN_00415100 -> FUN_0042e080, the
+## homing table's `smoke_record`): a puff on every tick its pitch is still turning toward the target and on a random 1 in 4 of
+## the others, 0 to 3 units off in x and y and 5 units above the shot, each animating at a random rate of 0x2aaa + up to 0x1555
+## (a sixth to a quarter of a frame a tick). `puff` is emitted for the view to draw.
+signal puff(at: Vector2, height: float, rate: float)
+var _puff_ticks := 0.0
 var homing := false
 var homing_cfg: Dictionary = {}
 var homing_target: Node2D = null       ## a Vehicle; the link FUN_0042cc50 keeps
@@ -160,6 +164,7 @@ func _homing_step(ticks: float) -> void:
 	if want_p > down_max:
 		want_p = down_max
 	homing_pitch = turn_toward(homing_pitch, want_p, float(homing_cfg.get("pitch_rate_deg", 1.125)) * ticks)
+	var pitch_turning := absf(_wrap180(want_p - homing_pitch)) > 0.0001
 	var want_v := _homing_wanted_velocity(speed / TICK_HZ)
 	var axy := float(homing_cfg.get("accel_xy", 0x7ae / 65536.0)) * ticks
 	var az := float(homing_cfg.get("accel_z", 0x1999 / 65536.0)) * ticks
@@ -169,6 +174,12 @@ func _homing_step(ticks: float) -> void:
 	z += homing_vel.z * ticks
 	if homing_vel.x != 0.0 or homing_vel.y != 0.0:
 		heading_deg = rad_to_deg(atan2(homing_vel.y, homing_vel.x))
+	if homing_cfg.has("smoke_record"):
+		_puff_ticks += ticks
+		while _puff_ticks >= 1.0:
+			_puff_ticks -= 1.0
+			if pitch_turning or randi() % 4 == 1:
+				puff.emit(position + Vector2(randi() % 4, randi() % 4), z + 5.0, (0x2aaa + randi() % 0x1555) / 65536.0)
 
 
 func configure(pack: Pack, type: int) -> void:

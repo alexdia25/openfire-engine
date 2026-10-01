@@ -85,6 +85,19 @@ func _add_part(data: Dictionary) -> void:
 	_parts.append({"data": data, "mi": mi, "mat": mat, "last": -1})
 
 
+## A puff of smoke at a height with its own animation rate (FUN_0042e080 + the caller's write to the effect's +0x68, which replaces
+## the record's rate; the rocket's trail, issue #69).
+static func spawn_puff(parent: Node, pack: Pack, record: Dictionary, at: Vector2, height: float, rate: float) -> ExplosionEffect3D:
+	if record.is_empty():
+		return null
+	var r := record.duplicate()
+	r["rate_per_tick"] = rate
+	var fx := spawn(parent, pack, r, at)
+	if fx != null:
+		fx.position.y = height
+	return fx
+
+
 static func spawn_attached(parent: Node, pack: Pack, record: Dictionary, vehicle: Vehicle,
 		offset: Vector3, yaw := 0.0) -> ExplosionEffect3D:
 	var fx := spawn(parent, pack, record, vehicle.position)

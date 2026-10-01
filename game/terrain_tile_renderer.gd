@@ -19,6 +19,10 @@ var _under: Node2D
 var _art: Node2D
 var _full := true
 var _dirty: Array[Vector2i] = []
+## Tiles of the pack's off-map tile (Pack.off_map) drawn around the map, as FUN_00408d60 does for every cell outside it (issue #69: the camera
+## follows a vehicle past the edge and shows that tile there). The node is shifted by this margin so map tiles keep their own coordinates.
+var margin_tiles := 0
+var _off_sprite := ""
 var _drawn := false   ## a draw pass has issued the current commands; they count as rendered only after the frame's post-draw
 
 
@@ -33,6 +37,13 @@ class Layer extends Node2D:
 func setup(shared_pack: Pack, shared_level: LevelData) -> void:
 	pack = shared_pack
 	level = shared_level
+	margin_tiles = 0
+	if shared_pack.off_map.has("art"):
+		margin_tiles = int(shared_pack.off_map.get("margin_tiles", 0))
+		_off_sprite = shared_pack.get_tile_sprite_id(int(shared_pack.off_map["art"]))
+		if _off_sprite == "":
+			margin_tiles = 0
+	position = Vector2(margin_tiles, margin_tiles) * shared_pack.tile_size_px
 	_under = _make_layer(true)
 	_art = _make_layer(false)
 	var shader := Shader.new()
@@ -88,16 +99,17 @@ func _draw_layer(layer: Node2D, underlay: bool) -> void:
 	var clear := RenderingServer.get_default_clear_color()
 	var tiles: Array[Vector2i] = []
 	if _full:
-		for y in level.height:
-			for x in level.width:
+		for y in range(-margin_tiles, level.height + margin_tiles):
+			for x in range(-margin_tiles, level.width + margin_tiles):
 				tiles.append(Vector2i(x, y))
 	else:
 		tiles = _dirty
 	for t in tiles:
-		var sprite_id := _tile_sprite_id(t.x, t.y)
+		var off_map := t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height
+		var sprite_id := _off_sprite if off_map else _tile_sprite_id(t.x, t.y)
 		var dst := Rect2(t.x * tile, t.y * tile, tile, tile)
 		if underlay:
-			var hole: bool = pack.tileset.get(str(level.get_art_id(t.x, t.y)), {}).get("hole", false)
+			var hole: bool = not off_map and pack.tileset.get(str(level.get_art_id(t.x, t.y)), {}).get("hole", false)
 			layer.draw_rect(dst, Color(0, 0, 0, 0) if hole else clear)
 			continue
 		if sprite_id == "":

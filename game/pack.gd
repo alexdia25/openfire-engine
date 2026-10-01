@@ -77,6 +77,9 @@ var edge_guard: Dictionary = {}
 ## cast (documents 46, 48, 63). Empty: a projectile without a draw descriptor of its own falls back to a plain sphere.
 var projectile_art: Dictionary = {}
 var tile_size_px: int = 32
+## terrain/tileset.json "off_map": {art: the tile art id every cell past the map's edge shows, margin_tiles: how many tiles of it are
+## drawn around the map}. Empty: nothing is drawn past the edge (the flat backdrop shows).
+var off_map: Dictionary = {}
 
 
 static func _read_json(path: String) -> Variant:
@@ -563,6 +566,7 @@ func _load_layer(dir: String) -> bool:
 	_overlay(tileset, tdoc.get("tiles", {}))
 	if tdoc.has("tile_size_px"):
 		tile_size_px = int(tdoc["tile_size_px"])
+	_overlay(off_map, tdoc.get("off_map", {}))
 
 	# Document 35 (on the project wiki): a level's tile coastal id can also be a real decoration --
 	# optional (an older or hand-authored pack need not have this file at all), and, per

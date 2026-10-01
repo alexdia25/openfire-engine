@@ -359,6 +359,8 @@ func _launch_guard_rocket(origin: Vector2, target: Node2D) -> Node2D:
 	p.team = "tan"   # the launch passes team index 0 (whether the vehicle's damage handler reads it is untraced)
 	p.colour = level.side_colour(0)
 	p.start_homing(target, float(cfg.get("launch_heading_deg", 0.0)), float(cfg.get("launch_pitch_deg", 0.0)))
+	if vehicle != null and cfg.has("launch_sound"):
+		vehicle.sound_cue.emit(String(cfg["launch_sound"]))   # FUN_004148f0 enqueues the rocket's own sound (record +0x18) on creation
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
 	return p

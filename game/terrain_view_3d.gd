@@ -91,6 +91,7 @@ var _tile_renderer: TerrainTileRenderer
 var _decoration_field: DecorationField3D
 var _hud: PlaceholderHud                     ## port-only placeholder (document 66)
 var _last_death_phase := 0                   ## debug print (RF_DEBUG_KILL)
+var _ground_margin_px := 0.0                 ## the off-map border baked around the ground plane (Pack.off_map), world units each side
 var _debug_offmap_done := false             ## RF_DEBUG_OFFMAP has been applied
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
@@ -194,7 +195,8 @@ func _ready() -> void:
 func _build_terrain_ground() -> void:
 	_terrain_vp = SubViewport.new()
 	var sub_vp := _terrain_vp
-	sub_vp.size = Vector2i(int(_map_size_px.x), int(_map_size_px.y))
+	_ground_margin_px = _off_map_margin_px()
+	sub_vp.size = Vector2i(int(_map_size_px.x + 2.0 * _ground_margin_px), int(_map_size_px.y + 2.0 * _ground_margin_px))
 	# The terrain art never changes after a level loads (no animated tiles anywhere in this
 	# project's tile pipeline) -- render once and stop, instead of re-drawing an identical
 	# image every frame.
@@ -223,7 +225,7 @@ func _build_terrain_ground() -> void:
 	# (there is no real art beyond the level's actual bounds), so this phase accepts the
 	# artifact rather than paper over it -- worth a skybox/fallback-colour backdrop in a later
 	# pass, not a blocker for verifying the terrain projection itself.
-	plane.size = _map_size_px
+	plane.size = _map_size_px + Vector2.ONE * (2.0 * _ground_margin_px)
 	ground.mesh = plane
 	var mat := StandardMaterial3D.new()
 	mat.albedo_texture = sub_vp.get_texture()
@@ -250,6 +252,12 @@ func _build_terrain_ground() -> void:
 ## camera and view distance are not mapped onto this one, document 90): a flat sand-toned backdrop instead of
 ## Godot's own default clear colour, so the seam reads as a hazy horizon rather than a hole in the world.
 const BACKDROP_COLOUR := Color8(196, 164, 122)
+
+
+func _off_map_margin_px() -> float:
+	if not pack.off_map.has("art") or pack.get_tile_sprite_id(int(pack.off_map["art"])) == "":
+		return 0.0
+	return float(int(pack.off_map.get("margin_tiles", 0)) * pack.tile_size_px)
 
 
 func _build_backdrop() -> void:
@@ -459,6 +467,9 @@ func _on_projectile_spawned(projectile: Projectile) -> void:
 	var pb := ProjectileBillboard3D.new()
 	add_child(pb)
 	pb.setup(projectile, pack)
+	if projectile.homing:
+		projectile.puff.connect(func(at: Vector2, height: float, rate: float):
+			ExplosionEffect3D.spawn_puff(self, pack, pack.get_explosion(String(projectile.homing_cfg.get("smoke_record", ""))), at, height, rate))
 
 
 ## A pool's active target ran out of hit points: the tile becomes its coastal entry's destroyed
@@ -678,10 +689,9 @@ func _camera_target_position(look_at_px: Vector2, height_px: float = camera_heig
 	var margin := pull_back
 	var desired_x := look_at_px.x
 	var desired_z := look_at_px.y + pull_back
-	if OS.get_environment("RF_DEBUG_CAMERA_FREE") == "1":   # debug-only: no edge clamp, to look past the map's edge (issue #68)
-		return Vector3(desired_x, height_px, desired_z + _layout_shift_z(height_px, tilt_deg))
-	var x := clampf(desired_x, margin, maxf(_map_size_px.x - margin, margin))
-	var z := clampf(desired_z, margin, maxf(_map_size_px.y - margin, margin))
+	var ext := _ground_margin_px   # the camera may go as far out as the baked border (the original's rig does not clamp: FUN_00416300)
+	var x := clampf(desired_x, margin - ext, maxf(_map_size_px.x + ext - margin, margin - ext))
+	var z := clampf(desired_z, margin - ext, maxf(_map_size_px.y + ext - margin, margin - ext))
 	return Vector3(x, height_px, z + _layout_shift_z(height_px, tilt_deg))
 
 

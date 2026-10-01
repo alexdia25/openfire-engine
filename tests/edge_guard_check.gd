@@ -22,12 +22,13 @@ func _table() -> Dictionary:
 	return {"frames": frames, "quad": [[-64.0, -32.0, 16.0], [64.0, -32.0, 16.0], [64.0, 32.0, -16.0], [-64.0, 32.0, -16.0]],
 		"spawn_margin": 32.0, "hunt_ticks": 240, "aim_ticks": 180, "frame_rate": 0x3333 / 65536.0, "surfaced_frame": 20.0,
 		"loop_end_frame": 25.0, "loop_period": 0x50001 / 65536.0, "dive_wrap_base": 0xeffff / 65536.0, "projectile": 0,
-		"muzzle": [-32.0, 0.0, 0.0], "launch_heading_deg": 0.0, "launch_pitch_deg": 0x355555 / 4194304.0 * 360.0}
+		"muzzle": [-32.0, 0.0, 0.0], "launch_sound": "Ding", "launch_heading_deg": 0.0, "launch_pitch_deg": 0x355555 / 4194304.0 * 360.0}
 
 
 func _homing() -> Dictionary:
 	return {"heading_rate_deg": 0x6666 / 4194304.0 * 360.0, "pitch_rate_deg": 0x3333 / 4194304.0 * 360.0,
-		"accel_xy": 0x7ae / 65536.0, "accel_z": 0x1999 / 65536.0, "max_down_deg": 0xaaaaa / 4194304.0 * 360.0}
+		"accel_xy": 0x7ae / 65536.0, "accel_z": 0x1999 / 65536.0, "max_down_deg": 0xaaaaa / 4194304.0 * 360.0,
+		"smoke_record": "rec.small"}
 
 
 func _make_pack() -> String:
@@ -177,6 +178,10 @@ func _match(pack: Pack) -> void:
 	var edge := level.width * tsz
 	var created := []
 	mc.edge_guard_created.connect(func(g): created.append(g))
+	var cues := []
+	v.sound_cue.connect(func(c): cues.append(c))
+	var puffs := []
+	mc.projectile_spawned.connect(func(p): p.puff.connect(func(at, h, rate): puffs.append([at, h, rate])))
 	var dt := 1.0 / Vehicle.TICK_HZ
 	# just past the edge but within the margin: nothing
 	v.position = Vector2(edge + 10.0, 100.0)
@@ -206,6 +211,11 @@ func _match(pack: Pack) -> void:
 			killed_at = i
 			break
 	_check(launched, "the guard launched its rocket")
+	_check(cues.count("Ding") == 1, "the rocket launch sound is requested once, the table launch_sound (all cues: %s)" % [cues])
+	var puff_ok := puffs.size() > 20
+	for pf in puffs:
+		puff_ok = puff_ok and pf[2] >= 0x2aaa / 65536.0 and pf[2] < (0x2aaa + 0x1555) / 65536.0
+	_check(puff_ok, "it leaves smoke (%d puffs) at rates between 0x2aaa and 0x3fff over 65536" % puffs.size())
 	_check(killed_at >= 0, "and it killed the stray vehicle (tick %d)" % killed_at)
 	for i in 400:
 		mc._process(dt)
