@@ -2,7 +2,8 @@ class_name PackWriter
 extends RefCounted
 ## The inverse of Pack's loader for one layer (EDITOR_PLAN.md 3): writes a mod's own files, and nothing else. Only the
 ## tables the mod actually has are written; an empty table's file is removed so a layer never carries stale data.
-## JSON is written with sorted keys and tab indents so a mod's files diff cleanly under version control.
+## JSON is written with sorted keys and tab indents so a mod's files diff cleanly under version control, and floats at
+## full precision so every number reads back exactly as written (a traced 16.16 value survives a save unchanged).
 
 
 static func write_json(path: String, data: Variant) -> bool:
@@ -11,7 +12,7 @@ static func write_json(path: String, data: Variant) -> bool:
 	if f == null:
 		push_error("PackWriter: cannot write %s (%s)" % [path, FileAccess.get_open_error()])
 		return false
-	f.store_string(JSON.stringify(data, "\t", true) + "\n")
+	f.store_string(JSON.stringify(data, "\t", true, true) + "\n")   # full precision: a float reads back exactly as written
 	return true
 
 
