@@ -23,8 +23,14 @@ const PACK_SEARCH_ROOTS: Array[String] = ["res://packs", "user://packs"]
 
 
 static func base_pack() -> String:
-	return String(ProjectSettings.get_setting(BASE_PACK, ""))
+	return _setting(BASE_PACK)
 
 
 static func asset_registry() -> String:
-	return String(ProjectSettings.get_setting(ASSET_REGISTRY, ""))
+	return _setting(ASSET_REGISTRY)
+
+
+## A setting with the export's feature-tag overrides applied: ProjectSettings.get_setting() alone does not apply them
+## at runtime, get_setting_with_override() does.
+static func _setting(key: String) -> String:
+	return String(ProjectSettings.get_setting_with_override(key)) if ProjectSettings.has_setting(key) else ""

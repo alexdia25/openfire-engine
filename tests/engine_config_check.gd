@@ -59,6 +59,12 @@ func _init() -> void:
 	_check(layered.load_from(mod) and layered.layers.size() == 2 and layered.layers[0] == base_dir,
 			"and it loads over the base found under user://packs (EngineConfig.PACK_SEARCH_ROOTS)")
 
+	# an export varies the setting with a feature tag (openfire's "Open Fire" build: openfire_import -> user://); a custom
+	# feature can't be switched on in a test, so the built-in "pc" stands in for it
+	ProjectSettings.set_setting(EngineConfig.BASE_PACK + ".pc", "user://packs/from_a_feature")
+	_check(not OS.has_feature("pc") or EngineConfig.base_pack() == "user://packs/from_a_feature", "a feature-tag override of the setting applies")
+	ProjectSettings.set_setting(EngineConfig.BASE_PACK + ".pc", null)
+
 	ProjectSettings.set_setting(EngineConfig.BASE_PACK, "")
 	print("engine_config_check: %s" % ("PASS" if _failures == 0 else "%d FAILED" % _failures))
 	quit(0 if _failures == 0 else 1)
