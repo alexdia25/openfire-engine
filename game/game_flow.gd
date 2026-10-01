@@ -35,6 +35,7 @@ static var settings_entries: Array = []
 var pack: Pack
 var _current: Control = null   ## the front-end screen on screen now (title / menu / settings / multiplayer / level select / a story scene)
 var _level_view: Node3D = null   ## the running TerrainView3D, while a level is in progress
+var _menu_music: MusicManager = null   ## the hangar theme under the front-end screens; gone while a level runs (the level has its own MusicManager)
 var _overlay: StoryScene = null   ## a mid-level scene playing over the (paused) live level; see trigger_mid_level()
 
 
@@ -53,6 +54,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		_show_level_select()
 
 
+func _start_menu_music() -> void:
+	if _menu_music != null and is_instance_valid(_menu_music):
+		return
+	_menu_music = MusicManager.new()
+	add_child(_menu_music)
+	if not _menu_music.setup_menu(pack):
+		_stop_menu_music()
+
+
+func _stop_menu_music() -> void:
+	if _menu_music != null and is_instance_valid(_menu_music):
+		_menu_music.queue_free()
+	_menu_music = null
+
+
 func _clear_current() -> void:
 	if _current != null and is_instance_valid(_current):
 		_current.queue_free()
@@ -67,6 +83,7 @@ func _clear_level() -> void:
 
 func _show_placeholder(title: String, message: String, buttons: Array) -> void:
 	_clear_current()
+	_start_menu_music()
 	var s := PlaceholderScreen.new()
 	add_child(s)
 	_current = s
@@ -106,6 +123,7 @@ func _show_multiplayer() -> void:
 
 func _show_level_select() -> void:
 	_clear_current()
+	_start_menu_music()
 	var s := LevelSelectScreen.new()
 	add_child(s)
 	_current = s
@@ -150,6 +168,7 @@ func start_level(level_id: String) -> void:
 
 func _enter_level(level_id: String) -> void:
 	_clear_current()
+	_stop_menu_music()
 	var view: Node3D = load("res://addons/openfire_engine/game/terrain_view_3d.tscn").instantiate()
 	view.pack_path = pack_path
 	view.level_id = level_id

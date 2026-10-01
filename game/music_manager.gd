@@ -29,6 +29,7 @@ var _last_death_phase := 0
 var _last_finished := false
 var _flag_count := 0
 var _started := false
+var _menu := false                      ## front-end mode (no match): the hangar theme loops under the menus
 
 
 ## Returns false when the pack has no music (tools/extract_music.py not run) or music is off.
@@ -49,6 +50,18 @@ func setup(p: Pack, controller: MatchController) -> bool:
 	add_child(_player)
 	_player.finished.connect(_on_finished)
 	director.line_changed.connect(_on_line_changed)
+	return true
+
+
+## Front-end mode: the menus before a level (title, main menu, settings, level select) have no match to watch, so the director is told the player is on the
+## vehicle choice, which makes it ask for the Bunker line (the hangar theme) and loop it. PORT CHOICE: the original's title-screen "Drums" line (17) names tracks the
+## pack doesn't hold, so the menus use Bunker. Returns false when the pack has no music or music is off.
+func setup_menu(p: Pack) -> bool:
+	if not setup(p, null):
+		return false
+	_menu = true
+	director.choosing = 1
+	director.in_game_view = false
 	return true
 
 
@@ -76,15 +89,18 @@ func _stream(n: int) -> AudioStream:
 
 
 func _process(delta: float) -> void:
-	if _player == null or mc == null or mc.vehicle == null:
+	if _player == null or (mc == null and not _menu):
 		return
-	if not _started:
+	if not _menu and mc.vehicle == null:
+		return
+	if not _menu and not _started:
 		_started = true
 		_last_undocking = mc.undocking
 		_flag_count = mc.flags.size()
 		if not mc.selecting:
 			_vehicle_created()   # the port starts with the vehicle already out
-	_poll()
+	if not _menu:
+		_poll()
 	_acc += delta * TICK_HZ
 	while _acc >= 1.0:
 		_acc -= 1.0
@@ -122,6 +138,9 @@ func _vehicle_created() -> void:
 
 
 func _tick() -> void:
+	if _menu:
+		director.tick()
+		return
 	if mc.match_finished:
 		return   # the end-of-match handler has replaced the game view's loops that run the director (document 92)
 	director.bit_flag_carried = _flag_carried_by_other_team()
