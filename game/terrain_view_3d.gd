@@ -323,6 +323,9 @@ func _spawn_match() -> void:
 		billboard = _spawn_vehicle_render(controller.vehicle)
 		controller.vehicle.type_changed.connect(_on_player_type_changed)
 		_sound.connect_vehicle(controller.vehicle)
+		for e in controller.enemy_vehicles:
+			_sound.connect_vehicle(e)   # their cues and engine loops are heard with distance too
+		controller.sound_at.connect(func(cue: String, at: Vector2, z: float): _sound.play_at(cue, at, z))
 		var dock_light := DockReadyIndicator3D.new()
 		add_child(dock_light)
 		dock_light.setup(controller, pack)

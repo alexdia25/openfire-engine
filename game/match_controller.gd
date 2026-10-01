@@ -76,6 +76,10 @@ const DESTROY_SOUND_CUES := {
 ## A vehicle laid a mine / a mine went off (document 60); the explosion drawn is record 0x445058.
 signal mine_added(mine: Mine)
 signal mine_exploded(position: Vector2)
+## A sound that comes from a place in the world (an impact, an explosion, a mine, a gate, a crushed tile): the original's command names the
+## object as the source, so the listener hears it attenuated and panned (game/sound_manager.gd; issue #22). Sounds of the player's own
+## vehicle and flat ones (menu clicks) stay on Vehicle.sound_cue.
+signal sound_at(cue: String, at: Vector2, z: float)
 ## The map-edge guard (Return Fire's submarine; game/edge_guard.gd, issue #68) was created / removed itself.
 signal edge_guard_created(guard: EdgeGuard)
 signal edge_guard_removed(guard: EdgeGuard)
@@ -139,14 +143,24 @@ func setup(shared_pack: Pack, shared_level: LevelData, shared_pack_path: String,
 	impact_effect.connect(_on_impact_effect_sound)
 
 
-func _on_impact_effect_sound(record_addr: String, _position: Vector2) -> void:
-	if vehicle == null:
-		return
+## FUN_004148f0: a new projectile plays its type's own sound (record +0x18: Cannon, Missle, LargeMissle ... by type), with itself as the source.
+func _launch_sound(p: Projectile) -> void:
+	var t: Dictionary = pack.projectile_types[p.type_id] if p.type_id < pack.projectile_types.size() else {}
+	var cue := String(t.get("sound", ""))
+	if cue != "":
+		_sound_at(cue, p.position, p.z)
+
+
+func _sound_at(cue: String, at: Vector2, z := 0.0) -> void:
+	sound_at.emit(cue, at, z)
+
+
+func _on_impact_effect_sound(record_addr: String, position: Vector2) -> void:
 	if IMPACT_SOUND_CUES.has(record_addr):
-		vehicle.sound_cue.emit(IMPACT_SOUND_CUES[record_addr])
+		_sound_at(IMPACT_SOUND_CUES[record_addr], position)
 	elif IMPACT_SOUND_CUES_RANDOM.has(record_addr):
 		var choices: Array = IMPACT_SOUND_CUES_RANDOM[record_addr]
-		vehicle.sound_cue.emit(choices[randi() % choices.size()])
+		_sound_at(choices[randi() % choices.size()], position)
 
 
 ## Phase 4 step 3 (single-viewport half): spawn the player vehicle at the level's team-0 spawn
@@ -368,8 +382,7 @@ func _launch_guard_rocket(origin: Vector2, target: Node2D) -> Node2D:
 	p.team = "tan"   # the launch passes team index 0 (whether the vehicle's damage handler reads it is untraced)
 	p.colour = level.side_colour(0)
 	p.start_homing(target, float(cfg.get("launch_heading_deg", 0.0)), float(cfg.get("launch_pitch_deg", 0.0)))
-	if vehicle != null and cfg.has("launch_sound"):
-		vehicle.sound_cue.emit(String(cfg["launch_sound"]))   # FUN_004148f0 enqueues the rocket's own sound (record +0x18) on creation
+	_launch_sound(p)   # FUN_004148f0 enqueues the rocket's own sound (record +0x18) with the rocket as its source
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
 	return p
@@ -395,6 +408,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 	p.heading_deg = float(spec["heading"])
 	p.global_position = spec["position"]
 	p.prev_checked = spec["position"]
+	_launch_sound(p)
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
 
@@ -733,8 +747,7 @@ func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
 	m.position = at
 	mines.append(m)
 	mine_added.emit(m)
-	if vehicle != null:
-		m.beep.connect(vehicle.sound_cue.emit.bind("Button"))   # FUN_00409cd0's fuse beep, sound 0x44b580 (documents 50/60/82)
+	m.beep.connect(func(): _sound_at("Button", m.position))   # FUN_00409cd0's fuse beep, sound 0x44b580 with the mine as its source (documents 50/60/82)
 	if dropper != null:
 		# PORT CHOICE, not traced: document 82's three "Throw Grenade1" descriptors (Sound/Throw1-3.SDT) are all
 		# named identically and read as launch-sound variants for the MSV's mine layer, but which one plays when
@@ -844,8 +857,7 @@ func _detonate_mine(m: Mine) -> void:
 	m.queue_free()
 	_boxes.append({"box": ExplosionBox.new(pack.get_explosion("0x445058"), at), "destroyed": {}})
 	mine_exploded.emit(at)
-	if vehicle != null:
-		vehicle.sound_cue.emit("ExplLarge")   # record 0x445058's script: SOUND 14 then SOUND 1 (document 84); only the first is reproduced
+	_sound_at("ExplLarge", at)   # record 0x445058's script: SOUND 14 then SOUND 1 (document 84); only the first is reproduced
 
 
 ## Every whole tick a live damage box hurts what it overlaps: vehicles (layer 2, z their height shifted by their
@@ -979,7 +991,7 @@ func _create_gate(v: Vehicle) -> void:
 	g.colour = level.side_colour(g.variant)
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
-	g.sound_cue.connect(v.sound_cue.emit)
+	g.sound_cue.connect(func(c): _sound_at(c, g.centre))   # the gate object is the source (FUN_00432354 / FUN_00432410 pass it)
 	g.sound_cue.emit("GateMove")   # FUN_00432270: the gate's own init unconditionally plays this on creation (document 56, gate.gd)
 	gate_created.emit(g)
 
@@ -996,7 +1008,7 @@ func debug_open_gate(t: Vector2i) -> void:
 	g.colour = level.side_colour(g.variant)
 	gates[t] = g
 	level.set_coastal_id(t.x, t.y, 0)
-	g.sound_cue.connect(vehicle.sound_cue.emit)
+	g.sound_cue.connect(func(c): _sound_at(c, g.centre))
 	g.sound_cue.emit("GateMove")   # FUN_00432270: the gate's own init unconditionally plays this on creation (document 56, gate.gd)
 	gate_created.emit(g)
 
@@ -1090,7 +1102,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 				return true
 			if v.speed > crush_speed:
 				if _crush_tile(t, id):
-					v.sound_cue.emit("BushCrush")   # the crush record's `SOUND 13` (index 0x44b9a0 + 13 * 4 = 0x44b9d4 -> 0x44b6b8, document 101), once per crush: this test runs every tick the tank overlaps
+					_sound_at("BushCrush", (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px)   # the crush record's `SOUND 13` (index 0x44b9a0 + 13 * 4 = 0x44b9d4 -> 0x44b6b8, document 101), once per crush: this test runs every tick the tank overlaps
 				return false
 			return true
 		"0x436610":
@@ -1111,7 +1123,7 @@ func _tile_blocks_vehicle(v: Vehicle, t: Vector2i, id: int, info: Dictionary, sh
 		"0x436a50":
 			if v.speed > crush_speed:
 				if _crush_tile(t, id) and DESTROY_SOUND_CUES.has(id):
-					v.sound_cue.emit(DESTROY_SOUND_CUES[id])   # a crate is crushed with its ordinary destroy record, whose first SOUND is the cue (document 84)
+					_sound_at(DESTROY_SOUND_CUES[id], (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px)   # a crate is crushed with its ordinary destroy record, whose first SOUND is the cue (document 84)
 				return false
 			return true
 	return true
@@ -1357,8 +1369,8 @@ func _damage_tile_amount(t: Vector2i, id: int, damage: float) -> bool:
 		_tile_hp[t] = hp - dmg
 		return false
 	_tile_hp.erase(t)
-	if vehicle != null and DESTROY_SOUND_CUES.has(id):
-		vehicle.sound_cue.emit(DESTROY_SOUND_CUES[id])
+	if DESTROY_SOUND_CUES.has(id):
+		_sound_at(DESTROY_SOUND_CUES[id], (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px)
 	if gates.has(t):
 		_remove_gate(gates[t])  # FUN_00432460: the decoration returns, then the tile is destroyed as usual
 	var tile_px := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px

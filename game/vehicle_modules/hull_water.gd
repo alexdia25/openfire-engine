@@ -25,18 +25,15 @@ func toggle_swim(v: Vehicle) -> void:
 		return
 	if v.water_class != 0 and v.swim_target == 0.0:
 		v.swim_target = 1.0
+		v.sound_cue.emit("TireOut")   # FUN_0040dfe0: FUN_004232d0(1, 0x44b958, vehicle, 0) as it switches the swim flag on (issue #22, document 117)
 	elif v.water_class != 2 and v.swim_target == 1.0:
 		v.swim_target = 0.0
+		v.sound_cue.emit("TireIn")    # ... and 0x44b940 as it switches it off
 
 
 func update(v: Vehicle, delta: float) -> void:
 	var ticks := delta * TICK_HZ
-	var before := v.water_class
 	v.water_class = Water.class_at(v.level, v.pack, v.position, v.hit_polygon(), v.z)
-	if before == 0 and v.water_class != 0:
-		v.sound_cue.emit("TireIn")   # PORT CHOICE, untraced trigger: Sound/Tirein.SDT on the land->water transition (document 82)
-	elif before != 0 and v.water_class == 0:
-		v.sound_cue.emit("TireOut")  # PORT CHOICE, untraced trigger: Sound/Tireout.SDT on the water->land transition (document 82)
 	if v.swim_amount != v.swim_target:
 		v.swim_amount = move_toward(v.swim_amount, v.swim_target, f("swim_ramp") * ticks)
 	var swimming := b("can_swim") and v.swim_target == 1.0

@@ -21,6 +21,7 @@ const SCHEMA := {
 		"level_pitch_deg": {"type": "float", "unit": "degrees", "default": 1.744, "provenance": "traced:64"},
 		"raised_row_deg": {"type": "float", "unit": "degrees", "default": -45.0, "provenance": "traced:64 (table row 56)"},
 		"flash": {"type": "explosion", "default": "0x4450d8", "provenance": "traced:58", "doc": "Back-blast record"},
+		"reload_sound": {"type": "sound", "default": "Reload", "provenance": "traced:117 (FUN_0040d520: FUN_004232d0(1, 0x44b658, vehicle, 1))", "doc": "Played when a full salvo is done and ammunition is left"},
 	},
 	"channels": ["_salvo_index", "_salvo_reload"],
 }
@@ -67,6 +68,8 @@ func fill_shot(v: Vehicle, spec: Dictionary) -> void:
 	spec["z"] = launch_z + v.z
 	spec["flash"] = {"record": String(params["flash"]), "offset": Vector3(x, -p1.y, p1.z + v.z)}
 	v._salvo_index += 1
+	if v._salvo_index >= salvo.size() and v.ammo[0] >= 1:
+		v.sound_cue.emit(String(params["reload_sound"]))   # FUN_0040d520: after the third rocket, with ammunition left, the launcher's reload servo ("Reload" = Servo.SDT)
 	if v._salvo_index >= salvo.size() or v.ammo[0] < 1:   # the last rocket of the stock also starts the reload (FUN_0040d520)
 		v._salvo_index = 0
 		v._salvo_reload = f("reload_ticks")

@@ -22,7 +22,7 @@ func _table() -> Dictionary:
 	return {"frames": frames, "quad": [[-64.0, -32.0, 16.0], [64.0, -32.0, 16.0], [64.0, 32.0, -16.0], [-64.0, 32.0, -16.0]],
 		"spawn_margin": 32.0, "hunt_ticks": 240, "aim_ticks": 180, "frame_rate": 0x3333 / 65536.0, "surfaced_frame": 20.0,
 		"loop_end_frame": 25.0, "loop_period": 0x50001 / 65536.0, "dive_wrap_base": 0xeffff / 65536.0, "projectile": 0,
-		"muzzle": [-32.0, 0.0, 0.0], "launch_sound": "Ding", "launch_heading_deg": 0.0, "launch_pitch_deg": 0x355555 / 4194304.0 * 360.0}
+		"muzzle": [-32.0, 0.0, 0.0], "launch_heading_deg": 0.0, "launch_pitch_deg": 0x355555 / 4194304.0 * 360.0}
 
 
 func _homing() -> Dictionary:
@@ -36,7 +36,7 @@ func _make_pack() -> String:
 	PackWriter.write_json(base.path_join("world/edge_guard.json"), _table())
 	PackWriter.write_json(base.path_join("vehicles/projectile_types.json"), {"types": [{"type": 0, "flags": 0,
 		"speed_units_per_tick": 3.0, "damage": 400.0, "pitch_rate_raw": 7208, "lifetime_ticks": 90, "body_descriptor": "0x0",
-		"shadow_descriptor": "0x0", "impact_table": "0x448988", "homing": _homing()}], "descriptors": {},
+		"shadow_descriptor": "0x0", "impact_table": "0x448988", "sound": "Ding", "homing": _homing()}], "descriptors": {},
 		"art": {"shell": "fx.turret", "shadow": "fx.tile"}})
 	# the first fixture vehicle attracts the guard (the real rule is one flag on the Heli's definition)
 	for i in Fixture.VEHICLES.size():
@@ -179,7 +179,7 @@ func _match(pack: Pack) -> void:
 	var created := []
 	mc.edge_guard_created.connect(func(g): created.append(g))
 	var cues := []
-	v.sound_cue.connect(func(c): cues.append(c))
+	mc.sound_at.connect(func(c, _at, _z): cues.append(c))   # the rocket sound comes from the rocket (issue #22)
 	var puffs := []
 	mc.projectile_spawned.connect(func(p): p.puff.connect(func(at, h, rate): puffs.append([at, h, rate])))
 	var dt := 1.0 / Vehicle.TICK_HZ
@@ -211,7 +211,7 @@ func _match(pack: Pack) -> void:
 			killed_at = i
 			break
 	_check(launched, "the guard launched its rocket")
-	_check(cues.count("Ding") == 1, "the rocket launch sound is requested once, the table launch_sound (all cues: %s)" % [cues])
+	_check(cues.count("Ding") == 1, "the rocket launch sound is requested once, its projectile type's sound (all cues: %s)" % [cues])
 	var puff_ok := puffs.size() > 20
 	for pf in puffs:
 		puff_ok = puff_ok and pf[2] >= 0x2aaa / 65536.0 and pf[2] < (0x2aaa + 0x1555) / 65536.0
