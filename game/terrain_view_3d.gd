@@ -64,8 +64,8 @@ const SWOOP_START_ZOOM := 4.0
 const CAMERA_NEAR_PLANE := 10.0
 const SWOOP_START_TILT_DEG := 70.0
 
-@export var pack_path: String = "res://packs/original_pc"
-@export var level_id: String = "RFMAP001"
+@export var pack_path: String = ""   ## "" = the game's own base pack (ModLoader.base_pack_dir())
+@export var level_id: String = ""   ## "" = the pack's first level (Pack.list_levels(), sorted)
 ## Set by GameFlow (PORTING_PLAN.md 2.8) when it instantiates this scene as the "Level" state: on Enter after the
 ## win/loss sequence, this view re-emits `continue_pressed` for GameFlow to act on instead of reloading itself, and
 ## the dev level-switch keys (`[`/`]`, PageUp/PageDown) are disabled -- level select is how you change levels once a
@@ -113,6 +113,8 @@ func _ready() -> void:
 		return
 	pack_path = pack.pack_dir   # the top layer actually loaded (the base, or the last enabled mod)
 
+	if level_id == "" and not pack.list_levels().is_empty():
+		level_id = pack.list_levels()[0]
 	level = LevelData.new()
 	if not level.load_from(pack.level_dir(level_id), pack.level_override_paths(level_id)):
 		push_error("TerrainView3D: failed to load level %s" % level_id)

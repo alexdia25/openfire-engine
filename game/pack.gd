@@ -476,9 +476,9 @@ func vehicle_value(index: int, path: String, default: Variant = null) -> Variant
 	return v if v != null else default
 
 
-## A pack id's directory: a sibling of `beside` first, then under res://packs.
+## A pack id's directory: a sibling of `beside` first, then under each of EngineConfig.PACK_SEARCH_ROOTS.
 static func _find_pack(id: String, beside: String) -> String:
-	for root in [beside.get_base_dir(), "res://packs"]:
+	for root in [beside.get_base_dir()] + EngineConfig.PACK_SEARCH_ROOTS:
 		var candidate: String = String(root).path_join(id)
 		if FileAccess.file_exists(candidate.path_join("pack.json")):
 			return candidate

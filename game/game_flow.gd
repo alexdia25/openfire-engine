@@ -25,7 +25,7 @@ extends Node
 ## -- the normal case, since Return Fire's own levels define none of these. `StoryScene` is a placeholder for the
 ## eventual visual-novel presentation (user direction, 2026-09-27).
 
-@export var pack_path: String = "res://packs/original_pc"
+@export var pack_path: String = ""   ## "" = the game's own base pack (ModLoader.base_pack_dir())
 
 var pack: Pack
 var _current: Control = null   ## the front-end screen on screen now (title / menu / settings / multiplayer / level select / a story scene)

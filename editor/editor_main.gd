@@ -1,5 +1,5 @@
 extends Control
-## The mod tool (EDITOR_PLAN.md; phase E0): open or create a mod pack layered over original_pc, edit its sprites and team
+## The mod tool (EDITOR_PLAN.md; phase E0): open or create a mod pack layered over the game's base pack, edit its sprites and team
 ## colours, check it, save it. Desktop only (the web build has no writable filesystem, PORTING_PLAN.md 2.5.1).
 ## Run:  godot --path . res://editor/editor_main.tscn
 ##

@@ -4,7 +4,6 @@ extends HSplitContainer
 ## inspector with where the sprite comes from, the registry's confidence and note, import / replace / external edit /
 ## revert, and its team art (pair or mask) with a strip of every team colour.
 
-const REGISTRY_PATH := "res://packs/registry/asset_ids.json"
 
 var ws: ModWorkspace
 var selected_id := ""
@@ -33,7 +32,8 @@ func setup(workspace: ModWorkspace) -> void:
 
 
 func _ready() -> void:
-	var reg: Variant = JSON.parse_string(FileAccess.get_file_as_string(REGISTRY_PATH)) if FileAccess.file_exists(REGISTRY_PATH) else null
+	var registry_path := EngineConfig.asset_registry()   # the game's own sprite-id notes, if it keeps any
+	var reg: Variant = JSON.parse_string(FileAccess.get_file_as_string(registry_path)) if registry_path != "" and FileAccess.file_exists(registry_path) else null
 	if reg is Dictionary:
 		for c in reg.get("cels", {}).values():
 			_registry[String(c["id"])] = c

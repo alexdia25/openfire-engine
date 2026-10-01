@@ -110,8 +110,8 @@ func _list_levels() -> void:
 	for id in ws.pack.list_levels():
 		_names[id] = _peek_name(ws.pack.level_dir(id))
 	_fill_list()
-	if level_id == "" and _names.has("RFMAP001"):
-		_show_level("RFMAP001")
+	if level_id == "" and not _names.is_empty():
+		_show_level(ws.pack.list_levels()[0])
 
 
 ## The level's display name without parsing the whole file: "name" sits near the top of level.json.

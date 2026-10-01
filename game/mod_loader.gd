@@ -6,14 +6,33 @@ extends RefCounted
 ## enabled mod fails to load, the game runs the original content unchanged.
 ##
 ## `RF_PACK=<dir>` still overrides everything for one run (testing, and the mod tool's "Play this map").
+##
+## Which pack is "the original content" is the game's to say, not the engine's: `base_pack_dir()`.
 
-const BASE_PACK := "res://packs/original_pc"
 const MODS_DIR := "user://mods"   ## where the mod tool creates mods; a mod may live anywhere, it is listed by its path
 
 
-## The game's pack: RF_PACK if set, else the base pack plus the enabled mods (GameSettings.enabled_mods unless `mods` is
-## given). Never fails over a bad mod: it is skipped (a warning), and if the stack still won't load, the base alone is used.
-static func load_game_pack(base_dir := BASE_PACK, mods: Variant = null) -> Pack:
+## The game's base pack: the project's `EngineConfig.base_pack()` (`openfire/packs/base_pack`, which an export may vary
+## by feature tag, e.g. to a `user://` pack generated on the player's machine). "" if the game names none.
+static func base_pack_dir() -> String:
+	return EngineConfig.base_pack()
+
+
+## Whether `dir` holds a loadable pack manifest (a pack.json that parses to an object). Quiet: a missing pack is an
+## expected state (a first run before the game's content exists), not an engine error.
+static func has_pack(dir: String) -> bool:
+	if dir == "" or not FileAccess.file_exists(dir.path_join("pack.json")):
+		return false
+	var json := JSON.new()
+	return json.parse(FileAccess.get_file_as_string(dir.path_join("pack.json"))) == OK and json.data is Dictionary
+
+
+## The game's pack: RF_PACK if set, else the base pack (`base_dir`, "" = `base_pack_dir()`) plus the enabled mods
+## (GameSettings.enabled_mods unless `mods` is given). Never fails over a bad mod: it is skipped (a warning), and if the
+## stack still won't load, the base alone is used.
+static func load_game_pack(base_dir := "", mods: Variant = null) -> Pack:
+	if base_dir == "":
+		base_dir = base_pack_dir()
 	var pack := Pack.new()
 	var env := OS.get_environment("RF_PACK")
 	if env != "":
@@ -49,7 +68,8 @@ static func load_game_pack(base_dir := BASE_PACK, mods: Variant = null) -> Pack:
 ## sense this list means. Compared with `editor_open_problem()` by resolved path, so `dir` may be given as `res://`,
 ## `user://` or a plain filesystem path.
 static func protected_base_dirs() -> Array[String]:
-	return [BASE_PACK]
+	var base := base_pack_dir()
+	return [base] if base != "" else []
 
 
 ## Why a directory can't be used as a mod ("" if it can): it must exist, have a readable pack.json, and name a base

@@ -8,7 +8,14 @@ extends RefCounted
 signal changed()                       ## after any edit, undo, redo, save or reload
 signal saved()
 
-const DEFAULT_BASE := "original_pc"
+## The base a new mod layers over: the id of the game's own base pack (its pack.json "id", else its folder name);
+## "" when the game has none, which makes "New mod" a standalone project.
+static func default_base() -> String:
+	var dir := ModLoader.base_pack_dir()
+	if not ModLoader.has_pack(dir):
+		return ""
+	var m: Variant = JSON.parse_string(FileAccess.get_file_as_string(dir.path_join("pack.json")))
+	return String(m.get("id", dir.get_file())) if m is Dictionary else dir.get_file()
 
 var mod_dir := ""
 var pack: Pack
@@ -34,8 +41,10 @@ func _announce() -> void:
 	changed.emit()
 
 
-## Creates a new, empty mod at `dir` over `base_pack`.
-static func create(dir: String, name: String, base_pack: String = DEFAULT_BASE) -> ModWorkspace:
+## Creates a new, empty mod at `dir` over `base_pack` (null = `default_base()`, "" = a standalone project).
+static func create(dir: String, name: String, base_pack: Variant = null) -> ModWorkspace:
+	if base_pack == null:
+		base_pack = default_base()
 	PackWriter.write_json(dir.path_join("pack.json"), {
 		"id": dir.get_file(), "name": name, "version": "0.1.0", "engine_api_version": "0.1.0", "author": "",
 		"license": "", "base_pack": base_pack, "overrides": [], "pixels_per_world_unit": 32})

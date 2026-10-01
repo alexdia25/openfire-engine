@@ -66,7 +66,7 @@ signal destroyed(vehicle: Vehicle)
 signal wrecked(info: Dictionary)
 signal type_changed(vehicle: Vehicle)
 
-@export var pack_path: String = "res://packs/original_pc"
+@export var pack_path: String = ""   ## "" = the game's own base pack (ModLoader.base_pack_dir())
 @export var team: String = "tan"  ## the side: "tan" (player 0) or "green" (player 1) -- section 4 item 5; game logic keys on this
 ## The colour the vehicle is drawn in (PORTING_PLAN.md 2.7.7), set by the match from LevelData.side_colours; "" = the side's
 ## own original colour. Art only: nothing in the simulation reads it.
