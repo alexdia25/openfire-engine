@@ -235,7 +235,7 @@ func _world(pack: Pack) -> void:
 	v.docked = false
 	v.frozen = false
 	var cues := []
-	v.sound_cue.connect(func(c): cues.append(c))
+	mc.sound_at.connect(func(c, _at, _z): cues.append(c))   # the man is the sound's source (issue #22)
 	var s := mc._new_soldier(v.position + Vector2(1.0, 1.0), 1)
 	_check(s != null and mc.soldiers.has(s), "a soldier can be created directly")
 	mc._update_soldiers(1.0 / Vehicle.TICK_HZ)

@@ -447,7 +447,6 @@ func _process(delta: float) -> void:
 ## Class 14 "MAN". Two sources: a building tile whose coastal entry asks for them (FUN_00434980, called by the damage functions when a hit
 ## leaves exactly 1 hit point) and a destroyed vehicle's crewman (FUN_00434950; the wreck's trigger is not traced, so the port makes none).
 ## The soldier's behaviour is Soldier; this section is its world: movement and collision, the grenade, crushing and killing.
-const SOLDIER_HEARING := 424.0   ## PORT CHOICE: the original's voices fall off linearly to silence at 424 units (FUN_004082b0); cues here are flat, so only play near the player
 
 
 func _soldier_footprint() -> Dictionary:
@@ -686,8 +685,7 @@ func _kill_soldier(s: Soldier) -> void:
 	s.kill()
 	soldiers.erase(s)
 	_spawn_corpse(s)
-	if vehicle != null and vehicle.position.distance_to(s.position) < SOLDIER_HEARING:
-		vehicle.sound_cue.emit("ManCrush")
+	_sound_at("ManCrush", s.position)   # the man is the source (FUN_00433ce0: FUN_004232d0(1, 0x44b718, man, 0)): the mixer's falloff decides who hears it
 
 
 ## FUN_004159a0 (the same grenade the Jeep lobs, document 61): launched at a point already scattered by the soldier, with the thrower
@@ -701,8 +699,7 @@ func _soldier_throw(s: Soldier, aim: Vector2) -> void:
 	p.start_lob(s.position, 0.0, aim)
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
-	if vehicle != null and vehicle.position.distance_to(s.position) < SOLDIER_HEARING:
-		vehicle.sound_cue.emit(MINE_THROW_CUES[randi() % 3])
+	_sound_at(MINE_THROW_CUES[randi() % 3], s.position)   # the grenade is the source
 
 
 ## A shell or grenade passing through a soldier's shape (layer / mask / z as for any object, document 53) kills it and is spent. A flat
