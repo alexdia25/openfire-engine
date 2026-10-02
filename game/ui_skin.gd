@@ -99,7 +99,12 @@ func theme() -> Theme:
 	sel.bg_color = caption_a
 	t.set_stylebox("selected", "ItemList", sel)
 	t.set_stylebox("selected_focus", "ItemList", sel)
-	t.set_stylebox("hovered", "ItemList", StyleBoxEmpty.new())
+	t.set_stylebox("hovered", "ItemList", StyleBoxEmpty.new())   # no highlight under the mouse, as a Win95 list has none
+	t.set_stylebox("hovered_selected", "ItemList", sel)
+	t.set_stylebox("hovered_selected_focus", "ItemList", sel)
+	t.set_stylebox("cursor", "ItemList", StyleBoxEmpty.new())
+	t.set_stylebox("cursor_unfocused", "ItemList", StyleBoxEmpty.new())
+	t.set_color("font_hovered_selected_color", "ItemList", hilight)
 	t.set_stylebox("panel", "PanelContainer", bevel(true))
 	_theme = t
 	return t
