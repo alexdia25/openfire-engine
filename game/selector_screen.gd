@@ -10,10 +10,10 @@ extends Control
 ##  - the map window (frame 2090 with the level's radar bitmap) while `M` is pressed; a black fade over everything but the panel (alpha 1 - fade).
 ## The 2x scale, the centring and the "M" key are the port's; the rest are the original's numbers. NOT drawn: the panel's slide-in and the sounds.
 ##
-## The pointer (issue #38, FUN_00417d60): drawn at the bay's table position + (0.4, 1) px, a touch narrower than its cel (HDX lowered by 0x4000), and MIRRORED
-## for a bay whose table x is past 60 px (the right-hand bays: `pointer_mirror` in selector.json, from the original's `0x3c0000 < x` test), shifted by the cel
-## width + 1 so the mirrored cel covers the same span. (Document 80 once dropped an invented mirror because a negative-size Rect2 breaks on AtlasTextures; the
-## original does mirror it, so it is back, done with a flipped draw transform.) Which of the rail's seven slots light is in the three pointer cels themselves.
+## The pointer (issue #38): drawn at the bay's table position (selector.json `pointer`), the same way for all four bays -- NOT mirrored for the
+## right-hand ones and not lowered. The decompile of FUN_00417d60 reads like a mirror for a table x past 60 px and a 1 px drop, but the reference footage (the
+## level 2 start, about 181-189 s) puts the lights exactly where an unmirrored cel at the table position puts them, in the order 2092 -> 2093 -> 2091 the clock
+## steps through them; the footage wins (document 78, "The pointer under the cursor's bay"). Which of the rail's seven slots light is in the three pointer cels.
 
 const S := 2.0
 const BACKGROUND_RECOLOUR_2D_SHADER := preload("res://addons/openfire_engine/game/shaders/background_recolour_2d.gdshader")
@@ -102,34 +102,13 @@ var _glow_tex: AtlasTexture   ## the spotlight's raw mask (alpha carries the 0-3
 var _glow_size := Vector2.ZERO
 
 
-## Draws sprite `id` with its top-left at the logical position `p` (320 x 240 units), optionally scaled / tinted. (The pointer has its own `_blit_pointer`.)
+## Draws sprite `id` with its top-left at the logical position `p` (320 x 240 units), optionally scaled / tinted.
 func _blit(id: String, p: Vector2, scale := 1.0, tint := Color.WHITE) -> void:
 	var at := _atlas(id)
 	if at.atlas == null:
 		return
 	var sz := at.region.size * scale * S
 	draw_texture_rect(at, Rect2(_origin + p * S, sz), false, tint)
-
-
-## The selection pointer as FUN_00417d60 places it (selector.json's `pointer_draw`; a pack without it draws the cel plainly): offset, a narrower width, and for a
-## mirrored bay a flipped cel starting `width + mirror_shift` to the right of the position.
-func _blit_pointer(id: String, p: Vector2, mirror: bool) -> void:
-	var at := _atlas(id)
-	if at.atlas == null:
-		return
-	var d: Dictionary = _sel.get("pointer_draw", {})
-	var off := Vector2(float(d.get("offset", [0.0, 0.0])[0]), float(d.get("offset", [0.0, 0.0])[1]))
-	var w := at.region.size.x
-	var h := at.region.size.y
-	if not mirror:
-		var sx := float(d.get("scale_x", 1.0))
-		draw_texture_rect(at, Rect2(_origin + (p + off) * S, Vector2(w * sx, h) * S), false)
-		return
-	var msx := float(d.get("mirror_scale_x", 1.0))
-	var start := p + off + Vector2(w + float(d.get("mirror_shift", 0.0)), 0.0)
-	draw_set_transform(_origin + start * S, 0.0, Vector2(-1.0, 1.0))
-	draw_texture_rect(at, Rect2(Vector2.ZERO, Vector2(w * msx, h) * S), false)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _draw() -> void:
@@ -171,7 +150,7 @@ func _draw() -> void:
 			if mc.selecting:
 				var frame := int(Time.get_ticks_msec() / 1000.0 * Vehicle.TICK_HZ) >> 4
 				var pp := Vector2(hx, hy) + Vector2(e["pointer"][0], e["pointer"][1])
-				_blit_pointer(String(sp["pointer"][frame % 3]), pp, bool(e.get("pointer_mirror", false)))
+				_blit(String(sp["pointer"][frame % 3]), pp)
 				_glow_at = _origin + (Vector2(hx, hy) + Vector2(e["highlight"][0], e["highlight"][1])) * S   # drawn additively by the glow layer
 		elif stock[t] != 0 and has_picture:
 			_blit(pic_id, Vector2(hx, hy) + pic, 0.5)
