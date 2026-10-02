@@ -113,15 +113,24 @@ func _show_main_menu() -> void:
 
 
 func _show_settings() -> void:
-	var buttons := settings_entries.duplicate()
+	var buttons := []
+	for e in settings_entries:
+		if e[0] is Callable:   # a label that shows a current value (e.g. "Layout: Classic"): read it now, and show the screen again after the action so it updates
+			var entry: Array = e
+			buttons.append([String(entry[0].call()), func():
+				entry[1].call()
+				_show_settings()])
+		else:
+			buttons.append(e)
 	buttons.append(["Back", func(): _show_main_menu()])
 	_show_placeholder("Settings", "Not built yet." if settings_entries.is_empty() else "", buttons)
 
 
-## Adds a button to the Settings screen (see `settings_entries`); a label already there is replaced, not duplicated.
-static func add_settings_entry(label: String, action: Callable) -> void:
+## Adds a button to the Settings screen (see `settings_entries`); a label already there is replaced, not duplicated. `label` may be a Callable returning the text
+## (for a toggle that shows its state): it is called each time the screen is built, and the screen is shown again after the action runs.
+static func add_settings_entry(label: Variant, action: Callable) -> void:
 	for e in settings_entries:
-		if e[0] == label:
+		if typeof(e[0]) == typeof(label) and e[0] == label:
 			e[1] = action
 			return
 	settings_entries.append([label, action])

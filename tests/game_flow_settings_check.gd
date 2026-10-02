@@ -52,5 +52,15 @@ func _init() -> void:
 	_check(pressed[0] == 10, "pressing it runs the game's (latest) action")
 	GameFlow.settings_entries.clear()
 
+	var mode := ["Off"]
+	GameFlow.add_settings_entry(func(): return "Mode: %s" % mode[0], func(): mode[0] = "On" if mode[0] == "Off" else "Off")
+	flow._show_settings()
+	await process_frame
+	_check(_texts(flow, "Button") == ["Mode: Off", "Back"], "a label given as a Callable shows the current value: %s" % [_texts(flow, "Button")])
+	_button(flow, "Mode: Off").pressed.emit()
+	await process_frame
+	_check(_texts(flow, "Button") == ["Mode: On", "Back"], "and the screen is shown again with the new value after the action: %s" % [_texts(flow, "Button")])
+	GameFlow.settings_entries.clear()
+
 	print("game_flow_settings_check: %s" % ("PASS" if _failures == 0 else "%d FAILED" % _failures))
 	quit(0 if _failures == 0 else 1)
