@@ -9,8 +9,11 @@ extends Node3D
 ##  - the two leaves, 16 x 31 each (corners `0x44d7d0`, cels `0x336` / `0x338`, flag 8), at z 0, `0.3 * age + 5` units either side of the centre
 ##    (MatchController.pad_leaf_offset), not drawn once `0.3 * age >= 18`.
 ## Which sprite each part is drawn with is the pack's (Pack.home_pad, terrain/home_pad.json), not this file's.
-## UNTRACED, port choices: object space is taken as the world's axes (the undock object's heading is 180 degrees and the original's rotation of the pit walls was not
-## read), and whether the walls move with the object's height (here they are fixed at the ground: the physical reading). The hazard border around the open pit is the
+## Traced (issue #34, document 89 "The pit's object space and height"): the pit and the leaves are drawn through FUN_0041b250, which transforms the corners with the
+## view matrix only -- never the object's heading matrix (that is FUN_0041b430, the Tank's) -- so object space IS the world's axes and the object's 180 degree heading
+## does not turn them; the pit's and the leaves' descriptors (`0x44dab0`, `0x44d890`) carry flag `0x10` at `+0x10`, which makes FUN_0041afb0 zero their z, so the walls and
+## leaves stay at the ground; the plate's (`0x44d8f8`, flag 0) keeps the object's z and rises with it. NOT traced: whether a leaf that reaches into a neighbouring tile shows
+## there (the tile loop's order). The hazard border around the open pit is the
 ## pad tile's own art 92 (2 wide on the west, east and south, open on the north where the strip is), not part of this object: the original queues that tile again after
 ## the mechanism, so it covers it.
 
