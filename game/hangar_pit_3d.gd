@@ -12,8 +12,9 @@ extends Node3D
 ## Traced (issue #34, document 89 "The pit's object space and height"): the pit and the leaves are drawn through FUN_0041b250, which transforms the corners with the
 ## view matrix only -- never the object's heading matrix (that is FUN_0041b430, the Tank's) -- so object space IS the world's axes and the object's 180 degree heading
 ## does not turn them; the pit's and the leaves' descriptors (`0x44dab0`, `0x44d890`) carry flag `0x10` at `+0x10`, which makes FUN_0041afb0 zero their z, so the walls and
-## leaves stay at the ground; the plate's (`0x44d8f8`, flag 0) keeps the object's z and rises with it. NOT traced: whether a leaf that reaches into a neighbouring tile shows
-## there (the tile loop's order). The hazard border around the open pit is the
+## leaves stay at the ground; the plate's (`0x44d8f8`, flag 0) keeps the object's z and rises with it. A leaf that reaches into a neighbouring tile does
+## NOT show there on either side: the footage of the level 2 start (about 191.5-192.3 s) shows the leaves sliding out under the hazard border with nothing outside the pit
+## square (observed, not traced to the draw order). The hazard border around the open pit is the
 ## pad tile's own art 92 (2 wide on the west, east and south, open on the north where the strip is), not part of this object: the original queues that tile again after
 ## the mechanism, so it covers it.
 
