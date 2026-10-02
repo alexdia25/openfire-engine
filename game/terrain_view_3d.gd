@@ -243,6 +243,7 @@ func _build_terrain_ground() -> void:
 	# world Y (2D "down") -> node Z ("forward").
 	ground.position = Vector3(_map_size_px.x * 0.5, 0.0, _map_size_px.y * 0.5)
 	add_child(ground)
+	_build_open_water()
 	_build_backdrop()
 
 
@@ -255,6 +256,52 @@ func _build_terrain_ground() -> void:
 ## camera and view distance are not mapped onto this one, document 90): a flat sand-toned backdrop instead of
 ## Godot's own default clear colour, so the seam reads as a hazy horizon rather than a hole in the world.
 const BACKDROP_COLOUR := Color8(196, 164, 122)
+
+
+## Open water past the baked border. The original has no edge to its world: FUN_00408d60 draws the default tile (`off_map.art`) for
+## every cell of the view outside 0..127 and FUN_00416300's camera never clamps, so the sea goes on for as long as the Heli keeps flying. The
+## baked border is only `margin_tiles` deep; beyond it four strips of the same tile, repeated (texture repeat, aligned to the map's 32 unit grid),
+## reach OPEN_WATER_EXTENT units out. The camera's clamp is widened to that (`_camera_reach_px`). A pack without an off_map table has no
+## strips and keeps the finite ground. PORT CHOICE: the extent is finite (a Heli that flies further than it sees the sand backdrop), the
+## original's coordinates are unbounded until they overflow.
+const OPEN_WATER_EXTENT := 16384.0   ## units from the map edge to the strips' outer edge, a multiple of every tile size the importer writes (32)
+
+
+func _build_open_water() -> void:
+	if _ground_margin_px <= 0.0:
+		return
+	var img := pack.get_sprite_image(pack.get_tile_sprite_id(int(pack.off_map["art"])))
+	if img == null:
+		return
+	var tile := float(pack.tile_size_px)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = ImageTexture.create_from_image(img)
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	mat.texture_repeat = true
+	var inner := Rect2(Vector2.ONE * -_ground_margin_px, _map_size_px + Vector2.ONE * (2.0 * _ground_margin_px))
+	var outer := inner.grow(OPEN_WATER_EXTENT)
+	# north and south span the full width, west and east only the inner height, so the four never overlap
+	var strips := [
+		Rect2(outer.position, Vector2(outer.size.x, inner.position.y - outer.position.y)),
+		Rect2(Vector2(outer.position.x, inner.end.y), Vector2(outer.size.x, outer.end.y - inner.end.y)),
+		Rect2(Vector2(outer.position.x, inner.position.y), Vector2(inner.position.x - outer.position.x, inner.size.y)),
+		Rect2(Vector2(inner.end.x, inner.position.y), Vector2(outer.end.x - inner.end.x, inner.size.y)),
+	]
+	for r: Rect2 in strips:
+		var plane := PlaneMesh.new()
+		plane.size = r.size
+		var mi := MeshInstance3D.new()
+		mi.mesh = plane
+		var m := mat.duplicate() as StandardMaterial3D
+		m.uv1_scale = Vector3(r.size.x / tile, r.size.y / tile, 1.0)   # the plane's UVs run 0..1 over its size from its corner; the corners lie on the tile grid
+		mi.material_override = m
+		mi.position = Vector3(r.position.x + r.size.x * 0.5, 0.0, r.position.y + r.size.y * 0.5)
+		add_child(mi)
+
+
+## How far past the map's edge the camera may follow (the open water's reach, else the baked border).
+func _camera_reach_px() -> float:
+	return OPEN_WATER_EXTENT if _ground_margin_px > 0.0 else 0.0
 
 
 func _off_map_margin_px() -> float:
@@ -722,7 +769,7 @@ func _camera_target_position(look_at_px: Vector2, height_px: float = camera_heig
 	var margin := pull_back
 	var desired_x := look_at_px.x
 	var desired_z := look_at_px.y + pull_back
-	var ext := _ground_margin_px   # the camera may go as far out as the baked border (the original's rig does not clamp: FUN_00416300)
+	var ext := _camera_reach_px()   # the original's rig does not clamp (FUN_00416300); the port goes as far as the open water reaches
 	var x := clampf(desired_x, margin - ext, maxf(_map_size_px.x + ext - margin, margin - ext))
 	var z := clampf(desired_z, margin - ext, maxf(_map_size_px.y + ext - margin, margin - ext))
 	return Vector3(x, height_px, z + _layout_shift_z(height_px, tilt_deg))
