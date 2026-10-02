@@ -397,6 +397,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 		p.team = spec["team"]
 		p.heading_deg = float(spec["heading"])
 		p.start_lob(spec["position"], float(spec["z"]), spec["target"])
+		_sound_at(THROW_CUES[randi() % 3], p.position, p.z)   # FUN_004159a0 plays one of the three throw sounds on the new missile
 		_projectiles.append(p)
 		projectile_spawned.emit(p)
 		return
@@ -699,7 +700,7 @@ func _soldier_throw(s: Soldier, aim: Vector2) -> void:
 	p.start_lob(s.position, 0.0, aim)
 	_projectiles.append(p)
 	projectile_spawned.emit(p)
-	_sound_at(MINE_THROW_CUES[randi() % 3], s.position)   # the grenade is the source
+	_sound_at(THROW_CUES[randi() % 3], s.position)   # the grenade is the source
 
 
 ## A shell or grenade passing through a soldier's shape (layer / mask / z as for any object, document 53) kills it and is spent. A flat
@@ -733,7 +734,9 @@ func _box_kill_soldiers(b: ExplosionBox) -> void:
 			_kill_soldier(s)
 
 
-const MINE_THROW_CUES := ["ThrowGrenade1_a", "ThrowGrenade1_b", "ThrowGrenade1_c"]
+## FUN_004159a0, the launch of a lobbed missile or a grenade (the Jeep's missile, a soldier's grenade): one of the three descriptors at 0x44b9ec, uniformly,
+## with the new object as the source (issue #80, document 118). The MSV's mine drop (FUN_00409e30) makes no sound of its own.
+const THROW_CUES := ["ThrowGrenade1_a", "ThrowGrenade1_b", "ThrowGrenade1_c"]
 
 
 func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
@@ -745,11 +748,6 @@ func _on_mine_dropped(at: Vector2, dropper: Vehicle) -> void:
 	mines.append(m)
 	mine_added.emit(m)
 	m.beep.connect(func(): _sound_at("Button", m.position))   # FUN_00409cd0's fuse beep, sound 0x44b580 with the mine as its source (documents 50/60/82)
-	if dropper != null:
-		# PORT CHOICE, not traced: document 82's three "Throw Grenade1" descriptors (Sound/Throw1-3.SDT) are all
-		# named identically and read as launch-sound variants for the MSV's mine layer, but which one plays when
-		# (random? alternating? by mine index?) was not found -- picked uniformly at random here.
-		dropper.sound_cue.emit(MINE_THROW_CUES[randi() % 3])
 
 
 func _tile_of(p: Vector2) -> Vector2i:

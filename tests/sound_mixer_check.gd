@@ -132,6 +132,14 @@ func _manager() -> void:
 	_check(v1.priority() == 100, "a voice's priority falls to the second value after its ticks")
 	snd._release(v1)
 
+	# the listener's height (the camera's, -170): even a source right under the listener is 170 units away
+	snd.listener_z = -170.0
+	snd.play("Quiet", own)
+	var g_own := SoundMixer.falloff(170.0)
+	_check(_near(snd._voices[0].gains.x, g_own, 0.01) and g_own < 0.7, "with the listener at the camera's height a source at the listener's x, y is heard at %.2f, not 1.0" % snd._voices[0].gains.x)
+	snd._release(snd._voices[0])
+	snd.listener_z = null
+
 	# a looping voice follows its source until stopped
 	var mover := Src.new()
 	root.add_child(mover)

@@ -36,6 +36,11 @@ func advance(ticks: float) -> void:
 			done = true
 
 
+## The camera's current height (the view's +0x20): 250.0 at the start, easing to the target (-170 / -100). The sound engine's listener height (issue #80).
+func height() -> float:
+	return _height.value
+
+
 ## 1.0 at the start of the swoop, 0.0 once the height has arrived.
 func height_fraction() -> float:
 	return clampf((_height.value - _height.target) / (START_HEIGHT - _height.target), 0.0, 1.0)

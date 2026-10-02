@@ -30,6 +30,7 @@ const TICK_HZ := 62.5
 var pack: Pack
 var listener: Node2D = null          ## whose position the ears are around (the first connected vehicle by default)
 var weight := 1.0                    ## the side weight of the positional gains (cmd 8)
+var listener_z: Variant = null       ## the ears' height when set (the camera's: the view's +0x20); null = the listener node's own z
 var _streams: Dictionary = {}        ## cue id -> AudioStreamWAV (or null if missing/failed once)
 var _players: Array[AudioStreamPlayer] = []
 var _buses: Array[String] = []
@@ -302,6 +303,8 @@ func _node_position(n: Object) -> Variant:
 func _remix() -> void:
 	var lp: Variant = _node_position(listener) if listener != null and is_instance_valid(listener) else null
 	var ear_centre: Vector3 = lp if lp != null else Vector3.ZERO
+	if listener_z != null:
+		ear_centre.z = float(listener_z)
 	for v in _voices:
 		if not v.has_source:
 			v.gains = SoundMixer.flat_gains(v.flags)

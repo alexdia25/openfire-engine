@@ -817,6 +817,9 @@ func _process(delta: float) -> void:
 	if rising and not _was_rising and GameSettings.camera_swoop_in and controller.vehicle != null:
 		_swoop = CameraSwoop.new(float(pack.vehicle_value(controller.vehicle.vehicle_type, "camera.swoop_height", -170.0)))
 	_was_rising = rising
+	if _sound != null and controller != null and controller.vehicle != null:
+		# the sound engine's listener is the camera, whose height (view +0x20) is the eased -170 / -100 (issue #80, document 118)
+		_sound.listener_z = _swoop.height() if _swoop != null else float(pack.vehicle_value(controller.vehicle.vehicle_type, "camera.swoop_height", -170.0))
 	if _swoop != null:
 		_swoop.advance(delta * Vehicle.TICK_HZ)
 		var height_px := camera_height_px * lerpf(1.0, SWOOP_START_ZOOM, _swoop.height_fraction())
