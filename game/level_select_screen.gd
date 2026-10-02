@@ -49,9 +49,41 @@ func setup(pack: Pack, players := 0) -> void:
 	row.add_child(cancel)
 	body.add_child(row)
 	list.item_activated.connect(func(i): level_chosen.emit(ids[i]))
+	# a second, smaller window beside the list: the selected level's map and difficulty (the original shows both as a level is picked)
+	var info := skin.window("Level")
+	var ibody: VBoxContainer = info["body"]
+	var map_rect := TextureRect.new()
+	map_rect.custom_minimum_size = Vector2(256, 256)
+	map_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	map_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	map_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	ibody.add_child(map_rect)
+	var facts := Label.new()
+	ibody.add_child(facts)
+	var show := func(i: int) -> void:
+		var lv := LevelData.new()
+		if i < 0 or not lv.load_from(pack.level_dir(ids[i]), pack.level_override_paths(ids[i])):
+			map_rect.texture = null
+			facts.text = ""
+			return
+		var img := LevelPreview.image(pack, lv)
+		map_rect.texture = ImageTexture.create_from_image(img) if img != null else null
+		facts.text = "Difficulty: %d
+Players: %d
+Size: %d x %d" % [lv.levl_value, LevelData.peek_players(pack.level_dir(ids[i])), lv.width, lv.height]
+	list.item_selected.connect(show)
 	if not ids.is_empty():
 		list.select(0)
-	skin.centre(self, w["root"])
+		show.call(0)
+	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 8)
+	w["root"].size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row2.add_child(w["root"])
+	var side := VBoxContainer.new()
+	info["root"].size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	side.add_child(info["root"])
+	row2.add_child(side)
+	skin.centre(self, row2)
 	list.grab_focus()
 
 

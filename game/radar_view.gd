@@ -160,28 +160,12 @@ func configure(window: Vector2i, scale: float) -> void:
 
 
 func _col(idx: int) -> Color:
-	var c: Array = _rd["rgb"].get(str(idx), [0, 0, 0])
-	return Color8(int(c[0]), int(c[1]), int(c[2]))
+	return LevelPreview._col(_rd, idx)
 
 
 ## FUN_00412dc0 for one tile.
 func _tile_colour(x: int, y: int) -> Color:
-	var lv := mc.level
-	var id := lv.get_coastal_id(x, y)
-	if id != 0:
-		var pair: Array = _rd["coastal_colours"].get(str(id), [])
-		if pair.is_empty():
-			return _col(int(_rd["land"]))
-		var variant := lv.get_variant(x, y)
-		if variant <= 1 and not mc.pack.is_original_colour(lv.side_colour(variant)):
-			return mc.pack.team_rgb(lv.side_colour(variant))   # a generated colour has no palette entry (PORTING_PLAN.md 2.7.7)
-		return _col(int(pair[1] if variant != 0 else pair[0]))
-	var art := lv.get_art_id(x, y) & 0x7F
-	if art == 1 or art == 2 or (art >= 4 and art <= 0x33):
-		return _col(int(_rd["water"]))
-	if mc.mine_tiles.has(Vector2i(x, y)):   # tile word bit 31 (a mine lies here, document 75)
-		return _col(int(_rd["flagged_tile"]))
-	return _col(int(_rd["land"]))
+	return LevelPreview.tile_colour(mc.pack, mc.level, x, y, mc.mine_tiles)
 
 
 func _process(_delta: float) -> void:
@@ -237,10 +221,4 @@ func _ping_texture(frame: int) -> AtlasTexture:
 
 ## The whole level as the radar bitmap (one pixel per tile): what the map window of the choice screen shows (document 78).
 func full_image() -> Image:
-	var lv := mc.level
-	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
-	img.fill(Color.BLACK)
-	for y in mini(lv.height, 128):
-		for x in mini(lv.width, 128):
-			img.set_pixel(x, y, _tile_colour(x, y))
-	return img
+	return LevelPreview.image(mc.pack, mc.level, mc.mine_tiles)
