@@ -119,6 +119,7 @@ func window(title: String) -> Dictionary:
 		return {"root": plain, "body": plain}
 	var frame := PanelContainer.new()
 	frame.theme = theme()
+	frame.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # the 6 x 6 bevels must not blur into their faces
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	frame.add_child(col)
