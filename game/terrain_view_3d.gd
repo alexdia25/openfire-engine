@@ -95,6 +95,7 @@ var _ground_margin_px := 0.0                 ## the off-map border baked around 
 var _debug_offmap_done := false             ## RF_DEBUG_OFFMAP has been applied
 var _debug_soldiers_done := false           ## RF_DEBUG_SOLDIERS has been applied
 var _debug_wreck_done := false              ## RF_DEBUG_WRECK has been applied
+var _debug_swap_done := false               ## RF_DEBUG_PASS_HANGAR + RF_VEHICLE has been applied
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
@@ -324,6 +325,7 @@ func _spawn_match() -> void:
 
 	if controller.vehicle != null:
 		billboard = _spawn_vehicle_render(controller.vehicle)
+		_add_shadow(controller.vehicle)
 		controller.vehicle.type_changed.connect(_on_player_type_changed)
 		_sound.connect_vehicle(controller.vehicle)
 		for e in controller.enemy_vehicles:
@@ -402,6 +404,7 @@ func _spawn_match() -> void:
 
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
+		_add_shadow(enemy)
 		enemy.drowned.connect(_on_vehicle_drowned)
 	if controller.vehicle != null:
 		controller.vehicle.drowned.connect(_on_vehicle_drowned)
@@ -427,6 +430,13 @@ func _on_player_type_changed(v: Vehicle) -> void:
 func _on_match_over(winner_idx: int) -> void:
 	if _hud != null:
 		_hud.show_win(winner_idx)
+
+
+## The vehicle's ground shadow, if its type casts one (game/vehicle_shadow_3d.gd; document 120). It follows the vehicle through type changes.
+func _add_shadow(v: Vehicle) -> void:
+	var sh := VehicleShadow3D.new()
+	add_child(sh)
+	sh.setup(v, pack)
 
 
 func _spawn_vehicle_render(v: Vehicle) -> Node3D:
@@ -794,7 +804,7 @@ func _process(delta: float) -> void:
 
 	# Debug-only: RF_DEBUG_SOLDIERS=<x>,<y> puts the player (once out of the hangar) at that world position and releases every building's soldiers
 	# (issue #74, document 116), for screenshots.
-	if OS.get_environment("RF_DEBUG_SOLDIERS") != "" and controller != null and controller.selecting:
+	if (OS.get_environment("RF_DEBUG_SOLDIERS") != "" or OS.get_environment("RF_DEBUG_PASS_HANGAR") == "1") and controller != null and controller.selecting:
 		controller.confirm_selection()   # pass the hangar choice
 	if OS.get_environment("RF_DEBUG_SOLDIERS") != "" and not _debug_soldiers_done and controller != null and controller.vehicle != null \
 			and not controller.selecting and not controller.vehicle.docked and controller.view_fade >= 1.0:
@@ -802,6 +812,13 @@ func _process(delta: float) -> void:
 		controller.vehicle.position = Vector2(float(sxy[0]), float(sxy[1]))
 		controller.debug_release_soldiers()
 		_debug_soldiers_done = true
+
+	# Debug-only: RF_DEBUG_PASS_HANGAR=1 passes the hangar choice; with RF_VEHICLE too, the vehicle then becomes that type once it is out (screenshots).
+	if OS.get_environment("RF_DEBUG_PASS_HANGAR") == "1" and not _debug_swap_done and controller != null and controller.vehicle != null 			and not controller.selecting and not controller.vehicle.docked and controller.view_fade >= 1.0:
+		_debug_swap_done = true
+		var t := pack.vehicle_index(OS.get_environment("RF_VEHICLE"))
+		if t > 0:
+			controller.vehicle.set_vehicle_type(t)
 
 	# Debug-only: RF_DEBUG_WRECK=1 drops one wreck of each vehicle type next to the player once it is out of the hangar (the Heli from height, moving;
 	# the Tank moving too, so its slide shows; RF_DEBUG_WRECK_FUEL=1 makes them fuel deaths), for screenshots (issue #29, document 118).
