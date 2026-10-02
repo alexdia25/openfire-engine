@@ -407,6 +407,9 @@ var swim_target := 0.0
 var swim_amount := 0.0
 var sink_depth := 14.0
 var _sinking := false
+## The wading handler (issue #25, document 122; vehicle_modules/hull_water.gd): `wading` while it is installed, `wade_counter` its splash counter (state +0x48).
+var wading := false
+var wade_counter := 0.0
 
 
 ## The second button of a vehicle that can swim (the Jeep, FUN_0040dfe0): toggles swim mode (game/vehicle_modules/hull_water.gd).
@@ -472,11 +475,59 @@ func channel(name: String) -> float:
 			if heli_spinup_stage == 1:
 				return 4.0
 			return float(clampi(int(floorf(rotor_speed_steps)) - 1, 0, 3))
+		"water_view":
+			return float(water_view())
+		"water_pose":
+			return float(mini(water_view(), 2))
+		"wade_frame":
+			return floorf(wade_counter)
+		"wade_swim_frame":
+			return float(wade_swim_frame())
+		"sink_frame":
+			return -floorf(z)
+		"ripple_frame":
+			return float(ripple_frame())
 	return float(get(name))
 
 
+## Which descriptor the original is drawing (the water handler's record +0x148 / +0x14c / +0x154, issue #25): 0 the normal one, 1 wading, 2 sinking, 3 the
+## Jeep's swimming spray (FUN_00403180 swaps to descriptor 0x43fe18 for a wading Jeep whose swim amount is not 0).
+func water_view() -> int:
+	if _sinking:
+		return 2
+	if wading:
+		return 3 if (swim_amount != 0.0 and _swims()) else 1
+	return 0
+
+
+## FUN_00403180: the frame of the Jeep's swimming spray from the splash counter: the integer part up to 4.0, then 4 + 1.5 * (counter - 4) below 8.0, then
+## 10 + 1.6 * (counter - 8) (at most 17).
+func wade_swim_frame() -> int:
+	var c := wade_counter
+	if c > 4.0:
+		if c < 8.0:
+			c = 4.0 + (c - 4.0) * 1.5
+		else:
+			c = minf(10.0 + (c - 8.0) * (0x19999 / 65536.0), 17.0)
+	return int(floorf(c))
+
+
+## FUN_00402ca0: the ripple under a sinking vehicle steps through its table with the game clock, 16 ticks to a lap of 8 entries.
+func ripple_frame() -> int:
+	var table: Array = ripple_table
+	if table.is_empty():
+		return 0
+	var clock := int(Time.get_ticks_msec() / 1000.0 * TICK_HZ)
+	return int(table[(clock & ripple_mask) >> 1])
+
+
+var ripple_table: Array = []   ## render.ripple.frames, set by the renderer
+var ripple_mask := 0x1E
+
+
 ## The derived channels above are functions of other channels; these are the ones a pose sets (the mod tool's preview).
-const CHANNEL_DRIVERS := {"rotor_mode": ["rotor_speed_steps", "heli_spinup_progress"]}
+const CHANNEL_DRIVERS := {"rotor_mode": ["rotor_speed_steps", "heli_spinup_progress"], "water_view": ["water_pose"], "wade_frame": ["wade_counter"],
+		"wade_swim_frame": ["wade_counter"], "sink_frame": ["z"], "ripple_frame": []}
 
 
 ## Poses a channel to `value` by writing the field(s) behind it -- what the simulation would have driven it to. For the mod tool's
@@ -498,6 +549,13 @@ func set_channel(name: String, value: float) -> void:
 			_heli_spinup_progress = value
 		"turret_deg":
 			turret_deg = fposmod(value, 360.0)
+		"water_pose":   # 0 dry, 1 wading (from the splash counter), 2 sinking
+			wading = int(value) == 1
+			_sinking = int(value) >= 2
+			if wading and wade_counter <= 0.0:
+				wade_counter = 4.0
+		"wade_counter":
+			wade_counter = value
 		_:
 			set(name, value)
 
@@ -597,6 +655,8 @@ func _reset_water() -> void:
 	swim_target = 0.0
 	swim_amount = 0.0
 	_sinking = false
+	wading = false
+	wade_counter = 0.0
 
 
 func set_vehicle_type(t: int) -> void:

@@ -781,6 +781,15 @@ func _switch_level(step: int) -> void:
 
 
 func _process(delta: float) -> void:
+	# Debug-only: RF_DEBUG_AT=<tx>,<ty>,<speed fraction>,<from frame> pins the player at that tile's centre from that process frame on, at that fraction of its top speed
+	# (0 leaves the speed alone): wading and sinking screenshots (issue #25).
+	if OS.get_environment("RF_DEBUG_AT") != "" and controller != null and controller.vehicle != null:
+		var at := OS.get_environment("RF_DEBUG_AT").split(",")
+		if Engine.get_process_frames() >= int(at[3]):
+			var tsz := float(controller.pack.tile_size_px)
+			controller.vehicle.position = (Vector2(float(at[0]), float(at[1])) + Vector2(0.5, 0.5)) * tsz
+			if float(at[2]) != 0.0:
+				controller.vehicle.speed = float(at[2]) * controller.vehicle.max_speed
 	if camera == null:
 		return
 	if OS.get_environment("RF_DEBUG_SELECT_CONFIRM") != "" and controller != null and Engine.get_process_frames() == int(OS.get_environment("RF_DEBUG_SELECT_CONFIRM")):

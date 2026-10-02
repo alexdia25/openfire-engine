@@ -16,6 +16,11 @@ extends Node3D
 ##       corners_by        {channel, sets: [[4 corners]...], scale, eps, max}   pick the whole corner set by an index
 ##       scale_by          {channel, min}                                       scale x and y by max(channel, min)
 ##       visible           {channel, min, max, scale, eps}                      draw only while the (scaled) channel is in range
+##       modes             [n, ...]   drawn only while the vehicle's `render.mode_channel` (water_view: 0 dry, 1 wading, 2 sinking, 3 the Jeep's swimming
+##                         spray) is one of these; the parts WITHOUT `modes` are not drawn while the channel is in `render.replaced_in` (the sinking
+##                         descriptor replaces the vehicle, the wading ones are drawn with it; issue #25, document 122)
+##       sprites_by also   team_stride (add stride x the player index to the index) and hide_outside (draw nothing unless 0 <= index < n)
+##   render.ripple  {frames, clock_mask}   the table `Vehicle.ripple_frame()` steps through (a sinking vehicle's ripple, FUN_00402ca0)
 ##   render.rigs.<name>  {channel, rotate: {axis: "x", scale}, base: [points], offset, adjust: [...]}
 ##       corners recomputed every frame as R(channel * scale, about the lateral axis) * base + offset, the way the original's
 ##       draw callbacks rebuild the Tank's barrel tip and the MSV's rack (an `adjust` sets one axis of some base points from a channel)
@@ -56,6 +61,10 @@ func setup(v: Vehicle, pack: Pack) -> void:
 	_type = v.vehicle_type
 	v.visible = false  # logic only
 	_render = pack.vehicle_def(v.vehicle_type).get("render", {})
+	var ripple: Dictionary = _render.get("ripple", {})
+	if not ripple.is_empty():
+		v.ripple_table = ripple["frames"]
+		v.ripple_mask = int(ripple.get("clock_mask", 0x1E))
 	_build_groups()
 	var parts: Array = _render.get("parts", [])
 	var shifts := _coplanar_shifts()
@@ -127,6 +136,8 @@ static func channels_used(render: Dictionary) -> Array:
 		for k in ["sprites_by", "corners_by", "scale_by", "visible"]:
 			if p.has(k):
 				add.call(String(p[k]["channel"]))
+	if render.has("mode_channel"):
+		add.call(String(render["mode_channel"]))
 	return out
 
 
@@ -235,7 +246,13 @@ func _corners(part: Dictionary, rigs: Dictionary, rest := false) -> Array:
 func _sprite_id(part: Dictionary) -> String:
 	if part.has("sprites_by"):
 		var sb: Dictionary = part["sprites_by"]
-		return String(sb["sprites"][index_of(sb, _value(sb), (sb["sprites"] as Array).size())])
+		var list: Array = sb["sprites"]
+		var raw := floori(_value(sb) * float(sb.get("scale", 1.0)) + float(sb.get("eps", 0.0)))
+		if sb.has("hide_outside") and (raw < 0 or raw >= int(sb["hide_outside"])):
+			return ""
+		if sb.has("team_stride"):
+			return String(list[clampi(raw + int(sb["team_stride"]) * vehicle.player_index(), 0, list.size() - 1)])
+		return String(list[index_of(sb, _value(sb), list.size())])
 	var ids: Array = part["sprite_ids"]
 	if _flash and (int(part["flags"]) & 8) and ids.size() > 2:
 		return String(ids[2])
@@ -248,12 +265,20 @@ func _update_parts() -> void:
 	for p in _parts:
 		var d: Dictionary = p["data"]
 		var mi: MeshInstance3D = p["mesh"]
+		if not _in_mode(d):
+			mi.visible = false
+			continue
 		if d.has("visible"):
 			var show := _is_visible(d["visible"])
 			mi.visible = show
 			if not show:
 				continue
+		else:
+			mi.visible = true
 		var id := _sprite_id(d)
+		if id == "":
+			mi.visible = false
+			continue
 		var corners := _corners(d, rigs)
 		var key := [id, corners]
 		if key == p["key"]:
@@ -266,6 +291,26 @@ func _update_parts() -> void:
 		var tex := _pack.get_texture(int(s.get("page", 0)))
 		mi.mesh = _quad(corners, s, tex, p["shift"])
 		p["mat"].albedo_texture = tex
+
+
+## Whether a part is drawn in the descriptor the vehicle is using now: a part with `modes` only in those, the others except where the render
+## block says the current one replaces them (the sinking descriptor does not chain to the vehicle's).
+func _in_mode(part: Dictionary) -> bool:
+	var channel := String(_render.get("mode_channel", ""))
+	if channel == "":
+		return true
+	var view := int(vehicle.channel(channel))
+	if part.has("modes"):
+		return _has_view(part["modes"], view)
+	return not _has_view(_render.get("replaced_in", []), view)
+
+
+## JSON numbers are floats; the views are ints.
+static func _has_view(list: Array, view: int) -> bool:
+	for n in list:
+		if int(n) == view:
+			return true
+	return false
 
 
 func _follow() -> void:
@@ -287,7 +332,7 @@ func _coplanar_shifts() -> Array:
 	var by_group := {}
 	var rigs := {}
 	for i in parts.size():
-		if not parts[i].has("visible"):
+		if not parts[i].has("visible") and not parts[i].has("modes"):
 			by_group.get_or_add(String(parts[i].get("group", "")), []).append(i)
 	for g in by_group:
 		var idx: Array = by_group[g]

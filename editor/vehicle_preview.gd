@@ -46,6 +46,9 @@ const CHANNEL_SLIDERS := {
 	"heli_spinup_progress": {"label": "Start-up: blades unfolding (1 = done)", "min": 0.0, "max": 1.0, "value": 1.0},
 	"pitch_deg": {"label": "Nose pitch (degrees)", "min": -3.0, "max": 9.0, "value": 0.0},
 	"bank_deg": {"label": "Bank (degrees)", "min": -17.0, "max": 17.0, "value": 0.0},
+	"water_pose": {"label": "Water (0 dry, 1 wading, 2 sinking)", "min": 0.0, "max": 2.0, "value": 0.0, "step": 1.0},
+	"wade_counter": {"label": "Splash counter (4 to 13; picks the spray)", "min": 0.0, "max": 13.0, "value": 4.0, "step": 0.1},
+	"z": {"label": "Height (a sinking vehicle's depth is minus this)", "min": -14.0, "max": 0.0, "value": 0.0, "step": 0.1},
 }
 
 func setup(workspace: ModWorkspace) -> void:
