@@ -24,7 +24,11 @@ var _finished := false
 signal continue_pressed
 
 
+var _managed := false   ## under GameFlow: the finished victory sequence leaves for the level select by itself, no key needed
+
+
 func setup(controller: MatchController, managed_by_flow: bool = false) -> void:
+	_managed = managed_by_flow
 	mc = controller
 	_status = _label(Vector2(12, 8), 18)
 	_objective = _label(Vector2(12, 34), 16)
@@ -111,7 +115,11 @@ func show_win(winner_idx: int) -> void:
 		_banner.move_to_front()
 		if _ribbon.has_jingle():   # the ribbon holds for the jingle; the restart hint (the front end's stand-in) comes when the sequence is over
 			_banner.visible = false
-			_ribbon.sequence_done.connect(func(): _banner.visible = true, CONNECT_ONE_SHOT)
+			_ribbon.sequence_done.connect(func():
+				if _managed:
+					continue_pressed.emit()   # the video and jingle have ended: on to the level select (the original returns to its front end here)
+				else:
+					_banner.visible = true, CONNECT_ONE_SHOT)
 			return
 	else:
 		_banner.text = "%s WINS  -  flag captured\npress Enter to play again" % ("TAN" if winner_idx == 0 else "GREEN")

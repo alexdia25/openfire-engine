@@ -83,6 +83,7 @@ var infantry: Dictionary = {}
 ## record a body part makes by its flags & 0x300, above or below 10 units), `records` ({address: {rate, duration, fade_start, ops, frames}}) and
 ## `landing` (the effect records a piece's landing plays by surface). Empty: no wreck bursts into pieces.
 var debris: Dictionary = {}
+var ui_skin: Dictionary = {}     ## ui/skin.json: the front end's colours and font size (UiSkin); {} = the Win95 defaults
 ## vehicles/projectile_types.json "art": {shell, shadow}, the default projectile's quad and the ground shadow projectiles
 ## cast (documents 46, 48, 63). Empty: a projectile without a draw descriptor of its own falls back to a plain sphere.
 var projectile_art: Dictionary = {}
@@ -591,6 +592,7 @@ func _load_layer(dir: String) -> bool:
 	_overlay(edge_guard, _layer_doc(dir, "world/edge_guard.json"))
 	_overlay(infantry, _layer_doc(dir, "world/infantry.json"))
 	_overlay(debris, _layer_doc(dir, "world/debris.json"))
+	_overlay(ui_skin, _layer_doc(dir, "ui/skin.json"))
 
 	var pdoc := _layer_doc(dir, "vehicles/projectile_types.json")
 	if pdoc.has("types"):

@@ -1,47 +1,54 @@
 class_name LevelSelectScreen
 extends Control
-## PORT-ONLY PLACEHOLDER (PORTING_PLAN.md 2.8): the campaign's level list, "Level Select" in the game-flow diagram.
-## Lists a pack's real levels (`Pack.list_levels()`), sorted; picking one asks `GameFlow` to start it. Not the
-## original's own front end (Return Fire had one campaign in a fixed order; every level under the pack is offered
-## here so any of the 204 converted maps, or a mod's own, can be played) -- a real, ordered campaign list is future
-## work, not a blocker for the flow structure itself.
+## "Level Select" in the game-flow diagram (PORTING_PLAN.md 2.8), drawn as the original's Level Selector dialog (resource 2002 in RFIRE.BIN: a list of levels, OK, Cancel; issue #51,
+## wiki document 122) over the title picture. Lists a pack's real levels (`Pack.list_levels()`), sorted; OK or a double click asks `GameFlow` to start the chosen one. Not the
+## original's own list (nine campaign radio buttons and an Add-Ons list); every level under the pack is offered here so any of the 204 converted maps, or a mod's own, can be played
+## -- a real, ordered campaign list is future work, not a blocker for the flow structure itself.
 
 signal level_chosen(level_id: String)
 signal back_pressed
+
+var backdrop: Texture2D   ## the title picture behind the dialog, set before `setup`
+var skin := UiSkin.new()   ## the pack's skin, set before `setup`
 
 
 func setup(pack: Pack) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	set_deferred("size", get_viewport_rect().size)   # anchors alone do not size a Control added ad hoc under a non-Control ancestor (deferred: Control warns/reverts an immediate size set while its own FULL_RECT anchors are active)
-	var bg := ColorRect.new()
-	bg.color = Color(0.08, 0.08, 0.1)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	box.offset_left = 40
-	box.offset_top = 24
-	box.offset_right = -40
-	box.offset_bottom = -24
-	add_child(box)
-	var title := Label.new()
-	title.text = "Level select"
-	title.add_theme_font_size_override("font_size", 28)
-	box.add_child(title)
-	var back := Button.new()
-	back.text = "Back"
-	back.pressed.connect(func(): back_pressed.emit())
-	box.add_child(back)
-	var list := ItemList.new()   # scrolls its own rows internally, so no ScrollContainer wrapper is needed (or wanted:
-	list.size_flags_vertical = Control.SIZE_EXPAND_FILL   # one would give this a (0, 0) child unless sized explicitly)
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_child(list)
+	skin.add_backdrop(self, backdrop)
+	var w := skin.window("Level Selector")
+	var body: VBoxContainer = w["body"]
+	var list := ItemList.new()   # scrolls its own rows internally, so no ScrollContainer wrapper is needed
+	list.custom_minimum_size = Vector2(420, 300)
+	body.add_child(list)
 	var ids := pack.list_levels()
 	ids.sort()
 	for id in ids:
 		var name := _peek_name(pack.level_dir(id))
 		list.add_item("%s - %s" % [_level_number(id), name] if name != "" else id)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_END
+	row.add_theme_constant_override("separation", 8)
+	var ok := Button.new()
+	ok.text = "OK"
+	ok.custom_minimum_size = Vector2(90, 0)
+	ok.disabled = ids.is_empty()
+	ok.pressed.connect(func():
+		var sel := list.get_selected_items()
+		if not sel.is_empty():
+			level_chosen.emit(ids[sel[0]]))
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.custom_minimum_size = Vector2(90, 0)
+	cancel.pressed.connect(func(): back_pressed.emit())
+	row.add_child(ok)
+	row.add_child(cancel)
+	body.add_child(row)
 	list.item_activated.connect(func(i): level_chosen.emit(ids[i]))
+	if not ids.is_empty():
+		list.select(0)
+	skin.centre(self, w["root"])
+	list.grab_focus()
 
 
 ## The level's display name (LevelData.peek_name, shared with the editor's map list).

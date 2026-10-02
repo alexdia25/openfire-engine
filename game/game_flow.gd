@@ -36,6 +36,8 @@ var pack: Pack
 var _current: Control = null   ## the front-end screen on screen now (title / menu / settings / multiplayer / level select / a story scene)
 var _level_view: Node3D = null   ## the running TerrainView3D, while a level is in progress
 var _menu_music: MusicManager = null   ## the Drums line under the front-end screens, one unbroken loop from the title screen to level select; gone while a level runs (the level has its own MusicManager)
+var _ui_skin: UiSkin = null   ## the pack's front-end skin (ui/skin.json), cached by _skin()
+var _title_tex: Texture2D = null   ## cached by _title_picture()
 var _overlay: StoryScene = null   ## a mid-level scene playing over the (paused) live level; see trigger_mid_level()
 
 
@@ -85,13 +87,28 @@ func _show_placeholder(title: String, message: String, buttons: Array) -> void:
 	_clear_current()
 	_start_menu_music()
 	var s := PlaceholderScreen.new()
+	s.backdrop = _title_picture()
+	s.skin = _skin()
 	add_child(s)
 	_current = s
 	s.setup(title, message, buttons)
 
 
+## The original's front-end picture (document 122), the backdrop of every front-end screen; null when the pack has none.
+func _skin() -> UiSkin:
+	if _ui_skin == null:
+		_ui_skin = UiSkin.from_dict(pack.ui_skin)
+	return _ui_skin
+
+
+func _title_picture() -> Texture2D:
+	if _title_tex == null:
+		_title_tex = HudLayout.load_pack_image(pack, "title_large.png")
+	return _title_tex
+
+
 func _show_title() -> void:
-	var picture := HudLayout.load_pack_image(pack, "title_large.png")   # the original's front-end picture (document 122), when the pack has it
+	var picture := _title_picture()
 	if picture != null:
 		_clear_current()
 		_start_menu_music()
@@ -144,6 +161,8 @@ func _show_level_select() -> void:
 	_clear_current()
 	_start_menu_music()
 	var s := LevelSelectScreen.new()
+	s.backdrop = _title_picture()
+	s.skin = _skin()
 	add_child(s)
 	_current = s
 	s.setup(pack)
