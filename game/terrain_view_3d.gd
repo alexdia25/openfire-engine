@@ -306,6 +306,7 @@ func _spawn_match() -> void:
 	controller.gate_removed.connect(_on_gate_removed)
 	controller.impact_effect.connect(_on_impact_effect)
 	controller.wreck_created.connect(_on_wreck_created)
+	controller.debris_created.connect(_on_debris_created)
 	controller.mine_added.connect(_on_mine_added)
 	controller.mine_exploded.connect(_on_mine_exploded)
 	controller.edge_guard_created.connect(_on_edge_guard_created)
@@ -450,6 +451,13 @@ func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 	var o: Vector3 = f["offset"]
 	ExplosionEffect3D.spawn_attached(self, pack, pack.get_explosion(String(f["record"])), v,
 			Vector3(o.x, o.y, o.z + VehicleRender3D.GROUND_CLEARANCE_PX), float(f.get("yaw", 0.0)))
+
+
+## A piece of flying wreckage (game/debris_piece.gd, drawn by game/debris_piece_view_3d.gd; document 119).
+func _on_debris_created(p: DebrisPiece) -> void:
+	var dv := DebrisPieceView3D.new()
+	add_child(dv)
+	dv.setup(p, pack)
 
 
 ## A destroyed vehicle's wreck (game/wreck.gd, drawn by game/wreck_3d.gd; documents 48, 87, 118): the intact body falls and slides, then the decal stays.

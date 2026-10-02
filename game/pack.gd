@@ -79,6 +79,10 @@ var edge_guard: Dictionary = {}
 ## `buildings` ({coastal id: {min, max, flip_team}}: the buildings that release soldiers when a hit leaves them 1 hit point).
 ## Empty: the match never creates a soldier.
 var infantry: Dictionary = {}
+## world/debris.json: the flying wreckage (DebrisPiece, issue #81, document 119): `rows` ({"high" | "low": {"1" | "2": record address}}: which
+## record a body part makes by its flags & 0x300, above or below 10 units), `records` ({address: {rate, duration, fade_start, ops, frames}}) and
+## `landing` (the effect records a piece's landing plays by surface). Empty: no wreck bursts into pieces.
+var debris: Dictionary = {}
 ## vehicles/projectile_types.json "art": {shell, shadow}, the default projectile's quad and the ground shadow projectiles
 ## cast (documents 46, 48, 63). Empty: a projectile without a draw descriptor of its own falls back to a plain sphere.
 var projectile_art: Dictionary = {}
@@ -586,6 +590,7 @@ func _load_layer(dir: String) -> bool:
 	_overlay(home_pad, _layer_doc(dir, "terrain/home_pad.json"))
 	_overlay(edge_guard, _layer_doc(dir, "world/edge_guard.json"))
 	_overlay(infantry, _layer_doc(dir, "world/infantry.json"))
+	_overlay(debris, _layer_doc(dir, "world/debris.json"))
 
 	var pdoc := _layer_doc(dir, "vehicles/projectile_types.json")
 	if pdoc.has("types"):

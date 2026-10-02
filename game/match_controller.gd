@@ -90,6 +90,8 @@ signal edge_guard_created(guard: EdgeGuard)
 signal edge_guard_removed(guard: EdgeGuard)
 ## A destroyed vehicle's wreck object exists (game/wreck.gd): it draws itself until it is finished.
 signal wreck_created(w: Wreck)
+## A piece of flying wreckage exists (game/debris_piece.gd): it draws itself until it is finished.
+signal debris_created(p: DebrisPiece)
 ## A foot soldier (Soldier, issue #74, documents 113 and 116) came out of a building or a wreck; it draws itself until it is removed.
 signal soldier_created(soldier: Soldier)
 ## A ground mark (the original's class 17 "Stay"): the body a soldier leaves, for a number of ticks.
@@ -113,6 +115,7 @@ var match_finished := false
 var edge_guard: EdgeGuard = null   ## the live map-edge guard, at most one (DAT_0045ae20)
 var soldiers: Array = []         ## live Soldier objects (class 14)
 var wrecks: Array = []           ## live Wreck objects (class 6): falling, sliding or settled hulks (issue #29, document 118)
+var debris: Array = []           ## live DebrisPieces (class 3 FWall): the flying wreckage (issue #81, document 119)
 var marks: Array = []            ## live GroundMarks
 var submarine_present := false   ## the guard exists: the music's Sub line (16) plays while it does (FUN_00434b30 sets interface bit 0x1000 on every tick it runs)
 ## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
@@ -436,6 +439,7 @@ func _process(delta: float) -> void:
 	_update_edge_guard(delta)
 	_update_soldiers(delta)
 	_update_wrecks(delta)
+	_update_debris(delta)
 	_update_death(delta)
 	_update_dock(delta)
 	_update_flags(delta)
@@ -644,6 +648,7 @@ func _on_vehicle_wrecked(info: Dictionary) -> void:
 		if record != "":
 			impact_effect.emit(record, at))
 	w.crew_out.connect(_on_wreck_crew)
+	w.debris.connect(_on_wreck_debris)
 	wrecks.append(w)
 	wreck_created.emit(w)
 
@@ -654,6 +659,62 @@ func _update_wrecks(delta: float) -> void:
 		w.tick(ticks)
 		if w.finished:
 			wrecks.erase(w)
+
+
+func _update_debris(delta: float) -> void:
+	var ticks := delta * Vehicle.TICK_HZ
+	for p in debris.duplicate():
+		p.tick(ticks)
+		if p.finished:
+			debris.erase(p)
+
+
+## FUN_0042b4e0, called by the wreck's landing block: each body part whose flags & 0x300 is 1 or 2 becomes one flying piece, run by the record
+## that part class names (rows "high" above 10 units, "low" below). Only the Heli's body has such parts (0x108 and 0x208; the 0x308 ones, the fuselage
+## and canopy panes, stay in the decal). The piece starts at the part's centroid (turned by the wreck's heading), flies away from the body's centre
+## along that direction, and takes the part's sprite in the wreck's colour.
+func _on_wreck_debris(w: Wreck) -> void:
+	if pack.debris.is_empty():
+		return
+	var row: Dictionary = pack.debris.get("rows", {}).get("high" if w.z > 10.0 else "low", {})
+	var turn := Basis(Vector3.UP, deg_to_rad(-90.0 - w.heading_deg))   # the renderer's: mesh point (x, up, y), node turned by -90 - heading
+	var colour := w.colour if w.colour != "" else w.team
+	for part in pack.vehicle_def(w.vehicle_type).get("render", {}).get("parts", []):
+		var cls := (int(part.get("flags", 0)) >> 8) & 3
+		var addr := String(row.get(str(cls), ""))
+		if addr == "" or not pack.debris["records"].has(addr) or not (part.get("corners", []) is Array) or (part["corners"] as Array).size() != 4:
+			continue
+		var local: Array[Vector3] = []
+		var centre := Vector3.ZERO
+		for c in part["corners"]:
+			var v := turn * Vector3(float(c[0]), float(c[2]), float(c[1]))
+			local.append(v)
+			centre += v * 0.25
+		var p := DebrisPiece.new(pack.debris["records"][addr], _debris_surface)
+		p.position = w.position + Vector2(centre.x, centre.z)
+		p.z = w.z + centre.y
+		p.dir = centre.normalized()
+		for v in local:
+			p.offsets.append(v - centre)
+		p.sprite_id = pack.team_variant(part["sprite_ids"], colour)
+		p.effect.connect(func(record: String, at: Vector2) -> void:
+			if record != "":
+				impact_effect.emit(record, at))
+		debris.append(p)
+		debris_created.emit(p)
+
+
+## FUN_0042b0e0: the effect a piece's landing plays: the water record where the ground is water (FUN_0042f410), the pavement one on tile art 0x49-0x53,
+## else the land puff. (The water record is picked by a length the decompiler hides: the small one, PORT CHOICE.)
+func _debris_surface(at: Vector2) -> String:
+	var cfg: Dictionary = pack.debris.get("landing", {})
+	if Water.class_at(level, pack, at) != 0:
+		return String(cfg.get("water", ""))
+	var tsz := float(pack.tile_size_px)
+	var art := level.get_art_id(int(floor(at.x / tsz)), int(floor(at.y / tsz))) & 0x7F
+	if art >= int(cfg.get("pavement_first_art", 73)) and art <= int(cfg.get("pavement_last_art", 83)):
+		return String(cfg.get("pavement", ""))
+	return String(cfg.get("land", ""))
 
 
 ## FUN_0040cd00: a hulk left by a vehicle that ran out of fuel (the wreck's flag 0x1000000, set by FUN_0040c7e0 when the state's fuel was below 1; document
