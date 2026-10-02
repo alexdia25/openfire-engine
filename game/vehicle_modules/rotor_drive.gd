@@ -83,6 +83,21 @@ func landing_gear(v: Vehicle, delta: float) -> bool:
 	return v.heli_landing_gear_progress <= 0.0
 
 
+## The Heli's hit reaction, the record's `+0x238` callback FUN_0040e830 (issue #70), run by FUN_0040c460 when a shot hurt it and left it alive:
+##  - the spin (state +0x8c, `heli_omega`) is set to a new random value, (rand(0x180) + rand(0x180) - 0x180) * 0x80 in 16.16, that is +-0.75 steps
+##    a tick, as much as the turn keys give;
+##  - if something hit it (`hit_heading_deg` is not NAN: the projectile's or explosion's `+0x4c`), the velocity it moves with (state +0x98 / +0x9c,
+##    `heli_vel`) is REPLACED by a push along that heading's step: (rand(0x100) + 0x80) * 0x80, that is 0.25 to 0.75 units a tick. It then eases
+##    back to the flown velocity at `velocity_rate` a tick, so a push lasts 8 to 25 ticks.
+## The hit's heading is its object's `+0x4c`: a bullet's is where it flies; a lob's is its spin (set per tick by FUN_00415730, not the flight
+## direction); an explosion object's is 0 (FUN_0042dba0 clears it), so an explosion always pushes toward heading step 0, north.
+func on_hit(v: Vehicle, hit_heading_deg: float) -> void:
+	v.heli_omega = float((randi() % 0x180) + (randi() % 0x180) - 0x180) * 0x80 / 65536.0
+	if not is_nan(hit_heading_deg):
+		var push := float((randi() % 0x100) + 0x80) * 0x80 / 65536.0
+		v.heli_vel = _dir_for(hit_heading_deg) * push
+
+
 func _dir_for(heading: float, offset_steps: int = 0) -> Vector2:
 	var idx := floori(fposmod(heading + 90.0, 360.0) / 5.625) + offset_steps
 	var h := deg_to_rad(idx * 5.625 - 90.0)

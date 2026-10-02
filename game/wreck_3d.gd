@@ -1,40 +1,23 @@
 class_name Wreck3D
 extends Node3D
-## What a destroyed vehicle leaves behind (documents 48, 87). TRACED: on death the vehicle class
-## (0x445438) spawns a wreck object (class 0x4453e8) that eventually shows the type record's
-## `+0x164` descriptor -- for the Tank/Jeep/MSV three flat ground quads (a shadow plus two debris
-## decals, identical geometry for all three, only the textures differ), for the Heli a single large
-## decal (document 48's table; the MSV's own quads turned out to be the exact same size as the
-## Tank/Jeep's despite the "large" registry name).
-##
-## Document 87 found the object's `+0x148` descriptor (drawn before landing, per the wreck's update
-## FUN_0040c8f0) is the SAME cel set as the type's own live body -- a dying vehicle tumbles down
-## showing its intact model, not a separate "wreck" sprite -- and that the Heli alone has a
-## per-type hook (`+0x230`, `FUN_0040eae0`, spawning a real shadow object) run somewhere in the same
-## sequence (re-checking document 63's own claim that this lived at `+0x234`: that address is
-## always 0 for all four types -- `+0x234` is a second, generic "dying handler" slot that is also
-## unused everywhere, and `+0x238` is a Heli-only per-hit *reaction* callback that jitters its lean
-## and always returns 0, not a death override).
-##
-## **Contradiction found, not resolved:** FUN_0040c8f0 only runs its gravity/landing logic when the
-## object's own move-function slot is non-zero; tracing where that slot is populated led back to
-## the wreck class's own `+0x1c`, which reads as 0 -- implying the branch is dead and a fresh wreck
-## would instead hit the "no mover" path (`FUN_0042c0f0`, which looks like generic immediate
-## object teardown) on its first tick. That can't be right for an object that is supposed to persist
-## on the ground, so a step in this chain is almost certainly mis-identified, but time did not allow
-## re-deriving it. **Given that, the fall below is a reasonable, GUESSED interpolation** ("the wreck
-## ends up on the ground where the vehicle died", the one fact that IS solid) using the project's
-## already-traced ballistic gravity (`LOB_GRAVITY`, documents 52/61) and zero initial vertical
-## speed, not a confirmed reproduction of the original's own timing. Flagged in NEXT_STEPS. Also not
-## reproduced: the tumbling-body render during the fall, and the Heli's trailing shadow object.
+## Draws a Wreck (game/wreck.gd; documents 48, 87, 118): the dying vehicle's own body while the wreck object is in its first phase, then the flat
+## decal the type record's `+0x164` names.
+##  - TRACED: the wreck object is created with the descriptor `+0x148` of the vehicle type record (FUN_0040c7e0), and that is the SAME cel set as the
+##    live body (the Tank's 14 parts, cels 167-212, turret and barrel included, in their rest pose; the Heli's 12 parts, cels 524-574, without the rotor).
+##    So a vehicle that dies falls and slides as its intact self, tilted by the nose pitch it had (obj +0x70, copied; the bank is not).
+##  - After 8 ticks FUN_0040cca0 swaps the descriptor to `+0x160`: for the Tank, Jeep and MSV the decal itself (three flat ground quads: a shadow plus
+##    two debris decals, identical geometry, only the textures differ), for the Heli (0x440bd0, not decoded) something else, so the Heli keeps its
+##    body until it lands. A vehicle that ran out of fuel keeps its body (`+0x148`) there.
+##  - Landing (FUN_0040c8f0) swaps to `+0x164`: the same decal for the ground types, for the Heli a single large decal (cel 606, a 27.2 x 54.4 unit
+##    rectangle 13.6 units off-centre, not a symmetric square).
+## The decal stays: a settled decal wreck becomes a `Stay` mark (FUN_0040ad10) that the original removes only after it has been out of sight for 720 ticks.
 
 const SHADOW_ALPHA := 5.0 / 32.0
 
-const TICK_HZ := 62.5
-const GRAVITY := 1638.0 / 65536.0  ## reusing LOB_GRAVITY (documents 52/61) -- see the "Contradiction found" note above
-var _vz := 0.0
-var _height := 0.0
-var _falling := false
+var wreck: Wreck
+var _decal: Node3D
+var _ghost: Vehicle
+var _body: VehicleRender3D
 
 ## The quads drawn are the vehicle definition's `wreck.quads` (sprites [tan, green], height, half-size, centre, shadow):
 ## Tank and Jeep share a descriptor (`0x43ece8`/`0x440218`); the MSV's (`0x43f628`) traces to the same corner sizes, just
@@ -42,29 +25,56 @@ var _falling := false
 ## y [-13.6, 40.8], a 27.2 x 54.4 rectangle 13.6 units off-centre. Built by tools/build_pack.py (WRECKS).
 
 
-func setup(pack: Pack, team: String, at: Vector2, heading_deg: float, vehicle_type: int = 0, start_height: float = 0.0) -> void:
-	position = Vector3(at.x, 0.0, at.y)  # local, not global (matches VehicleRender3D's own convention): stays correct when parented at the scene root, and testable outside a full 3D viewport
-	rotation_degrees.y = -heading_deg
-	_height = start_height
-	_falling = start_height > 0.0
-	for q in pack.vehicle_value(vehicle_type, "wreck.quads", []):
+func setup(pack: Pack, w: Wreck) -> void:
+	wreck = w
+	var colour := w.colour if w.colour != "" else w.team
+	_decal = Node3D.new()
+	add_child(_decal)
+	for q in pack.vehicle_value(w.vehicle_type, "wreck.quads", []):
 		var half: Array = q.get("half", [12, 12])
 		var centre: Array = q.get("center", [0, 0])
-		_add_quad(pack, pack.team_variant(q["sprites"], team), float(q.get("height", 0.6)), bool(q.get("shadow", false)),
+		_add_quad(pack, pack.team_variant(q["sprites"], colour), float(q.get("height", 0.6)), bool(q.get("shadow", false)),
 				Vector2(float(half[0]), float(half[1])), Vector2(float(centre[0]), float(centre[1])))
-	position.y = _height
+	if pack.vehicle_def(w.vehicle_type).get("render", {}).has("parts"):
+		_ghost = Vehicle.new()
+		_ghost.vehicle_type = w.vehicle_type
+		_ghost.team = w.team
+		_ghost.colour = colour
+		_ghost.announce_created = false
+		_ghost.setup(pack)
+		_ghost.speed = w.speed * Vehicle.TICK_HZ   # the nose pitch the Heli had (obj +0x70)
+		_body = VehicleRender3D.new()
+		_body.hidden_groups = pack.vehicle_value(w.vehicle_type, "wreck.body_hidden_groups", [])
+		add_child(_body)
+		_body.setup(_ghost, pack)
+	_sync()
 
 
-func _process(delta: float) -> void:
-	if not _falling:
+func _sync() -> void:
+	if _ghost != null:
+		_ghost.position = wreck.position
+		_ghost.heading_deg = wreck.heading_deg
+		_ghost.z = wreck.height()
+	var decal := wreck.phase == Wreck.Phase.DECAL or _ghost == null
+	_decal.visible = decal
+	if _ghost != null:
+		_ghost.alive = not decal   # VehicleRender3D shows itself while its vehicle is alive
+	_decal.position = Vector3(wreck.position.x, wreck.height(), wreck.position.y)
+	_decal.rotation_degrees.y = -wreck.heading_deg
+
+
+func _process(_delta: float) -> void:
+	if wreck == null:
 		return
-	var ticks := delta * TICK_HZ
-	_vz -= GRAVITY * ticks
-	_height += _vz * ticks
-	if _height <= 0.0:
-		_height = 0.0
-		_falling = false
-	position.y = _height
+	if wreck.finished and not wreck.mark:
+		queue_free()
+		return
+	_sync()
+
+
+func _exit_tree() -> void:
+	if _ghost != null and is_instance_valid(_ghost):
+		_ghost.free()
 
 
 func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool, half: Vector2, center: Vector2 = Vector2.ZERO) -> void:
@@ -100,4 +110,4 @@ func _add_quad(pack: Pack, sprite_id: String, y: float, is_shadow: bool, half: V
 	else:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	mi.material_override = mat
-	add_child(mi)
+	_decal.add_child(mi)

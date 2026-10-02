@@ -311,19 +311,22 @@ func _leftovers(pack: Pack) -> void:
 		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
 	_check(made[0].finished and mc.marks.is_empty(), "and gone after 120")
 	var poly := PackedVector2Array([Vector2(-6, -8), Vector2(6, -8), Vector2(6, 8), Vector2(-6, 8)])
-	var info := {"position": Vector2(200.0, 200.0), "heading_deg": 0.0, "team": "green", "vehicle_type": 0, "z": 0.0, "hp_depleted": true, "polygon": poly.duplicate()}
+	var info := {"position": Vector2(200.0, 200.0), "heading_deg": 0.0, "team": "green", "vehicle_type": 0, "z": 0.0, "fuel_out": true, "polygon": poly.duplicate()}
 	for i in poly.size():
 		info["polygon"][i] += Vector2(200.0, 200.0)
 	var before := mc.soldiers.size()
-	mc._on_vehicle_wrecked({"position": Vector2(200.0, 200.0), "heading_deg": 0.0, "team": "green", "z": 0.0, "hp_depleted": false, "polygon": info["polygon"]})
+	mc._on_vehicle_wrecked({"position": Vector2(200.0, 200.0), "heading_deg": 0.0, "team": "green", "z": 0.0, "fuel_out": false, "polygon": info["polygon"]})
 	for i in 20:
+		mc._update_wrecks(1.0 / Vehicle.TICK_HZ)
 		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
-	_check(mc.soldiers.size() == before, "a vehicle that did not die of damage leaves no crewman")
+	_check(mc.soldiers.size() == before, "a vehicle that did not run out of fuel leaves no crewman (FUN_0040c7e0: the wreck flag 0x1000000 is the fuel below 1)")
 	mc._on_vehicle_wrecked(info)
 	for i in 7:
+		mc._update_wrecks(1.0 / Vehicle.TICK_HZ)
 		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
-	_check(mc.soldiers.size() == before, "the crewman waits the wreck's 8 ticks")
+	_check(mc.soldiers.size() == before, "the crewman waits for the wreck to settle (its 8-tick wait, then one more tick)")
 	for i in 3:
+		mc._update_wrecks(1.0 / Vehicle.TICK_HZ)
 		mc._update_soldiers(1.0 / Vehicle.TICK_HZ)
 	_check(mc.soldiers.size() == before + 1 and mc.soldiers.back().team == 1, "then one crewman of the wreck's team steps out")
 	var crew: Soldier = mc.soldiers.back()

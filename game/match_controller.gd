@@ -53,6 +53,8 @@ const IMPACT_SOUND_CUES := {
 	"0x4445b8": "SmSplash", "0x4445e8": "Splash",
 	"0x444968": "SmConcreteHit", "0x444a30": "ConcreteHit",
 	"0x444ac8": "SmallBoom",
+	"0x444618": "Splash",       ## a wreck landing in water (SOUND 28)
+	"0x444c80": "ExplDebris", "0x444d90": "Boom", "0x444ea0": "ExplDebris",   ## a vehicle's death explosion, per type (SOUND 15, 1, 15; document 118)
 }
 const IMPACT_SOUND_CUES_RANDOM := {
 	"0x444b68": ["MetalHit1", "MetalHit2", "MetalHit3", "MetalHit4"],
@@ -86,6 +88,8 @@ signal sound_flat(cue: String)
 ## The map-edge guard (Return Fire's submarine; game/edge_guard.gd, issue #68) was created / removed itself.
 signal edge_guard_created(guard: EdgeGuard)
 signal edge_guard_removed(guard: EdgeGuard)
+## A destroyed vehicle's wreck object exists (game/wreck.gd): it draws itself until it is finished.
+signal wreck_created(w: Wreck)
 ## A foot soldier (Soldier, issue #74, documents 113 and 116) came out of a building or a wreck; it draws itself until it is removed.
 signal soldier_created(soldier: Soldier)
 ## A ground mark (the original's class 17 "Stay"): the body a soldier leaves, for a number of ticks.
@@ -108,7 +112,7 @@ var flags: Dictionary = {}       ## pool index (0, 1) -> FlagMarker
 var match_finished := false
 var edge_guard: EdgeGuard = null   ## the live map-edge guard, at most one (DAT_0045ae20)
 var soldiers: Array = []         ## live Soldier objects (class 14)
-var _crew_queue: Array = []      ## wrecks waiting to land: {ticks, team, position, heading_deg, polygon} (FUN_0040cd00)
+var wrecks: Array = []           ## live Wreck objects (class 6): falling, sliding or settled hulks (issue #29, document 118)
 var marks: Array = []            ## live GroundMarks
 var submarine_present := false   ## the guard exists: the music's Sub line (16) plays while it does (FUN_00434b30 sets interface bit 0x1000 on every tick it runs)
 ## Players in the match (DAT_00442fbc): 1 here. Two players enable the MSV's mine layer and switch off the scattered mines (document 75).
@@ -162,6 +166,11 @@ func _sound_at(cue: String, at: Vector2, z := 0.0) -> void:
 	sound_at.emit(cue, at, z)
 
 
+## A vehicle sank (FUN_0040c8f0 / FUN_0040cf90): its splash record 0x444ee8 plays SOUND 3, `Bubbles`, where it went down.
+func _on_vehicle_drowned_sound(v: Vehicle) -> void:
+	_sound_at("Bubbles", v.position)
+
+
 func _on_impact_effect_sound(record_addr: String, position: Vector2) -> void:
 	if IMPACT_SOUND_CUES.has(record_addr):
 		_sound_at(IMPACT_SOUND_CUES[record_addr], position)
@@ -197,6 +206,7 @@ func _spawn_vehicle_and_enemies() -> void:
 	vehicle.dock_check = can_dock
 	vehicle.dock_requested.connect(_begin_dock)
 	vehicle.drowned.connect(_on_player_destroyed)
+	vehicle.drowned.connect(_on_vehicle_drowned_sound)
 	vehicle.wrecked.connect(_on_vehicle_wrecked)
 	vehicle.destroyed.connect(_on_player_destroyed)
 	_player_spawn_px = vehicle.position
@@ -251,6 +261,7 @@ func _spawn_vehicle_and_enemies() -> void:
 		enemy.shot.connect(_on_vehicle_shot.bind(enemy))
 		enemy.destroyed.connect(_drop_carried_flags)
 		enemy.drowned.connect(_drop_carried_flags)
+		enemy.drowned.connect(_on_vehicle_drowned_sound)
 		enemy.wrecked.connect(_on_vehicle_wrecked)
 		enemy_vehicles.append(enemy)
 
@@ -424,6 +435,7 @@ func _on_vehicle_shot(spec: Dictionary, shooter: Vehicle) -> void:
 func _process(delta: float) -> void:
 	_update_edge_guard(delta)
 	_update_soldiers(delta)
+	_update_wrecks(delta)
 	_update_death(delta)
 	_update_dock(delta)
 	_update_flags(delta)
@@ -597,11 +609,6 @@ func _update_soldiers(delta: float) -> void:
 		m.tick(ticks)
 		if m.finished:
 			marks.erase(m)
-	for c in _crew_queue.duplicate():
-		c["ticks"] = float(c["ticks"]) - ticks
-		if float(c["ticks"]) <= 0.0:
-			_crew_queue.erase(c)
-			_spawn_crewman(c)
 	if soldiers.is_empty():
 		return
 	for s in soldiers.duplicate():
@@ -628,17 +635,33 @@ func _soldier_undrawn(s: Soldier, ticks: float) -> void:
 		soldiers.erase(s)
 
 
-## FUN_0040cd00: a wreck of a vehicle that was destroyed by damage (the state's hit points were below 1 when the wreck was made, which sets the
-## wreck's flag 0x1000000 in FUN_0040c7e0) releases one crewman once it has landed and settled (flag 0x4000000 from FUN_0040c8f0: speed 0,
-## height below 1, not over deep water). The landing time is the port's own guess (document 87, issue #29): the fall under the wreck's gravity
-## plus the 8 ticks FUN_0040cca0 waits.
+## A vehicle was destroyed (FUN_0040c460's death branch, or the fuel running out): its wreck object (class 6, FUN_0040c7e0) is made at its place,
+## carrying its heading and speed, and runs by itself (game/wreck.gd; document 118): the death explosion, the fall, the landing, the decal.
 func _on_vehicle_wrecked(info: Dictionary) -> void:
-	if pack.infantry.is_empty() or not bool(info.get("hp_depleted", false)):
+	var cfg: Dictionary = pack.vehicle_value(int(info.get("vehicle_type", 0)), "wreck", {})
+	var w := Wreck.new(info, cfg, func(at: Vector2, h: float) -> int: return Water.class_at(level, pack, at, PackedVector2Array(), h))
+	w.effect.connect(func(record: String, at: Vector2) -> void:
+		if record != "":
+			impact_effect.emit(record, at))
+	w.crew_out.connect(_on_wreck_crew)
+	wrecks.append(w)
+	wreck_created.emit(w)
+
+
+func _update_wrecks(delta: float) -> void:
+	var ticks := delta * Vehicle.TICK_HZ
+	for w in wrecks.duplicate():
+		w.tick(ticks)
+		if w.finished:
+			wrecks.erase(w)
+
+
+## FUN_0040cd00: a hulk left by a vehicle that ran out of fuel (the wreck's flag 0x1000000, set by FUN_0040c7e0 when the state's fuel was below 1; document
+## 54 has the fuel, document 116 the flag) lets one crewman out once it has settled.
+func _on_wreck_crew(w: Wreck) -> void:
+	if pack.infantry.is_empty():
 		return
-	var z := float(info.get("z", 0.0))
-	var fall := sqrt(2.0 * z / 0.025) if z > 0.0 else 0.0
-	_crew_queue.append({"ticks": fall + 8.0, "team": 0 if String(info.get("team", "tan")) == "tan" else 1, "position": info["position"],
-			"heading_deg": float(info.get("heading_deg", 0.0)), "polygon": info.get("polygon", PackedVector2Array())})
+	_spawn_crewman({"team": 0 if w.team == "tan" else 1, "position": w.position, "heading_deg": w.heading_deg, "polygon": w.polygon})
 
 
 func _spawn_crewman(c: Dictionary) -> void:
@@ -887,7 +910,7 @@ func _update_boxes(ticks: float) -> void:
 			if not Collision.z_ranges_overlap(v.hit_z[0] + v.z, v.hit_z[1] + v.z, b.z_lo, b.z_hi):
 				continue
 			if Collision.polygon_hits_box(v.hit_polygon(), b.position, b.box()):
-				if v.take_damage(dmg):
+				if v.take_damage(dmg, -90.0):   # an explosion object's heading (+0x4c) is 0 (FUN_0042dba0): heading step 0, north
 					_register_hit(v)
 		_box_kill_soldiers(b)
 		_box_damage_tiles(entry, dmg)
@@ -949,7 +972,7 @@ func _shell_hits_vehicle(p: Projectile, from: Vector2, to: Vector2) -> bool:
 		if not Collision.shell_z_overlaps(p.z, v.hit_z[0] + v.z, v.hit_z[1] + v.z):
 			continue
 		if Collision.segment_hits_polygon(from, to, v.hit_polygon()):
-			if v.take_damage(p.damage):
+			if v.take_damage(p.damage, p.spin_deg - 90.0 if p.lob else p.heading_deg):   # the hitter's +0x4c: a lob's is its spin (FUN_00415730), in the original's frame
 				_register_hit(v)
 			impact_effect.emit("0x444b68", to)  # surface 3, object hit
 			return true

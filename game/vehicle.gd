@@ -502,13 +502,16 @@ func set_channel(name: String, value: float) -> void:
 			set(name, value)
 
 
-func take_damage(damage: float) -> bool:
+## `hit_heading_deg` is the heading of whatever hit it (FUN_0040c460's `hitter`; NAN = none), which the Heli's hit reaction pushes it along.
+func take_damage(damage: float, hit_heading_deg := NAN) -> bool:
 	if not alive or damage <= armor:
 		return false
 	hp -= damage - armor
 	hit_flash_remaining = HIT_FLASH_SEC
 	if hp <= 0.0:
 		_die()
+	elif drive != null and drive.has_method("on_hit"):
+		drive.on_hit(self, hit_heading_deg)   # the type record's +0x238 callback (FUN_0040e830 for the Heli), only when the shot did not kill
 	return true
 
 
@@ -519,7 +522,7 @@ func take_damage(damage: float) -> bool:
 ## does to this same node afterwards (the player's vehicle respawns in place).
 func _die() -> void:
 	wrecked.emit({"position": position, "heading_deg": heading_deg, "team": team, "colour": art_colour(), "vehicle_type": vehicle_type, "z": z,
-			"hp_depleted": hp <= 0.0, "polygon": hit_polygon()})
+			"speed": speed / TICK_HZ, "hp": hp, "fuel_out": fuel <= 0.0, "sink_depth": sink_depth, "polygon": hit_polygon()})
 	alive = false
 	destroyed.emit(self)
 

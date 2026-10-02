@@ -38,6 +38,8 @@ var _groups: Dictionary = {}       ## name -> {node, spec}
 var _group_order: Array = []       ## parents before children
 var _rates: Dictionary = {}        ## "<owner>/<n>" -> the accumulated angle of a `rate` rotation, degrees
 var _flash := false                ## drawn in variant 2 (the hit flash)
+## Groups whose parts are not drawn: a wreck still falling shows the body descriptor alone, without the Heli's rotor (document 118).
+var hidden_groups: Array = []
 
 
 ## The game's presentation of a vehicle, added under `parent`.
@@ -58,6 +60,8 @@ func setup(v: Vehicle, pack: Pack) -> void:
 	var parts: Array = _render.get("parts", [])
 	var shifts := _coplanar_shifts()
 	for i in parts.size():
+		if hidden_groups.has(String(parts[i].get("group", ""))):
+			continue
 		var mi := MeshInstance3D.new()
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

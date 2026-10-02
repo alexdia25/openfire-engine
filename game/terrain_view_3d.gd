@@ -94,6 +94,7 @@ var _last_death_phase := 0                   ## debug print (RF_DEBUG_KILL)
 var _ground_margin_px := 0.0                 ## the off-map border baked around the ground plane (Pack.off_map), world units each side
 var _debug_offmap_done := false             ## RF_DEBUG_OFFMAP has been applied
 var _debug_soldiers_done := false           ## RF_DEBUG_SOLDIERS has been applied
+var _debug_wreck_done := false              ## RF_DEBUG_WRECK has been applied
 var _sound: SoundManager                     ## document 82: plays the player vehicle's traced sound_cue signals
 
 
@@ -304,6 +305,7 @@ func _spawn_match() -> void:
 	controller.gate_created.connect(_on_gate_created)
 	controller.gate_removed.connect(_on_gate_removed)
 	controller.impact_effect.connect(_on_impact_effect)
+	controller.wreck_created.connect(_on_wreck_created)
 	controller.mine_added.connect(_on_mine_added)
 	controller.mine_exploded.connect(_on_mine_exploded)
 	controller.edge_guard_created.connect(_on_edge_guard_created)
@@ -399,19 +401,9 @@ func _spawn_match() -> void:
 
 	for enemy in controller.enemy_vehicles:
 		_enemy_billboards.append(_spawn_vehicle_render(enemy))
-		enemy.wrecked.connect(_on_vehicle_wrecked)
 		enemy.drowned.connect(_on_vehicle_drowned)
 	if controller.vehicle != null:
-		controller.vehicle.wrecked.connect(_on_vehicle_wrecked)
 		controller.vehicle.drowned.connect(_on_vehicle_drowned)
-		# Debug-only: RF_DEBUG_WRECK=1 drops one wreck of each vehicle type (falling from height for
-		# the Heli) next to the player for screenshots.
-		if OS.get_environment("RF_DEBUG_WRECK") == "1":
-			for i in 4:
-				var w := Wreck3D.new()
-				add_child(w)
-				var h := 60.0 if i == 3 else 0.0
-				w.setup(pack, ["tan", "green", "tan", "green"][i], controller.vehicle.position + Vector2(-105.0 + i * 70.0, 40.0), 30.0, i, h)
 
 	# Debug-only: RF_DEBUG_MARKERS=1 shows the spawn/candidate debug markers (none of it real art,
 	# see debug_marker_renderer.gd's header). Off by default (flipped from the old opt-out
@@ -460,14 +452,11 @@ func _on_muzzle_flash(spec: Dictionary, v: Vehicle) -> void:
 			Vector3(o.x, o.y, o.z + VehicleRender3D.GROUND_CLEARANCE_PX), float(f.get("yaw", 0.0)))
 
 
-## A destroyed vehicle leaves its wreck (game/wreck_3d.gd, documents 48/87), falling from its
-## death height rather than appearing on the ground at once. `info` is `Vehicle._die()`'s snapshot,
-## taken before a respawn can reset the same node's fields (the player's vehicle is reused, not
-## replaced, between lives).
-func _on_vehicle_wrecked(info: Dictionary) -> void:
-	var w := Wreck3D.new()
-	add_child(w)
-	w.setup(pack, String(info.get("colour", info["team"])), info["position"], info["heading_deg"], info["vehicle_type"], info["z"])
+## A destroyed vehicle's wreck (game/wreck.gd, drawn by game/wreck_3d.gd; documents 48, 87, 118): the intact body falls and slides, then the decal stays.
+func _on_wreck_created(w: Wreck) -> void:
+	var wv := Wreck3D.new()
+	add_child(wv)
+	wv.setup(pack, w)
 
 
 func _on_projectile_spawned(projectile: Projectile) -> void:
@@ -805,6 +794,19 @@ func _process(delta: float) -> void:
 		controller.vehicle.position = Vector2(float(sxy[0]), float(sxy[1]))
 		controller.debug_release_soldiers()
 		_debug_soldiers_done = true
+
+	# Debug-only: RF_DEBUG_WRECK=1 drops one wreck of each vehicle type next to the player once it is out of the hangar (the Heli from height, moving;
+	# the Tank moving too, so its slide shows; RF_DEBUG_WRECK_FUEL=1 makes them fuel deaths), for screenshots (issue #29, document 118).
+	if OS.get_environment("RF_DEBUG_WRECK") == "1" and controller != null:
+		if controller.selecting:
+			controller.confirm_selection()   # pass the hangar choice
+		elif not _debug_wreck_done and controller.vehicle != null and not controller.vehicle.docked and controller.view_fade >= 1.0:
+			_debug_wreck_done = true
+			print("[wreck] dropped at frame ", Engine.get_process_frames())
+			for i in 4:
+				controller._on_vehicle_wrecked({"position": controller.vehicle.position + Vector2(-105.0 + i * 70.0, 60.0), "heading_deg": 30.0,
+						"team": ["tan", "green", "tan", "green"][i], "vehicle_type": i, "z": 60.0 if i == 3 else 0.0, "speed": 0.9 if i in [0, 3] else 0.0,
+						"hp": -5.0, "fuel_out": OS.get_environment("RF_DEBUG_WRECK_FUEL") == "1", "sink_depth": 14.0})
 
 	if OS.get_environment("RF_DEBUG_KILL") != "" and controller != null and controller.death_phase != _last_death_phase:
 		_last_death_phase = controller.death_phase

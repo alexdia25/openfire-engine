@@ -38,6 +38,7 @@ static func vehicle_def(id: String, name: String, index: int) -> Dictionary:
 		"drive": {"model": "ground", "max_forward_per_tick": 1.0, "max_reverse_per_tick": -0.5, "accel_per_tick2": 0.05,
 				"friction_per_tick2": 0.02, "turn_steps_per_tick": 0.3},
 		"aim": {"model": "none"}, "water": {"model": "none"}, "weapons": {"ammo": [0, 0], "cooldown_ticks": [20, 0], "slots": []},
+		"wreck": {"quads": [{"sprites": ["fx.hull"], "height": 0.5, "half": [6, 6], "center": [0, 0]}], "friction": 0.1, "explosion": "fx.boom"},
 		"render": {
 			"parts": [
 				{"sprite_ids": [TEAM_PAIR[0], TEAM_PAIR[1], "fx.hull"], "flags": 8,
