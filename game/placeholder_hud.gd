@@ -43,6 +43,12 @@ func setup(controller: MatchController, managed_by_flow: bool = false) -> void:
 	var panel := HudPanel.new()  # the traced panel (documents 66-70); its place and scale follow GameSettings.hud_layout (HudLayout)
 	add_child(panel)
 	panel.setup(controller)
+	var cover := ClassicFrame.new()   # the surround again, above the panel: the panel slides in from below the picture and must not show there (document 124)
+	cover.surround_only = true
+	add_child(cover)
+	cover.setup(controller.pack)
+	for l in [_status, _objective, _stock, _keys]:
+		move_child(l, cover.get_index() + 1)   # the placeholder labels stay readable over the black surround
 	var fade := ColorRect.new()   # the game view's fade-in after the choice (0x4183e0): black at alpha 1 - view_fade
 	fade.color = Color(0, 0, 0, 0)
 	fade.mouse_filter = Control.MOUSE_FILTER_IGNORE

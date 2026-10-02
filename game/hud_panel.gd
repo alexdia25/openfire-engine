@@ -3,13 +3,20 @@ extends Control
 ## The player's panel as the original lays it out (documents 66, 68-72), for the current vehicle type: the base picture (cel 1943 + vehicle index,
 ## 144 x 56), the fuel bar (kind 5) and the ammunition bars (kind 4; the Jeep's 16 missile pips, kind 7) at the rectangles of the vehicle's record, the
 ## radar window (kind 6) or the Jeep's compass (kind 8). A bar's fill eases 0.6 px a tick toward the value; its colour steps down as it empties (fuel:
-## flashing when nearly empty). NOT drawn: the compass's per-value palette, the radar's grid and brackets and ping, the panel's slide-in, and the
+## flashing when nearly empty). NOT drawn: the compass's per-value palette, the
 ## vehicle-stock counts of template slot 2 (`FUN_004116a0`). The bar colours are the nearest palette colours to the 15-bit words at 0x446760 / 0x446778 (document 74).
 ## The scale (3 px per original pixel) and the screen position are the port's choice.
 
 var _s := 3.0   ## window pixels per original pixel (HudLayout.panel_scale)
 var _frame: TextureRect   ## the blank frame cel 1940 under the base (classic layout only)
 var _layout_key := ""
+var _home := Vector2.ZERO   ## the panel's resting top left in the window
+var _slide := 0.0           ## the panel's slide-in offset, in original pixels below its place (document 124)
+var _slid_vehicle: Vehicle  ## the vehicle the slide was last started for
+## The slide-in (document 124): a new vehicle's panel starts (cel 1943's height - 1) = 55 px low (FUN_00412ad0: panel+0x10) and the kind-2 base callback
+## (0x411bb0) moves the offset to 0 by 0xcccc / 65536 = 0.8 px a tick (FUN_0042cdd0); every element reads the offset (+0x104), the frame (template slot 2) does not.
+const SLIDE_START := 55.0
+const SLIDE_PER_TICK := 0.8
 
 var mc: MatchController
 var _base: TextureRect
@@ -233,7 +240,8 @@ func _apply_layout() -> void:
 	_layout_key = key
 	_s = HudLayout.panel_scale(vp)
 	size = Vector2(144, 56) * _s
-	position = HudLayout.panel_position(vp)
+	_home = HudLayout.panel_position(vp)
+	position = _home
 	_type = -1   # rebuild the bars, pips, radar and compass at the new scale
 
 
@@ -242,6 +250,14 @@ func _process(delta: float) -> void:
 	if v == null or mc.pack.hud_panels.is_empty():
 		return
 	_apply_layout()
+	if v != _slid_vehicle:   # FUN_00411b70 runs when a vehicle's panel is built: the offset starts low again
+		_slid_vehicle = v
+		_slide = SLIDE_START
+	_slide = move_toward(_slide, 0.0, SLIDE_PER_TICK * delta * Vehicle.TICK_HZ)
+	if OS.get_environment("RF_DEBUG_SLIDE") != "":   # debug: hold the slide at this many original pixels, for screenshots
+		_slide = float(OS.get_environment("RF_DEBUG_SLIDE"))
+	position = _home + Vector2(0.0, _slide * _s)
+	_frame.position = HudLayout.FRAME_OFFSET * _s - Vector2(0.0, _slide * _s)   # the frame stays put while the elements rise
 	if v.vehicle_type != _type:
 		_layout(v.vehicle_type)
 	if not visible:

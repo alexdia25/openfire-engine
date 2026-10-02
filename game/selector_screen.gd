@@ -24,6 +24,7 @@ var _tex_cache: Dictionary = {}
 var _backdrop: Array = []      ## [sprite id, x, y]
 var _backdrop_team := -1
 var _map_image: ImageTexture = null
+var _strip: Texture2D          ## the classic layout's backdrop strip (HudLayout, document 96), drawn under the panel
 
 
 func setup(controller: MatchController) -> void:
@@ -184,6 +185,11 @@ func _draw() -> void:
 	_blit(String(sp["platform_cap"]), Vector2(px, py))
 	if anim != null and anim.fade < 1.0:
 		draw_rect(Rect2(_origin, screen * S), Color(0, 0, 0, 1.0 - anim.fade))
+	if HudLayout.is_classic():   # the original's hangar screen shares the game's layout (reference footage, 191 s): the picture stops at row 152 and the backdrop strip lies under the panel
+		if _strip == null:
+			_strip = HudLayout.load_pack_image(mc.pack, "strip_1p_low.png")
+		if _strip != null:
+			draw_texture_rect(_strip, Rect2(_origin + Vector2(0.0, HudLayout.STRIP_TOP) * S, _strip.get_size() * S), false)
 	if anim == null or anim.panel_visible:
 		_draw_panel()
 	if mc.map_open and mc.selecting:

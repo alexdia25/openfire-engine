@@ -5,6 +5,8 @@ extends Control
 
 var _strip: Texture2D
 var _last_key := ""
+## True for the second instance drawn ABOVE the panel: only the black surround, so a panel sliding in from below the picture (document 124) is cut off at the picture's edge.
+var surround_only := false
 
 
 func setup(pack: Pack) -> void:
@@ -30,6 +32,8 @@ func _draw() -> void:
 	draw_rect(Rect2(pic.end.x, 0, vp.x - pic.end.x, vp.y), Color.BLACK)
 	draw_rect(Rect2(0, 0, vp.x, pic.position.y), Color.BLACK)
 	draw_rect(Rect2(0, pic.end.y, vp.x, vp.y - pic.end.y), Color.BLACK)
+	if surround_only:
+		return
 	var k := HudLayout.classic_scale(vp)
 	if _strip == null:
 		draw_rect(Rect2(pic.position + Vector2(0, HudLayout.STRIP_TOP * k), Vector2(HudLayout.SCREEN.x, HudLayout.SCREEN.y - HudLayout.STRIP_TOP) * k), Color(0.15, 0.15, 0.17))
