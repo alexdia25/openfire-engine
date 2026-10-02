@@ -18,7 +18,7 @@ extends Node3D
 ##       visible           {channel, min, max, scale, eps}                      draw only while the (scaled) channel is in range
 ##       modes             [n, ...]   drawn only while the vehicle's `render.mode_channel` (water_view: 0 dry, 1 wading, 2 sinking, 3 the Jeep's swimming
 ##                         spray) is one of these; the parts WITHOUT `modes` are not drawn while the channel is in `render.replaced_in` (the sinking
-##                         descriptor replaces the vehicle, the wading ones are drawn with it; issue #25, document 122)
+##                         descriptor replaces the vehicle, the wading ones are drawn with it; issue #25, document 123)
 ##       sprites_by also   team_stride (add stride x the player index to the index) and hide_outside (draw nothing unless 0 <= index < n)
 ##   render.ripple  {frames, clock_mask}   the table `Vehicle.ripple_frame()` steps through (a sinking vehicle's ripple, FUN_00402ca0)
 ##   render.rigs.<name>  {channel, rotate: {axis: "x", scale}, base: [points], offset, adjust: [...]}

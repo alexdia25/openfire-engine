@@ -289,8 +289,8 @@ func _setup_target_pools() -> void:
 ## position/rotation once launched.
 ## FUN_00415b00 (document 61): where the Jeep missile goes. In order: an enemy vehicle on the ground within 61.2
 ## units; else the last tile that blocked this vehicle, if it still has hit points and is within 61.2 units (its
-## centre plus the decoration jitter); else a random point ahead. (The original also considers the last enemy
-## object touched, state +0xa8; vehicle-vs-vehicle contact is not modelled.)
+## centre plus the decoration jitter); else the last object of the other player that blocked it (state +0xa8: a gate or a
+## vehicle here), if within range and no farther than that tile; else a random point ahead (issue #25).
 const MISSILE_RANGE := 0x3d3ab7 / 65536.0  ## 61.23 units
 
 
@@ -298,7 +298,7 @@ func _pick_missile_target(v: Vehicle) -> Vector2:
 	var best := INF
 	var target := Vector2.ZERO
 	for o in [vehicle] + enemy_vehicles:
-		if o == null or not is_instance_valid(o) or not o.alive or o.team == v.team:
+		if o == null or not is_instance_valid(o) or not o.alive or o.team == v.team or o.z >= 5.0:   # "its height is below 5.0" (0x50000)
 			continue
 		var d := v.position.distance_to(o.position)
 		if d < MISSILE_RANGE and d < best:
@@ -306,6 +306,8 @@ func _pick_missile_target(v: Vehicle) -> Vector2:
 			target = o.position
 	if best < INF:
 		return target
+	var tile_d := INF   # local_8 = 0x7fffffff until a tile with hit points is considered
+	var tile_at := Vector2.ZERO
 	var t := v.last_blocked_tile
 	if t.x >= 0 and t.y >= 0 and t.x < level.width and t.y < level.height and level.get_coastal_id(t.x, t.y) != 0:
 		if _tile_hp.get(t, _initial_tile_hp(t)) > 0:
@@ -314,9 +316,39 @@ func _pick_missile_target(v: Vehicle) -> Vector2:
 			var info := pack.get_coastal_shapes(level.get_coastal_id(t.x, t.y))
 			if info.get("jitter", false):
 				c += level.jitter_at(t.x, t.y)
-			if v.position.distance_to(c) < MISSILE_RANGE:
-				return c
+			tile_d = v.position.distance_to(c)
+			tile_at = c
+			if tile_d < MISSILE_RANGE:
+				target = c
+				best = tile_d
+	# the third rule: the last object that blocked it, if it is still the same live object, belongs to the other player and is within range and no farther than the tile
+	var touched := _touched_object_position(v)
+	if touched.x == touched.x:   # not NAN
+		var d := v.position.distance_to(touched)
+		if d < MISSILE_RANGE and d <= tile_d:
+			return touched
+	if best < INF:
+		return target
 	return v.random_aim_point()
+
+
+## FUN_00415b00's third rule: where `v.last_touched` is now, or NAN when it is gone (state +0xac no longer matches the object's id), is the player's own,
+## or is not an object the port places (the vehicle class's callback fires for every solid object; the port's solid objects are gates and vehicles).
+func _touched_object_position(v: Vehicle) -> Vector2:
+	var o: Object = v.last_touched
+	if o == null or not is_instance_valid(o):
+		return Vector2(NAN, NAN)
+	if o is Gate:
+		var g: Gate = o
+		if g.finished or not gates.has(g.tile) or gates[g.tile] != g or g.variant == v.player_index():
+			return Vector2(NAN, NAN)
+		return g.centre
+	if o is Vehicle:
+		var other: Vehicle = o
+		if not other.alive or other.player_index() == v.player_index():
+			return Vector2(NAN, NAN)
+		return other.position
+	return Vector2(NAN, NAN)
 
 
 ## The missile came down (z < 0) without hitting anything: FUN_00415730 picks the landing record by what it fell on
@@ -1203,6 +1235,7 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 			continue
 		for b in g.bars():
 			if Collision.polygon_hits_box(poly, b["origin"], b["box"]):
+				v.last_touched = g   # FUN_0040c150 (the vehicle class's object callback): state +0xa8 = the object it ran into
 				return true
 	for other in [vehicle] + enemy_vehicles:
 		if other == null or other == v or not is_instance_valid(other) or not other.alive:
@@ -1210,6 +1243,7 @@ func vehicle_blocked(v: Vehicle, at: Vector2, heading_deg: float) -> bool:
 		if at.distance_to(other.position) > 40.0 or absf(other.z - v.z) > 12.0:
 			continue
 		if Collision.polygons_hit(poly, other.hit_polygon()):
+			v.last_touched = other
 			return true
 	return false
 

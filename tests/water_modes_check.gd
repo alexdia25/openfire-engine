@@ -1,4 +1,4 @@
-# The render descriptor's water views (issue alexdia25/openfire#25, openfire document 122), with no game's vehicles: a synthetic vehicle whose descriptor has a
+# The render descriptor's water views (issue alexdia25/openfire#25, openfire document 123), with no game's vehicles: a synthetic vehicle whose descriptor has a
 # hull, a spray part drawn only while wading, and two sinking parts (with the sprite picked by the depth, the player's colour and a depth limit) that replace the
 # hull while it sinks -- plus the vehicle's own water state: the view channel, the splash counter's frame, the Jeep-style swim spray remap and the poses the mod
 # tool uses. Run (see tests/README.md):

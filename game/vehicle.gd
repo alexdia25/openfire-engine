@@ -355,6 +355,9 @@ var aim_target := Callable()
 ## The last tile that blocked this vehicle (state +0xa4, set by FUN_0040c130); the Jeep missile aims at it if it is
 ## still destructible and within 61.2 units.
 var last_blocked_tile := Vector2i(-1, -1)
+## The last object that blocked this vehicle (state +0xa8, set by the vehicle class's object callback FUN_0040c150, issue #25; +0xac is the object's id, which
+## here is "still the same live object"): a Gate or another Vehicle. The Jeep missile aims at it when it belongs to the other player (FUN_00415b00).
+var last_touched: Object = null
 
 
 ## FUN_00415b00's fallback when there is nothing to aim at: a point 48-62 units away along the heading turned by
@@ -407,7 +410,7 @@ var swim_target := 0.0
 var swim_amount := 0.0
 var sink_depth := 14.0
 var _sinking := false
-## The wading handler (issue #25, document 122; vehicle_modules/hull_water.gd): `wading` while it is installed, `wade_counter` its splash counter (state +0x48).
+## The wading handler (issue #25, document 123; vehicle_modules/hull_water.gd): `wading` while it is installed, `wade_counter` its splash counter (state +0x48).
 var wading := false
 var wade_counter := 0.0
 

@@ -6,7 +6,7 @@ extends VehicleModule
 ## `swim_target` (state +0x84) that `swim_amount` (state +0x80) follows at `swim_ramp` a tick; a swimming vehicle floats.
 ## A vehicle without this module (the Heli: its +0x4c is 0) never asks.
 ##
-## Wading (issue #25, document 122): the original's three water handlers (dry 0x40cef0, wading 0x40d150, sinking 0x40cf90) also swap the object's draw
+## Wading (issue #25, document 123): the original's three water handlers (dry 0x40cef0, wading 0x40d150, sinking 0x40cf90) also swap the object's draw
 ## descriptor. `wading` is the wading handler: entered from dry in any water (not deep, unless a swimming Jeep) when the vehicle moves forward at
 ## half the terrain-scaled top speed or more, with a splash counter (`wade_counter`, state +0x48) starting at 4.0 and growing `wade_rate` a tick; at
 ## `wade_wrap` it falls back by `wade_wrap_moving` while the vehicle keeps wading (shallow water, moving forward) and by the whole `wade_wrap` otherwise,
@@ -18,11 +18,11 @@ const SCHEMA := {
 		"can_swim": {"type": "bool", "default": false, "provenance": "traced:62", "doc": "The second button toggles swim mode (the Jeep)"},
 		"sink_rate": {"type": "float", "unit": "units/tick", "default": 0x6666 / 65536.0, "provenance": "traced:62"},
 		"swim_ramp": {"type": "float", "unit": "per tick", "default": 1092.0 / 65536.0, "provenance": "traced:62"},
-		"wade_start": {"type": "float", "default": 4.0, "provenance": "traced:122", "doc": "The splash counter when wading starts (0x40000)"},
-		"wade_rate": {"type": "float", "unit": "per tick", "default": 0x3333 / 65536.0, "provenance": "traced:122"},
-		"wade_wrap": {"type": "float", "default": 13.0, "provenance": "traced:122", "doc": "The counter at which it wraps"},
-		"wade_wrap_moving": {"type": "float", "default": 5.0, "provenance": "traced:122", "doc": "...by this while the vehicle keeps wading, else by wade_wrap"},
-		"wade_dry_after": {"type": "int", "default": 3, "provenance": "traced:122", "doc": "Not wading, the handler ends when the counter's integer part leaves this"},
+		"wade_start": {"type": "float", "default": 4.0, "provenance": "traced:123", "doc": "The splash counter when wading starts (0x40000)"},
+		"wade_rate": {"type": "float", "unit": "per tick", "default": 0x3333 / 65536.0, "provenance": "traced:123"},
+		"wade_wrap": {"type": "float", "default": 13.0, "provenance": "traced:123", "doc": "The counter at which it wraps"},
+		"wade_wrap_moving": {"type": "float", "default": 5.0, "provenance": "traced:123", "doc": "...by this while the vehicle keeps wading, else by wade_wrap"},
+		"wade_dry_after": {"type": "int", "default": 3, "provenance": "traced:123", "doc": "Not wading, the handler ends when the counter's integer part leaves this"},
 	},
 	"channels": ["z", "water_class", "swim_amount", "swim_target", "wade_counter", "water_view"],
 }
