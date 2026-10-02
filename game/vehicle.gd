@@ -245,7 +245,14 @@ func _apply_type() -> void:
 	# FUN_0040b980's panel-activation block plays the record's "created" sound (+0x240, document 82): the definition's
 	# events.on_create.sound -- the Jeep's JeepStart, the Heli's Servo (earlier than its "Heli" chime at stage 1->2,
 	# document 79). The Tank's and MSV's descriptor 0x44b520 is not a traced cue, so they stay silent.
-	var created: Variant = pack.vehicle_value(vehicle_type, "events.on_create.sound")
+	if announce_created:
+		announce_created_sound()
+
+
+## The vehicle's "created" sound (the definition's events.on_create.sound). The original's vehicle object appears when the undock object's rise ends
+## (FUN_0042edfc -> FUN_0040b1c0), so its first tick plays it with the game view already faded in; the match defers it to then (issue #80).
+func announce_created_sound() -> void:
+	var created: Variant = pack.vehicle_value(vehicle_type, "events.on_create.sound") if pack != null else null
 	if created != null:
 		sound_cue.emit(String(created))
 
@@ -731,6 +738,7 @@ func heli_weapon_slot() -> int:
 	return _heli_slot
 
 
+var announce_created := true   ## false while the match holds the created sound back until the pad rise ends
 var _road_mask := 0   ## DAT_0048c7b0: the direction mask of the road piece the Jeep was last driven on (game/road_assist.gd)
 
 

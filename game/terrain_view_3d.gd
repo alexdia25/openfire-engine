@@ -326,6 +326,7 @@ func _spawn_match() -> void:
 		for e in controller.enemy_vehicles:
 			_sound.connect_vehicle(e)   # their cues and engine loops are heard with distance too
 		controller.sound_at.connect(func(cue: String, at: Vector2, z: float): _sound.play_at(cue, at, z))
+		controller.sound_flat.connect(func(cue: String): _sound.play(cue))
 		var dock_light := DockReadyIndicator3D.new()
 		add_child(dock_light)
 		dock_light.setup(controller, pack)
@@ -817,6 +818,8 @@ func _process(delta: float) -> void:
 	if rising and not _was_rising and GameSettings.camera_swoop_in and controller.vehicle != null:
 		_swoop = CameraSwoop.new(float(pack.vehicle_value(controller.vehicle.vehicle_type, "camera.swoop_height", -170.0)))
 	_was_rising = rising
+	if _sound != null and controller != null:
+		_sound.weight = controller.view_fade   # every sourced voice is scaled by the game view's fade level (view +0xe0; issue #80, document 117)
 	if _sound != null and controller != null and controller.vehicle != null:
 		# the sound engine's listener is the camera, whose height (view +0x20) is the eased -170 / -100 (issue #80, document 118)
 		_sound.listener_z = _swoop.height() if _swoop != null else float(pack.vehicle_value(controller.vehicle.vehicle_type, "camera.swoop_height", -170.0))

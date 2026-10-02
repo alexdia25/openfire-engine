@@ -140,6 +140,17 @@ func _manager() -> void:
 	snd._release(snd._voices[0])
 	snd.listener_z = null
 
+	# the side weight (the game view's fade) scales sourced voices only
+	snd.weight = 0.0
+	snd.play("Quiet", own)
+	snd.play("Quiet")
+	var sourced_db: float = snd._players[snd._voices[0].slot].volume_db
+	var flat_db: float = snd._players[snd._voices[1].slot].volume_db
+	_check(sourced_db <= -80.0 + 0.001 and _near(flat_db, SoundLevel.db(20000.0), 0.01), "with the view faded out (weight 0) a sourced voice is silent and a flat one is not (%.1f, %.1f dB)" % [sourced_db, flat_db])
+	snd.weight = 1.0
+	for v in snd._voices.duplicate():
+		snd._release(v)
+
 	# a looping voice follows its source until stopped
 	var mover := Src.new()
 	root.add_child(mover)

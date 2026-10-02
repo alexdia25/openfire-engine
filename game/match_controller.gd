@@ -80,6 +80,9 @@ signal mine_exploded(position: Vector2)
 ## object as the source, so the listener hears it attenuated and panned (game/sound_manager.gd; issue #22). Sounds of the player's own
 ## vehicle and flat ones (menu clicks) stay on Vehicle.sound_cue.
 signal sound_at(cue: String, at: Vector2, z: float)
+## A flat sound: the command names no source object (menu clicks, the choice's script, the loss sting, the compass chime), so the game view's fade
+## (the weight of sourced voices) does not scale it (issue #80).
+signal sound_flat(cue: String)
 ## The map-edge guard (Return Fire's submarine; game/edge_guard.gd, issue #68) was created / removed itself.
 signal edge_guard_created(guard: EdgeGuard)
 signal edge_guard_removed(guard: EdgeGuard)
@@ -149,6 +152,10 @@ func _launch_sound(p: Projectile) -> void:
 	var cue := String(t.get("sound", ""))
 	if cue != "":
 		_sound_at(cue, p.position, p.z)
+
+
+func _sound_flat(cue: String) -> void:
+	sound_flat.emit(cue)
 
 
 func _sound_at(cue: String, at: Vector2, z := 0.0) -> void:
@@ -1204,7 +1211,7 @@ func _death_tick() -> void:
 		view_fade = maxf(view_fade - DEATH_DARKEN_PER_TICK, 0.0)
 		if view_fade <= 0.0:
 			death_phase = 4
-			vehicle.sound_cue.emit("Laugh")   # FUN_00418830: `PUSH 0x44b790; CALL FUN_004232d0`, the moment the darkening ends
+			_sound_flat("Laugh")   # FUN_00418830: `PUSH 0x44b790; CALL FUN_004232d0`, the moment the darkening ends
 	elif death_phase == 4:
 		skull_timer_raw += SKULL_TIMER_RATE_RAW
 		if skull_timer_raw > 0x3bffff:
@@ -1665,7 +1672,7 @@ var _compass_aligned: Dictionary = {}   ## Vehicle -> bool, FUN_0040d990's state
 func _update_compass_chime(v: Vehicle) -> void:
 	var aligned := compass_value(v) == -16
 	if aligned and not _compass_aligned.get(v, false):
-		v.sound_cue.emit("DumbDirect")
+		_sound_flat("DumbDirect")
 	_compass_aligned[v] = aligned
 
 
@@ -1913,6 +1920,7 @@ func _update_dock(delta: float) -> void:
 			pad_rising = false
 			vehicle.frozen = false
 			_set_pad_open(false)
+			vehicle.announce_created_sound()
 	if dock_state == 0:
 		return
 	if dock_state == 1:
@@ -2037,7 +2045,7 @@ func _open_selection() -> void:
 	selecting = true
 	map_open = false
 	select_anim = SelectorAnim.new()
-	select_anim.sound_cue.connect(vehicle.sound_cue.emit)
+	select_anim.sound_cue.connect(_sound_flat)
 	vehicle.frozen = true
 	selection_changed.emit()
 
@@ -2060,7 +2068,7 @@ func select_move(dir: int) -> void:
 	if cand != selection:
 		selection = cand
 		selection_changed.emit()
-		vehicle.sound_cue.emit("GClick")   # document 76: "each change plays sound 0x44b640" (document 82)
+		_sound_flat("GClick")   # document 76: "each change plays sound 0x44b640" (document 82)
 
 
 ## PORT-ONLY (no original equivalent -- the original never had more than 4 vehicles to choose from, PORTING_PLAN.md
@@ -2077,7 +2085,7 @@ func select_next_page() -> void:
 				selector_page = page
 				selection = bay
 				selection_changed.emit()
-				vehicle.sound_cue.emit("GClick")
+				_sound_flat("GClick")
 				return
 
 
@@ -2088,7 +2096,9 @@ func confirm_selection() -> void:
 	if select_anim != null and select_anim.fade < 1.0:
 		return   # the confirm only counts once the view has faded in (FUN_00417ad0 tests the fade value against 1.0)
 	_take_stock(t)
+	vehicle.announce_created = false   # the created sound plays when the rise ends and the real vehicle is released (FUN_0042edfc), not now
 	vehicle.set_vehicle_type(t)   # a new vehicle object: full hit points, fuel and ammunition
+	vehicle.announce_created = true
 	vehicle.position = _pad_centre        # FUN_0040b1c0 creates it on the pad, heading 180 degrees (the Heli 135); the port's heading is the original's minus 90
 	vehicle.heading_deg = 45.0 if vehicle.lands_before_docking() else 90.0   # a rotor vehicle (the Heli); was "selection == 3", the Heli's fixed bay index
 	vehicle.z = 0.0
