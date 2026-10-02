@@ -37,6 +37,7 @@ var _current: Control = null   ## the front-end screen on screen now (title / me
 var _level_view: Node3D = null   ## the running TerrainView3D, while a level is in progress
 var _menu_music: MusicManager = null   ## the Drums line under the front-end screens, one unbroken loop from the title screen to level select; gone while a level runs (the level has its own MusicManager)
 var _ui_skin: UiSkin = null   ## the pack's front-end skin (ui/skin.json), cached by _skin()
+var _players := 1   ## which list the level select shows (_show_level_select)
 var _title_tex: Texture2D = null   ## cached by _title_picture()
 var _overlay: StoryScene = null   ## a mid-level scene playing over the (paused) live level; see trigger_mid_level()
 
@@ -63,7 +64,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _level_view != null and event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		_clear_level()
-		_show_level_select()
+		_show_level_select(_players)
 
 
 func _start_menu_music() -> void:
@@ -163,11 +164,15 @@ static func add_settings_entry(label: Variant, action: Callable) -> void:
 	settings_entries.append([label, action])
 
 
+## Multiplayer lists the two-player levels (the ones with two spawn points); a chosen one starts as every level does now -- two-player play itself is not built
+## (PORTING_PLAN.md section 4 item 7).
 func _show_multiplayer() -> void:
-	_show_placeholder("Multiplayer", "Not built yet -- PORTING_PLAN.md section 4 item 7.", [["Back", func(): _show_main_menu()]])
+	_show_level_select(2)
 
 
-func _show_level_select() -> void:
+## `players`: 1 = Campaign's one-player levels, 2 = Multiplayer's two-player levels; coming back from a level returns to the same list.
+func _show_level_select(players := 1) -> void:
+	_players = players
 	_clear_current()
 	_start_menu_music()
 	var s := LevelSelectScreen.new()
@@ -175,13 +180,13 @@ func _show_level_select() -> void:
 	s.skin = _skin()
 	add_child(s)
 	_current = s
-	s.setup(pack)
+	s.setup(pack, players)
 	s.level_chosen.connect(func(id): start_level(id))
 	s.back_pressed.connect(func(): _show_main_menu())
 
 
 func _show_mission_failed() -> void:
-	_show_placeholder("Mission failed", "Out of vehicles.", [["Back to level select", func(): _show_level_select()]])
+	_show_placeholder("Mission failed", "Out of vehicles.", [["Back to level select", func(): _show_level_select(_players)]])
 
 
 ## Plays `scene_id` (a pack's `scenes/<id>.json`, `StoryScene`'s format) if it names one that exists, else calls
@@ -227,7 +232,7 @@ func _enter_level(level_id: String) -> void:
 	await get_tree().process_frame   # TerrainView3D builds `controller` in _ready(), which add_child() only schedules
 	if not is_instance_valid(view) or view.controller == null:
 		_clear_level()
-		_show_level_select()
+		_show_level_select(_players)
 		return
 	# The outcome is known as soon as match_over/out_of_vehicles fires, but the level itself is NOT torn down then:
 	# its own win/loss presentation (PlaceholderHud.show_win/show_lost -- the ribbon, the victory jingle, the banner)
@@ -250,7 +255,7 @@ func _on_level_won(_winner_idx: int, level_id: String) -> void:
 	_clear_level()
 	var lv := LevelData.new()
 	lv.load_from(pack.level_dir(level_id), pack.level_override_paths(level_id))
-	_play_story(String(lv.flow.get("outro", "")), func(): _show_level_select())
+	_play_story(String(lv.flow.get("outro", "")), func(): _show_level_select(_players))
 
 
 func _on_level_lost(_level_id: String) -> void:

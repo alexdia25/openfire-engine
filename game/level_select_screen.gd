@@ -12,7 +12,8 @@ var backdrop: Texture2D   ## the title picture behind the dialog, set before `se
 var skin := UiSkin.new()   ## the pack's skin, set before `setup`
 
 
-func setup(pack: Pack) -> void:
+## `players`: only the levels made for that many players are listed (0 = all): Campaign lists the one-player levels, Multiplayer the two-player ones.
+func setup(pack: Pack, players := 0) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	set_deferred("size", get_viewport_rect().size)   # anchors alone do not size a Control added ad hoc under a non-Control ancestor (deferred: Control warns/reverts an immediate size set while its own FULL_RECT anchors are active)
 	skin.add_backdrop(self, backdrop)
@@ -21,7 +22,10 @@ func setup(pack: Pack) -> void:
 	var list := ItemList.new()   # scrolls its own rows internally, so no ScrollContainer wrapper is needed
 	list.custom_minimum_size = Vector2(420, 300)
 	body.add_child(list)
-	var ids := pack.list_levels()
+	var ids: Array[String] = []
+	for id in pack.list_levels():
+		if players == 0 or LevelData.peek_players(pack.level_dir(id)) == players:
+			ids.append(id)
 	ids.sort()
 	for id in ids:
 		var name := _peek_name(pack.level_dir(id))

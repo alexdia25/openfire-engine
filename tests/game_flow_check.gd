@@ -37,13 +37,18 @@ func _init() -> void:
 	flow._show_main_menu()
 	_check(flow._current is PlaceholderScreen, "main menu is a placeholder screen too")
 	flow._show_settings()
+	_check(flow._current is PlaceholderScreen, "settings doesn't crash (placeholder)")
+	_check(LevelData.peek_players(flow.pack.level_dir("LEVEL01")) == 2, "a level with two spawn points is a two-player level")
 	flow._show_multiplayer()
-	_check(flow._current is PlaceholderScreen, "settings and multiplayer don't crash (placeholders)")
+	_check(flow._current is LevelSelectScreen, "multiplayer opens the level select of the two-player levels")
+	var ml: ItemList = flow._current.find_children("*", "ItemList", true, false)[0]
+	_check(ml.item_count == 2, "it lists both fixture levels (two spawn points each)")
 
 	flow._show_level_select()
 	_check(flow._current is LevelSelectScreen, "campaign opens the level select")
 	var sel: LevelSelectScreen = flow._current
 	_check(sel.get_children().size() > 0, "it lists something")
+	_check((sel.find_children("*", "ItemList", true, false)[0] as ItemList).item_count == 0, "of the one-player levels only: the fixture has none")
 
 	# starting a level whose flow names an intro plays it first, not the level
 	flow.start_level("LEVEL01")

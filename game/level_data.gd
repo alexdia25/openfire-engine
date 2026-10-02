@@ -53,6 +53,19 @@ static func peek_name(level_dir: String) -> String:
 	return String(doc["name"]) if doc is Dictionary and doc.get("name") is String else ""
 
 
+## How many players a level is made for (the original's World Info "No. of Players"): the number of its spawn points, or its own "players" when it names one. Read
+## from the file's text, not parsed, so a list of many levels stays quick. 1 if the level has no spawn points.
+static func peek_players(level_dir: String) -> int:
+	var text := FileAccess.get_file_as_string(level_dir.path_join("level.json"))
+	var own := RegEx.create_from_string("\"players\"\\s*:\\s*(\\d+)").search(text)
+	if own != null:
+		return int(own.get_string(1))
+	var sp := RegEx.create_from_string("\"spawn_points\"\\s*:\\s*\\[([^\\]]*)\\]").search(text)
+	if sp == null:
+		return 1
+	return maxi(1, sp.get_string(1).count("{"))
+
+
 ## `override_paths`: every layer's `level.override.json` for this level, base to top (`Pack.level_override_paths()`),
 ## applied here in that order so a later mod's edit wins. An override may set `side_colours` (replacing the level's
 ## own) and `roster` (per-id: null removes, an object adds or merges) -- see `roster_override` above. The generated
