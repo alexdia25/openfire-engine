@@ -10,6 +10,7 @@ extends RefCounted
 ##   gravity    from the first tick it runs the fall starts from the direction's height times the speed (`launch`), then 0x51e a tick, at most 1.0
 ##   yaw_spin / roll_spin   a random spin (the sum of two draws, either sign) the angle follows (FUN_0042abc0, 0042aca0)
 ##   tint       shade toward a colour as progress passes (FUN_0042a950; PORT CHOICE: the palette is not read, the piece darkens)
+##   bounce     gravity, then the four corners are kept above the ground; with `settle_end` the piece ends once all four lie on it (FUN_0042b030)
 ##   land       once at or below the ground, play the surface's effect record and end (FUN_0042b0e0)
 ##   drag       slows drift words that nothing sets (FUN_0042afa0): a no-op, not run
 ## `frames` (a record field) swaps the sprite for the burn-out frames while progress is in range (FUN_0042ad80). From `fade_start` the piece fades.
@@ -37,6 +38,7 @@ var sprite_id := ""            ## the part's own sprite
 var frame_id := ""             ## the burn-out frame while one is shown
 var offsets: Array[Vector3] = []   ## the four corners about the centre, (x, up, z) in world axes
 var finished := false
+var offsets_changed := false   ## the bounce op moved a corner: the view rebuilds the quad
 
 var _rec: Dictionary
 var _surface: Callable          ## position -> effect record address
@@ -109,14 +111,14 @@ func _step() -> void:
 					d.z += dir.z * speed
 				moved = true
 			"gravity":
-				if _slots[i] == null:
-					_slots[i] = 0.0
-					if bool(op.get("launch", false)):
-						vz = dir.z * speed
-					airborne = true
-				vz = maxf(vz - GRAVITY, -FALL_LIMIT)
-				d.z += vz
+				d.z += _gravity(op, i)
 				moved = true
+			"bounce":
+				d.z += _gravity(op, i)
+				moved = true
+				if _settle(z + d.z) and bool(op.get("settle_end", false)):
+					finished = true
+					return
 			"yaw_spin":
 				yaw_rate = _spin(op, i, yaw_rate)
 				yaw = fposmod(yaw + yaw_rate, 360.0)
@@ -134,6 +136,40 @@ func _step() -> void:
 			d.z = -z
 		position += Vector2(d.x, d.y)
 		z += d.z
+
+
+## FUN_0042aeb0: from the first tick the fall starts from the direction's height times the speed (`launch`), then 0x51e a tick down to the limit.
+func _gravity(op: Dictionary, i: int) -> float:
+	if _slots[i] == null:
+		_slots[i] = 0.0
+		if bool(op.get("launch", false)):
+			vz = dir.z * speed
+		airborne = true
+	vz = maxf(vz - GRAVITY, -FALL_LIMIT)
+	return vz
+
+
+## FUN_0042b030 after its gravity call: `height` is the centre's height after this tick's fall. A centre at or below the ground (under one raw
+## unit) lowers every corner by that much first and measures them from the ground; each corner that would then lie below it is set on it (and stays:
+## the corner's own height is rewritten). A wall therefore folds its lower edge into the ground while its top edge falls, and a flat piece ends flat.
+## True when all four corners lie on the ground.
+func _settle(height: float) -> bool:
+	var base := height
+	var shift := 0.0
+	if height < 1.0 / 65536.0:
+		base = 0.0
+		shift = height
+	var on_ground := 0
+	for k in offsets.size():
+		var o := offsets[k]
+		var up := o.y + shift
+		if up + base < 0.0:
+			up = -base
+			on_ground += 1
+		if up != o.y:
+			offsets[k] = Vector3(o.x, up, o.z)
+			offsets_changed = true
+	return on_ground > 3
 
 
 ## FUN_0042abc0: the first time, a random target spin (the sum of two draws over ((high - low) + 0x20000) >> 9, times 0x100, plus low, either sign;

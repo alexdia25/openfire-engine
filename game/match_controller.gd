@@ -704,6 +704,45 @@ func _on_wreck_debris(w: Wreck) -> void:
 		debris_created.emit(p)
 
 
+## Op 17 of a tile's collapse script (FUN_0042d790 -> FUN_0042b4e0): the tile's decoration, as it stands (`coastal_id` is the id it had when the
+## effect began), breaks into one flying piece per part whose flags & 0x300 is 1 or 2, run by the record row `row` of the tile table names. The
+## pieces start where the parts stand (the tile's centre, the part's offset and jitter, its height) and fall straight down with no heading or pitch
+## (document 119). The team is the tile's variant, as for the decoration's own sprites.
+func shatter_tile(row: int, tile: Vector2i, coastal_id: int) -> void:
+	var rows: Dictionary = pack.debris.get("tile_rows", {}).get(str(row), {})
+	if rows.is_empty():
+		return
+	var tsz := float(pack.tile_size_px)
+	var base := (Vector2(tile) + Vector2(0.5, 0.5)) * tsz
+	var variant := level.get_variant(tile.x, tile.y)
+	var jit := level.jitter_at(tile.x, tile.y)
+	for part in pack.get_decoration_parts(coastal_id):
+		var cls := (int(part.get("flags", 0)) >> 8) & 3
+		var addr := String(rows.get(str(cls), ""))
+		if addr == "" or not pack.debris["records"].has(addr) or not (part.get("corners", []) is Array) or (part["corners"] as Array).size() != 4:
+			continue
+		var s_id := DecorationField3D.part_sprite_id(pack, level, part, variant)
+		if pack.get_sprite(s_id).is_empty():
+			continue
+		var local: Array[Vector3] = []
+		var centre := Vector3.ZERO
+		for c in part["corners"]:
+			var v := Vector3(float(c[0]), float(c[2]), float(c[1]))
+			local.append(v)
+			centre += v * 0.25
+		var off: Array = part.get("offset", [0.0, 0.0])
+		var j := jit if part.get("jitter", false) else Vector2.ZERO
+		var p := DebrisPiece.new(pack.debris["records"][addr], _debris_surface)
+		p.position = base + j + Vector2(float(off[0]), float(off[1])) + Vector2(centre.x, centre.z)
+		p.z = float(part.get("zoff", 0.0)) + centre.y
+		p.dir = centre.normalized()
+		for v in local:
+			p.offsets.append(v - centre)
+		p.sprite_id = s_id
+		debris.append(p)
+		debris_created.emit(p)
+
+
 ## FUN_0042b0e0: the effect a piece's landing plays: the water record where the ground is water (FUN_0042f410), the pavement one on tile art 0x49-0x53,
 ## else the land puff. (The water record is picked by a length the decompiler hides: the small one, PORT CHOICE.)
 func _debris_surface(at: Vector2) -> String:

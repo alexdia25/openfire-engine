@@ -10,7 +10,8 @@ extends Node3D
 ## exactly one is drawn, chosen per object.
 ##
 ## The record's script is run the way FUN_0042dbe0 runs it (WAIT until progress reaches n, STOP yields
-## for a tick, END stops), but only the TILE_STATE op has an effect here: it fires `tile_state`, the
+## for a tick, END stops), but only the TILE_STATE and SHATTER ops have an effect here. SHATTER (op 17, FUN_0042d790) fires `shatter`: the tile's
+## decoration breaks into flying pieces (FUN_0042b4e0 over its parts, row n of the piece table; document 119). TILE_STATE fires `tile_state`, the
 ## moment the original re-textures the destroyed tile (FUN_0042e600) -- for a collapsing tile that is
 ## AFTER the first frames of the explosion, not at the hit. Op 21 (FUN_0042d9f0) does the same later: it
 ## clears the tile's decoration at once and schedules the state change `n` ticks on (FUN_004146d0 ->
@@ -24,6 +25,7 @@ extends Node3D
 const TICK_HZ := 62.5
 
 signal tile_state  ## the script reached its TILE_STATE op (or the timer op 21 scheduled ran out)
+signal shatter(row: int)  ## op 17 ran (FUN_0042d790): the tile's decoration breaks into flying pieces, made by row `row` of the piece table (document 119)
 signal tile_cleared  ## op 21 ran: the tile loses its decoration NOW; its result state follows after the delay
 
 ## A muzzle flash is attached to its vehicle (FUN_0042e0b0 / FUN_0042daf0): every tick it is placed at
@@ -155,6 +157,9 @@ func _run_script() -> void:
 				_pc += 1
 			"TILE_STATE":
 				tile_state.emit()
+				_pc += 1
+			"SHATTER":
+				shatter.emit(int(op[1]))
 				_pc += 1
 			"OP21":
 				tile_cleared.emit()

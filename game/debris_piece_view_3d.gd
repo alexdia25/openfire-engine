@@ -38,8 +38,9 @@ func _sync() -> void:
 	position = Vector3(piece.position.x, 0.5 + piece.z, piece.position.y)
 	basis = Basis(Vector3.RIGHT, deg_to_rad(piece.roll)) * Basis(Vector3.UP, deg_to_rad(piece.yaw))
 	var id := piece.frame_id if piece.frame_id != "" else piece.sprite_id
-	if id != _key:
+	if id != _key or piece.offsets_changed:
 		_key = id
+		piece.offsets_changed = false
 		_build(id)
 	var shade := Color.WHITE.lerp(DARKEN, clampf(piece.tint, 0.0, 1.0))
 	_mat.albedo_color = Color(shade.r, shade.g, shade.b, piece.fade_alpha())

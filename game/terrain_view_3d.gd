@@ -502,12 +502,11 @@ func _on_target_hit(_pool_id: String, tile: Vector2i) -> void:
 	if fx == null:
 		_apply_tile_destroyed(tile, coastal_id)
 	else:
-		fx.tile_cleared.connect(_clear_tile_decoration.bind(tile))
-		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
+		_connect_tile_effect(fx, tile, coastal_id)
 
 
 ## A vehicle flattened the tile (document 54): the bush callback (FUN_00436640) swaps in the entry's second
-## effect record (`coastal_crush_effect`, script WAIT 1 / DRAW_LIST 7 / TILE_STATE) and sets the tile's variant
+## effect record (`coastal_crush_effect`, script WAIT 1 / SHATTER 7 / TILE_STATE) and sets the tile's variant
 ## bits to 1; the crate callback (FUN_00436a50) uses the ordinary destroy effect.
 func _on_tile_crushed(tile: Vector2i) -> void:
 	var coastal_id := level.get_coastal_id(tile.x, tile.y)
@@ -521,8 +520,15 @@ func _on_tile_crushed(tile: Vector2i) -> void:
 	if fx == null:
 		_apply_tile_destroyed(tile, coastal_id)
 	else:
-		fx.tile_cleared.connect(_clear_tile_decoration.bind(tile))
-		fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
+		_connect_tile_effect(fx, tile, coastal_id)
+
+
+## What a tile's collapse script does to the tile: break the decoration into pieces (op 17), clear it (op 21), change its state (TILE_STATE).
+func _connect_tile_effect(fx: ExplosionEffect3D, tile: Vector2i, coastal_id: int) -> void:
+	if controller != null:
+		fx.shatter.connect(controller.shatter_tile.bind(tile, coastal_id))
+	fx.tile_cleared.connect(_clear_tile_decoration.bind(tile))
+	fx.tile_state.connect(_apply_tile_destroyed.bind(tile, coastal_id))
 
 
 ## A team gate (document 56): the tile's decoration is gone while the gate object draws itself and slides.
@@ -819,6 +825,13 @@ func _process(delta: float) -> void:
 		var t := pack.vehicle_index(OS.get_environment("RF_VEHICLE"))
 		if t > 0:
 			controller.vehicle.set_vehicle_type(t)
+		# RF_DEBUG_DESTROY_AFTER_HANGAR="x,y": moves the player 3 tiles south of that tile and runs the tile-destroyed step on it now, printing the frame.
+		var late := OS.get_environment("RF_DEBUG_DESTROY_AFTER_HANGAR")
+		if late != "":
+			var lp := late.split(",")
+			controller.vehicle.position = (Vector2(int(lp[0]) + 0.5, int(lp[1]) + 3.5)) * float(pack.tile_size_px)
+			print("debug: destroying tile %s at frame %d" % [late, Engine.get_process_frames()])
+			_on_target_hit("debug", Vector2i(int(lp[0]), int(lp[1])))
 
 	# Debug-only: RF_DEBUG_WRECK=1 drops one wreck of each vehicle type next to the player once it is out of the hangar (the Heli from height, moving;
 	# the Tank moving too, so its slide shows; RF_DEBUG_WRECK_FUEL=1 makes them fuel deaths), for screenshots (issue #29, document 118).

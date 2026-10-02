@@ -81,6 +81,20 @@ func _chunk_key(tx: int, ty: int) -> Vector2i:
 	return Vector2i(floori(float(tx) / CHUNK_TILES), floori(float(ty) / CHUNK_TILES))
 
 
+## The sprite a decoration part is drawn with for a tile variant: the part's own, or one of its four variants (variant 0 / 1 is the side,
+## document 44: drawn in that side's colour, PORTING_PLAN.md 2.7.7). The flying pieces of a collapsing tile (MatchController.shatter_tile) use it too.
+static func part_sprite_id(pack: Pack, level: LevelData, part: Dictionary, tile_variant: int) -> String:
+	var sprite_id: String = part.get("sprite_id", "")
+	if part.has("variant_sprite_ids"):
+		var variant := clampi(tile_variant, 0, 3)
+		var v: Variant = part["variant_sprite_ids"][variant]
+		if variant <= 1 and v != null:
+			v = pack.team_variant(part["variant_sprite_ids"], level.side_colour(variant))
+		if v != null:
+			sprite_id = v
+	return sprite_id
+
+
 ## Rebuilds only the chunk this tile's decoration lives in, after that tile changed state.
 func refresh_tile(tile: Vector2i) -> void:
 	var key := _chunk_key(tile.x, tile.y)
@@ -117,16 +131,7 @@ func _build_chunk(chunk_key: Vector2i) -> void:
 		for part in parts:
 			if not part.has("corners"):
 				continue
-			var sprite_id: String = part.get("sprite_id", "")
-			if part.has("variant_sprite_ids"):
-				var variant := clampi(int(entry.get("variant", 0)), 0, 3)
-				var v: Variant = part["variant_sprite_ids"][variant]
-				if variant <= 1 and v != null:
-					# team-owned (document 44: variant 0 / 1 is the side): drawn in that side's colour (PORTING_PLAN.md 2.7.7)
-					v = pack.team_variant(part["variant_sprite_ids"], level.side_colour(variant))
-				if v != null:
-					sprite_id = v
-			var s := pack.get_sprite(sprite_id)
+			var s := pack.get_sprite(part_sprite_id(pack, level, part, int(entry.get("variant", 0))))
 			if s.is_empty():
 				continue
 			var page := int(s.get("page", 0))
