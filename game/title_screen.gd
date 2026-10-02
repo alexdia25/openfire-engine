@@ -38,9 +38,7 @@ func setup(texture: Texture2D) -> void:
 	_prompt = prompt
 	prompt.text = PROMPT
 	prompt.add_theme_font_size_override("font_size", 20)
-	prompt.add_theme_color_override("font_color", Color.WHITE)
-	prompt.add_theme_color_override("font_outline_color", Color.BLACK)
-	prompt.add_theme_constant_override("outline_size", 4)
+	prompt.add_theme_color_override("font_color", Color.BLACK)
 	prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prompt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -58,8 +56,9 @@ func _place_prompt() -> void:
 	var k := minf(size.x / tex.x, size.y / tex.y)
 	var shown := tex * k
 	var origin := (size - shown) * 0.5
-	_prompt.size = Vector2(shown.x, 32.0)
-	_prompt.position = Vector2(origin.x, origin.y + shown.y * BAR_CENTRE - 16.0)
+	_prompt.custom_minimum_size = Vector2(shown.x, 0.0)
+	_prompt.reset_size()
+	_prompt.position = Vector2(origin.x, origin.y + shown.y * BAR_CENTRE - _prompt.size.y * 0.5)
 
 
 func _gui_input(event: InputEvent) -> void:
