@@ -20,6 +20,11 @@ func setup(g: EdgeGuard, pack: Pack) -> void:
 	_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	# The quad's near edge lies 16 units below the water (z -16): the original paints it over the ground with no depth test (painter's
+	# order, the sub's sort bias is -40 so it comes before the other objects), so the whole sprite shows. Same here: drawn right after
+	# the ground (priority -2, see TerrainView3D) and before everything else, ignoring depth.
+	_mat.no_depth_test = true
+	_mat.render_priority = -1
 	_mi = MeshInstance3D.new()
 	_mi.material_override = _mat
 	add_child(_mi)

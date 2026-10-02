@@ -237,6 +237,7 @@ func _build_terrain_ground() -> void:
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	mat.alpha_scissor_threshold = 0.5
+	mat.render_priority = -2   # first: the submarine (EdgeGuardView3D, priority -1, no depth test) is painted over the ground, as the original does
 	ground.material_override = mat
 	# PlaneMesh is centred on its own origin; the 2D scenes place (0,0) at the level's
 	# top-left corner with +X right/+Y down, so shift this node to match: world X -> node X,
@@ -278,6 +279,7 @@ func _build_open_water() -> void:
 	mat.albedo_texture = ImageTexture.create_from_image(img)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	mat.texture_repeat = true
+	mat.render_priority = -2
 	var inner := Rect2(Vector2.ONE * -_ground_margin_px, _map_size_px + Vector2.ONE * (2.0 * _ground_margin_px))
 	var outer := inner.grow(OPEN_WATER_EXTENT)
 	# north and south span the full width, west and east only the inner height, so the four never overlap
