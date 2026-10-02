@@ -4,7 +4,8 @@ extends Node3D
 ## decal the type record's `+0x164` names.
 ##  - TRACED: the wreck object is created with the descriptor `+0x148` of the vehicle type record (FUN_0040c7e0), and that is the SAME cel set as the
 ##    live body (the Tank's 14 parts, cels 167-212, turret and barrel included, in their rest pose; the Heli's 12 parts, cels 524-574, without the rotor).
-##    So a vehicle that dies falls and slides as its intact self, tilted by the nose pitch it had (obj +0x70, copied; the bank is not).
+##    So a vehicle that dies falls and slides as its intact self. NOT tilted: the body's init callback (the Heli's FUN_004034c0, the Tank's FUN_00402d20)
+##    reads the nose pitch (obj +0x70) and the bank (state +0x88) only for a live vehicle (class 1); for a wreck (class 6) both are 0, so the dying Heli is flat.
 ##  - After 8 ticks FUN_0040cca0 swaps the descriptor to `+0x160`: for the Tank, Jeep and MSV the decal itself (three flat ground quads: a shadow plus
 ##    two debris decals, identical geometry, only the textures differ), for the Heli (0x440bd0, not decoded) something else, so the Heli keeps its
 ##    body until it lands. A vehicle that ran out of fuel keeps its body (`+0x148`) there.
@@ -42,7 +43,7 @@ func setup(pack: Pack, w: Wreck) -> void:
 		_ghost.colour = colour
 		_ghost.announce_created = false
 		_ghost.setup(pack)
-		_ghost.speed = w.speed * Vehicle.TICK_HZ   # the nose pitch the Heli had (obj +0x70)
+		# no nose pitch and no bank: the body's init callback reads them for a live vehicle only (FUN_004034c0), so the ghost's speed stays 0
 		_body = VehicleRender3D.new()
 		_body.hidden_groups = pack.vehicle_value(w.vehicle_type, "wreck.body_hidden_groups", [])
 		add_child(_body)
