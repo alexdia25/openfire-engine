@@ -590,6 +590,7 @@ func _reset_water() -> void:
 	_fire_pending = false
 	heli_omega = 0.0
 	heli_vel = Vector2.ZERO
+	heli_wobble = Vector2.ZERO
 	bank_steps = 0.0
 	z = 0.0
 	water_class = 0
@@ -666,6 +667,8 @@ func _weapons_tick(delta: float) -> void:
 ## Rotor flight state (game/vehicle_modules/rotor_drive.gd, document 63): angular velocity, velocity, bank (state +0x88).
 var heli_omega := 0.0            ## heading change, steps per tick
 var heli_vel := Vector2.ZERO     ## world velocity, units per tick
+var heli_wobble := Vector2.ZERO  ## the hover drift (state +0x90 / +0x94): a random walk the velocity follows while no key is held, units per tick
+var heli_wobble_acc := 0.0       ## fractional ticks toward the next step of the walk
 var bank_steps := 0.0
 
 

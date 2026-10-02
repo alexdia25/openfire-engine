@@ -42,6 +42,7 @@ const SCHEMA := {
 const TICK_HZ := 62.5
 ## Weapons and the dock check run before the flight step (FUN_0040e0e0's order), not after it as on the ground.
 const WEAPONS_FIRST := true
+const HOVER_DRIFT_MAX := 0x7ae / 65536.0 * 1.5   ## a little over the wobble's largest diagonal (0.03 x sqrt 2)
 
 
 func start(v: Vehicle) -> void:
@@ -98,6 +99,22 @@ func on_hit(v: Vehicle, hit_heading_deg: float) -> void:
 		v.heli_vel = _dir_for(hit_heading_deg) * push
 
 
+## The hover drift, FUN_0040e0e0's `+0x90 / +0x94` (issue #26; document 63 called these "not used by anything": they are the velocity's target). While
+## nothing asks for any velocity (no speed, no strafe) the target is the wobble as it stood the tick before, and each tick the wobble takes a step
+## of (rand(0x28f) - 0x147) / 65536 on each axis, kept within +-0x7ae / 65536 (0.03 units a tick); as soon as a velocity is asked for the wobble is cleared.
+func _hover_wobble(v: Vehicle, want: Vector2, ticks: float) -> Vector2:
+	if want != Vector2.ZERO:
+		v.heli_wobble = Vector2.ZERO
+		return want
+	var target := v.heli_wobble
+	v.heli_wobble_acc += ticks
+	while v.heli_wobble_acc >= 1.0:
+		v.heli_wobble_acc -= 1.0
+		v.heli_wobble.x = clampf(v.heli_wobble.x + float((randi() % 0x28f) - 0x147) / 65536.0, -0x7ae / 65536.0, 0x7ae / 65536.0)
+		v.heli_wobble.y = clampf(v.heli_wobble.y + float((randi() % 0x28f) - 0x147) / 65536.0, -0x7ae / 65536.0, 0x7ae / 65536.0)
+	return target
+
+
 func _dir_for(heading: float, offset_steps: int = 0) -> Vector2:
 	var idx := floori(fposmod(heading + 90.0, 360.0) / 5.625) + offset_steps
 	var h := deg_to_rad(idx * 5.625 - 90.0)
@@ -148,13 +165,15 @@ func tick(v: Vehicle, delta: float) -> void:
 	var want := _dir_for(v.heading_deg) * speed_units
 	if strafe_steps != 0:
 		want += _dir_for(v.heading_deg, strafe_steps) * f("strafe")
+	want = _hover_wobble(v, want, ticks)
 	v.heli_vel.x = move_toward(v.heli_vel.x, want.x, f("velocity_rate") * ticks)
 	v.heli_vel.y = move_toward(v.heli_vel.y, want.y, f("velocity_rate") * ticks)
 	# climb
 	if v.z < f("ceiling"):
 		v.z = minf(v.z + f("climb") * ticks, f("ceiling"))
 	# move (only tall things can stop it, and only while it is low)
-	v.moving = v.heli_vel != Vector2.ZERO or v.heli_omega != 0.0
+	# "standing still" (zones, docking) ignores the hover drift: its velocity never exceeds 0.03 a tick on an axis (PORT CHOICE: the original's own test is untraced)
+	v.moving = v.heli_vel.length() > HOVER_DRIFT_MAX or v.heli_omega != 0.0
 	if v.speed != 0.0:
 		v.fuel -= absf(v.speed) * delta / 32.0
 		if v.fuel <= 0.0:

@@ -60,6 +60,7 @@ func _init() -> void:
 	_falling()
 	_overkill_and_water()
 	_hit_reaction()
+	_hover_wobble()
 	_in_a_match()
 	print("wreck_check: %d failures" % _failures)
 	quit(_failures)
@@ -259,3 +260,21 @@ func _in_a_match() -> void:
 	_check(effects == ["fx.boom"], "its death explosion is announced (%s)" % [effects])
 	_check(mc.wrecks.is_empty() and made[0].mark, "and once it has become its mark the object is no longer ticked")
 	print("wreck_check: match done")
+
+
+## The hover drift (issue #26): while nothing asks for a velocity the Heli's velocity follows a random walk of at most 0.03 units a tick on an axis; a held
+## key clears it.
+func _hover_wobble() -> void:
+	var v := _heli()
+	var rotor: VehicleModule = v.drive
+	var seen := {}
+	var biggest := 0.0
+	for i in 600:
+		var w: Vector2 = rotor._hover_wobble(v, Vector2.ZERO, 1.0)
+		biggest = maxf(biggest, maxf(absf(v.heli_wobble.x), absf(v.heli_wobble.y)))
+		seen[snappedf(v.heli_wobble.x, 0.0005)] = true
+	_check(biggest <= 0x7ae / 65536.0 + 1e-9 and biggest > 0.01, "the hover wobble drifts within +-0.03 units a tick (%.4f)" % biggest)
+	_check(seen.size() > 10, "and wanders")
+	var held: Vector2 = rotor._hover_wobble(v, Vector2(0.5, 0.0), 1.0)
+	_check(held == Vector2(0.5, 0.0) and v.heli_wobble == Vector2.ZERO, "asking for a velocity clears it")
+	v.free()
