@@ -55,8 +55,9 @@ func _refresh() -> void:
 	var u1 := (float(s["x"]) + float(s["w"])) / tw
 	var v1 := (float(s["y"]) + float(s["h"])) / th
 	var c: Array[Vector3] = []
+	var qs := float(_pack.edge_guard.get("quad_scale", 1.0))   # a pack may draw the quad smaller or larger than its descriptor says
 	for q in _pack.edge_guard.get("quad", []):
-		c.append(Vector3(q[0], q[2], q[1]))   # the descriptors' (x, y, z): x lateral, y = -forward (3D z), z up
+		c.append(Vector3(q[0], q[2], q[1]) * qs)   # the descriptors' (x, y, z): x lateral, y = -forward (3D z), z up
 	if c.size() != 4:
 		_mi.mesh = null
 		return

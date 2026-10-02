@@ -44,6 +44,16 @@ var _overlay: StoryScene = null   ## a mid-level scene playing over the (paused)
 func _ready() -> void:
 	pack = ModLoader.load_game_pack(pack_path)
 	pack_path = pack.pack_dir
+	# Debug builds only: RF_DEBUG_LEVEL=<id> (or any RF_DEBUG_SCREENSHOT run, which takes the first level) boots straight into that level,
+	# past the title and menus, so the RF_DEBUG_* scripts for screenshots reach a level again.
+	var dbg := OS.get_environment("RF_DEBUG_LEVEL")
+	if OS.is_debug_build() and (dbg != "" or OS.get_environment("RF_DEBUG_SCREENSHOT") != ""):
+		var ids := pack.list_levels()
+		if dbg == "" and not ids.is_empty():
+			dbg = String(ids[0])
+		if dbg != "":
+			_enter_level(dbg)
+			return
 	_show_title()
 
 
