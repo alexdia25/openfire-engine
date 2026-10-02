@@ -91,6 +91,16 @@ func _show_placeholder(title: String, message: String, buttons: Array) -> void:
 
 
 func _show_title() -> void:
+	var picture := HudLayout.load_pack_image(pack, "title_large.png")   # the original's front-end picture (document 122), when the pack has it
+	if picture != null:
+		_clear_current()
+		_start_menu_music()
+		var t := TitleScreen.new()
+		add_child(t)
+		_current = t
+		t.setup(picture)
+		t.begin.connect(func(): _show_main_menu())
+		return
 	var headline: String = pack.manifest.get("title", pack.manifest.get("name", ""))
 	_show_placeholder(headline.to_upper(), "", [["Start", func(): _show_main_menu()]])
 
