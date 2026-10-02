@@ -68,9 +68,7 @@ func setup(pack: Pack, players := 0) -> void:
 			return
 		var img := LevelPreview.image(pack, lv)
 		map_rect.texture = ImageTexture.create_from_image(img) if img != null else null
-		facts.text = "Difficulty: %d
-Players: %d
-Size: %d x %d" % [lv.levl_value, LevelData.peek_players(pack.level_dir(ids[i])), lv.width, lv.height]
+		facts.text = "Difficulty: %d\nPlayers: %d\nSize: %d x %d" % [lv.levl_value, LevelData.peek_players(pack.level_dir(ids[i])), lv.width, lv.height]
 	list.item_selected.connect(show)
 	if not ids.is_empty():
 		list.select(0)
