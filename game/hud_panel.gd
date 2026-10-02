@@ -253,7 +253,10 @@ func _process(delta: float) -> void:
 	if v != _slid_vehicle:   # FUN_00411b70 runs when a vehicle's panel is built: the offset starts low again
 		_slid_vehicle = v
 		_slide = SLIDE_START
-	_slide = move_toward(_slide, 0.0, SLIDE_PER_TICK * delta * Vehicle.TICK_HZ)
+	if mc.selecting or mc.undocking:
+		_slide = SLIDE_START   # PORT CHOICE: the hangar screen covers this panel, so the rise waits until it has closed (the reset routine at 0x417900 also re-adds the base when the choice opens)
+	else:
+		_slide = move_toward(_slide, 0.0, SLIDE_PER_TICK * delta * Vehicle.TICK_HZ)
 	if OS.get_environment("RF_DEBUG_SLIDE") != "":   # debug: hold the slide at this many original pixels, for screenshots
 		_slide = float(OS.get_environment("RF_DEBUG_SLIDE"))
 	position = _home + Vector2(0.0, _slide * _s)
