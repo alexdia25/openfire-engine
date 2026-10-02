@@ -6,7 +6,8 @@ extends RefCounted
 ##    1940 at (-3, -2) from that. The picture is scaled to the window (the largest 4:3 area that fits, centred) and everything outside it is black.
 ##  - "modern" is the port's own arrangement: the game view fills the window and the panel sits at its bottom left, 3 window pixels per original pixel.
 ## The scale and the picture's placement in the window are the port's (the original was drawn to a 320 x 240 or 640 x 480 screen).
-## The original has a second layout for another screen size (DAT_0048c7dc != 0: a 357 x 169 view and the panel at (116, 185)); the mode that selects it is untraced.
+## The original has a second layout for another screen size (DAT_0048c7dc != 0: a 357 x 169 view and the panel at (116, 185)); nothing in RFIRE.BIN writes that flag (document 96), so it is not built.
+## Full-screen overlays (the hangar screen, the skull, the ribbon, the fades) use overlay_rect: the picture in classic, the window in modern.
 
 const CLASSIC := "classic"
 const MODERN := "modern"
@@ -34,6 +35,13 @@ static func picture_rect(viewport: Vector2) -> Rect2:
 	var k := classic_scale(viewport)
 	var size := SCREEN * k
 	return Rect2((viewport - size) * 0.5, size)
+
+
+## The area full-screen overlays (the hangar screen, the loss skull, the victory ribbon, the fades) are drawn in: the 320 x 240 picture (classic, issue #18), the whole window (modern).
+static func overlay_rect(viewport: Vector2) -> Rect2:
+	if not is_classic():
+		return Rect2(Vector2.ZERO, viewport)
+	return picture_rect(viewport)
 
 
 ## The game view's rectangle in the window: the top 320 x 152 of the picture (classic), the whole window (modern).

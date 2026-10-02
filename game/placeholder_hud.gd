@@ -123,7 +123,10 @@ func _process(_delta: float) -> void:
 		_status.text += "   [DOCK READY - press fire]"
 	_objective.text = _objective_text(v)
 	_fade.color.a = 1.0 - mc.view_fade
-	_fade.size = get_viewport().get_visible_rect().size
+	var vp := get_viewport().get_visible_rect().size
+	var area := HudLayout.overlay_rect(vp)   # the fade covers the 320 x 240 picture in the classic layout, the window in the modern one (issue #18)
+	_fade.position = area.position
+	_fade.size = area.size
 	var left := []   # every vehicle type the pack defines, by its own name: a roster need not be the original four
 	for t in mc.vehicle_stock.size():
 		left.append("%s %s" % [String(mc.pack.vehicle_value(t, "name", "#%d" % t)).capitalize(), _n(mc.vehicle_stock[t])])

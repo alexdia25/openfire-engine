@@ -21,9 +21,11 @@ func _init() -> void:
 	check("the view is the top 152 of 240 rows: 864 x 410.4", view.position == Vector2(144, 0) and is_equal_approx(view.size.y, 410.4) and view.size.x == 864.0, str(view))
 	check("the panel is at (87, 168) of the picture", HudLayout.panel_position(vp).is_equal_approx(Vector2(144 + 87 * 2.7, 168 * 2.7)), str(HudLayout.panel_position(vp)))
 	check("the panel's scale is the picture's", is_equal_approx(HudLayout.panel_scale(vp), 2.7))
+	check("classic: overlays (hangar, skull, ribbon, fades) are drawn inside the picture", HudLayout.overlay_rect(vp) == pic, str(HudLayout.overlay_rect(vp)))
 	var p43 := Vector2(1024, 768)
 	check("a 4:3 window is filled exactly", HudLayout.picture_rect(p43) == Rect2(Vector2.ZERO, p43))
 	GameSettings.hud_layout = HudLayout.MODERN
+	check("modern: overlays cover the whole window", HudLayout.overlay_rect(vp) == Rect2(Vector2.ZERO, vp))
 	check("modern: the view is the whole window", HudLayout.view_rect(vp) == Rect2(Vector2.ZERO, vp))
 	check("modern: 3 pixels per original pixel, 12 px from the left, 198 above the bottom", HudLayout.panel_scale(vp) == 3.0 and HudLayout.panel_position(vp) == Vector2(12, 648 - 198))
 	print("failures: ", fails)

@@ -3,7 +3,7 @@ extends Control
 ## The laughing skull of the loss sequence (document 88): FUN_00418510 draws one 64 x 64 cel (2125 + the mouth table's frame, +7 for player 0: a player sees the OTHER
 ## team's helmet -- player 0 the green skulls 2133-2139, player 1 the tan ones 2126-2132) as a quad turned by the angle (64 steps) and scaled (0.01 growing to 1.2), with the
 ## fade-out's transparency. State and timing live in MatchController; this only draws it. PORT CHOICE (the original's screen position is the player's `+0x10/+0x14`, not
-## traced): the centre of the view, scaled with the window height against the original's 480 lines.
+## traced): the centre of the view, scaled with the picture's height (the window's in the modern layout) against the original's 480 lines.
 
 var mc: MatchController
 
@@ -34,7 +34,8 @@ func _draw() -> void:
 		return
 	var tex := mc.pack.get_texture(int(s.get("page", 0)))
 	var vp := get_viewport_rect().size   # (a Control under a CanvasLayer has no parent rect to anchor to)
-	var px := vp.y / 480.0 * mc.skull_scale()
-	draw_set_transform(vp * 0.5, deg_to_rad(mc.skull_angle_deg()), Vector2(px, px))
+	var area := HudLayout.overlay_rect(vp)   # the 320 x 240 picture in the classic layout (issue #18), the window in the modern one
+	var px := area.size.y / 480.0 * mc.skull_scale()
+	draw_set_transform(HudLayout.view_rect(vp).get_center(), deg_to_rad(mc.skull_angle_deg()), Vector2(px, px))
 	draw_texture_rect_region(tex, Rect2(-32.0, -32.0, 64.0, 64.0), Rect2(float(s["x"]), float(s["y"]), float(s["w"]), float(s["h"])),
 			Color(1, 1, 1, mc.skull_alpha))

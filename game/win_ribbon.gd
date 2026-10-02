@@ -168,9 +168,16 @@ func _process(delta: float) -> void:
 	_ribbon.modulate.a = fade_in
 	var vp := get_viewport_rect().size
 	size = vp   # a Control under a CanvasLayer is not laid out by anchors (placeholder_hud.gd sizes its fade the same way)
-	_black.size = vp
-	_video.size = vp
-	_ribbon.position = Vector2((vp.x - _ribbon.size.x) * 0.5, vp.y * TOP_FRACTION)
+	var area := HudLayout.overlay_rect(vp)   # the 320 x 240 picture in the classic layout (issue #18), the window in the modern one
+	_black.position = Vector2.ZERO
+	_black.size = vp   # the surround is black anyway
+	_video.position = area.position
+	_video.size = area.size
+	if HudLayout.is_classic() and _tex != null:
+		_ribbon.size = Vector2(_tex.get_size()) * (area.size.x / 640.0)   # the high-resolution ribbon is drawn for a 640 x 480 screen
+	elif _tex != null:
+		_ribbon.size = Vector2(_tex.get_size()) * SCALE_HIGH
+	_ribbon.position = area.position + Vector2((area.size.x - _ribbon.size.x) * 0.5, area.size.y * TOP_FRACTION)
 
 
 ## The jingle has ended (FUN_00436520 reports the stream no longer playing): the ribbon fades out.

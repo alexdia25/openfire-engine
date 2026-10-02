@@ -15,7 +15,7 @@ extends Control
 ## level 2 start, about 181-189 s) puts the lights exactly where an unmirrored cel at the table position puts them, in the order 2092 -> 2093 -> 2091 the clock
 ## steps through them; the footage wins (document 78, "The pointer under the cursor's bay"). Which of the rail's seven slots light is in the three pointer cels.
 
-const S := 2.0
+const S_MODERN := 2.0
 const BACKGROUND_RECOLOUR_2D_SHADER := preload("res://addons/openfire_engine/game/shaders/background_recolour_2d.gdshader")
 
 var mc: MatchController
@@ -72,8 +72,22 @@ func _refresh() -> void:
 	queue_redraw()
 
 
+## The hangar screen is a whole 320 x 240 screen: the classic layout draws it inside the picture at the picture's scale, the modern one doubled and centred.
+func _layout() -> void:
+	var vp := get_viewport_rect().size
+	var screen := Vector2(_sel["screen"][0], _sel["screen"][1])
+	if HudLayout.is_classic():
+		S = HudLayout.classic_scale(vp)
+		_origin = HudLayout.picture_rect(vp).position
+	else:
+		S = S_MODERN
+		_origin = ((vp - screen * S) / 2.0).floor()
+
+
 func _process(_delta: float) -> void:
 	size = get_viewport_rect().size
+	if not _sel.is_empty():
+		_layout()
 	if _glow != null:
 		_glow.size = size
 		_glow.queue_redraw()   # a Control under a CanvasLayer has no parent rectangle to anchor to
@@ -95,6 +109,7 @@ func _atlas(id: String) -> AtlasTexture:
 	return at
 
 
+var S := S_MODERN            ## window pixels per original pixel: 2 in the modern layout, the picture's scale in the classic one (issue #18)
 var _origin := Vector2.ZERO
 var _glow_at := Vector2(-1000, -1000)
 var _glow: Control
@@ -115,7 +130,7 @@ func _draw() -> void:
 	if _sel.is_empty() or mc == null:
 		return
 	var screen := Vector2(_sel["screen"][0], _sel["screen"][1])
-	_origin = ((size - screen * S) / 2.0).floor()
+	_layout()
 	var team := mc.vehicle.player_index()
 	var sp: Dictionary = _sel["sprites"]
 	draw_rect(Rect2(Vector2.ZERO, size), Color.BLACK)
