@@ -782,7 +782,10 @@ func _debris_surface(at: Vector2) -> String:
 	if Water.class_at(level, pack, at) != 0:
 		return String(cfg.get("water", ""))
 	var tsz := float(pack.tile_size_px)
-	var art := level.get_art_id(int(floor(at.x / tsz)), int(floor(at.y / tsz))) & 0x7F
+	var wt := Vector2i(int(floor(at.x / tsz)), int(floor(at.y / tsz)))
+	if wt.x < 0 or wt.y < 0 or wt.x >= level.width or wt.y >= level.height:
+		return String(cfg.get("water", ""))   # off the map: water, the off-map tile's terrain (PORT CHOICE: what FUN_0042f410 returns for the off-map cell is untraced)
+	var art := level.get_art_id(wt.x, wt.y) & 0x7F
 	if art >= int(cfg.get("pavement_first_art", 73)) and art <= int(cfg.get("pavement_last_art", 83)):
 		return String(cfg.get("pavement", ""))
 	return String(cfg.get("land", ""))
@@ -2016,6 +2019,8 @@ func can_dock(v: Vehicle) -> bool:
 	if v != vehicle or v.moving or not v.alive or dock_state != 0 or selecting or undocking or match_finished:
 		return false
 	var t := _tile_of(v.position)
+	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+		return false   # off the map: the original's off-map cell has no terrain at all (FUN_0042bb10), so no pad
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + v.player_index():
 		return false
 	var centre := (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
@@ -2171,6 +2176,8 @@ func switch_player_vehicle() -> void:
 	if not quick_swap_enabled or vehicle == null or match_finished or vehicle.moving or selecting or undocking or dock_state != 0:
 		return
 	var t := _tile_of(vehicle.position)
+	if t.x < 0 or t.y < 0 or t.x >= level.width or t.y >= level.height:
+		return
 	if (level.get_art_id(t.x, t.y) & 0x7F) != HOME_ART_BASE + vehicle.player_index():
 		return
 	_pad_centre = (Vector2(t) + Vector2(0.5, 0.5)) * pack.tile_size_px
