@@ -66,9 +66,15 @@ func setup(pack: Pack, players := 0) -> void:
 			map_rect.texture = null
 			facts.text = ""
 			return
-		var img := LevelPreview.image(pack, lv)
+		# the level's own preview picture when the pack has one (the original's: 2 x 2 pixel patterns per tile, document 125), else the radar-coloured map
+		var img: Image = null
+		var picture: String = pack.level_dir(ids[i]).path_join("preview.png")
+		if FileAccess.file_exists(picture):
+			img = Image.load_from_file(picture)
+		if img == null:
+			img = LevelPreview.image(pack, lv)
 		map_rect.texture = ImageTexture.create_from_image(img) if img != null else null
-		facts.text = "Difficulty: %d\nPlayers: %d\nSize: %d x %d" % [lv.levl_value, LevelData.peek_players(pack.level_dir(ids[i])), lv.width, lv.height]
+		facts.text = "Difficulty: level %d\nPlayers: %d\nSize: %d x %d" % [lv.levl_value + 1,LevelData.peek_players(pack.level_dir(ids[i])), lv.width, lv.height]
 	list.item_selected.connect(show)
 	if not ids.is_empty():
 		list.select(0)
